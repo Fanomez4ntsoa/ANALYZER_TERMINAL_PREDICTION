@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Services\Backtesting\FootballData\CalibrationBacktestService;
+use App\Services\Probability\DixonColesRho;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Console\Command;
 
 class BacktestRun extends Command
@@ -15,6 +17,7 @@ class BacktestRun extends Command
                             {--label= : Étiquette du run}
                             {--legacy-home : Mesure : rétablir l\'ancien facteur domicile appliqué après fusion (y compris au signal marché)}
                             {--legacy-share : Mesure : rétablir l\'ancien recalage du total à partage domicile/extérieur constant}
+                            {--legacy-poisson : Mesure : rétablir les deux lois de Poisson indépendantes (sans Dixon-Coles), comme les runs #2 à #6}
                             {--anchor : Mesure : activer l\'ancrage du total sans O/U sur la moyenne du championnat (saisons antérieures au match)}';
 
     protected $description = 'Backtest de calibration du modèle de production (marché seul) sur football-data — aucune mise, aucun ROI';
@@ -62,7 +65,9 @@ class BacktestRun extends Command
         $legacyHome = (bool) $this->option('legacy-home');
         $legacyShare = (bool) $this->option('legacy-share');
         $anchor = (bool) $this->option('anchor');
+        $dixonColes = !$this->option('legacy-poisson');
         config([
+            'xg-model.dixon_coles_low_score_correction' => $dixonColes,
             'xg-model.legacy_home_advantage_after_fusion' => $legacyHome,
             'xg-model.legacy_constant_share_rescaling' => $legacyShare,
             'xg-model.anchor_total_on_league_average' => $anchor,
@@ -78,6 +83,7 @@ class BacktestRun extends Command
                 'legacy_home_advantage_after_fusion' => $legacyHome,
                 'legacy_constant_share_rescaling' => $legacyShare,
                 'anchor_total_on_league_average' => $anchor,
+                'dixon_coles_low_score_correction' => $dixonColes,
                 'estimators_scoped_to_prior_seasons' => true,
             ],
         ];
@@ -85,13 +91,30 @@ class BacktestRun extends Command
         $this->info('Backtest calibration — saisons ' . implode(',', $seasons) . ' — divisions ' . ($divisions ? implode(',', $divisions) : 'toutes') . " — entrée {$input} (ouverture)");
         $this->line('Modèle : facteur domicile ' . ($legacyHome ? 'ANCIEN (après fusion, marché inclus)' : 'sur les seuls signaux hors marché')
             . ' — recalage O/U ' . ($legacyShare ? 'ANCIEN (partage constant)' : 'conjoint (partage cherché au total O/U)')
-            . ' — total sans O/U ' . ($anchor ? 'ancré (saisons antérieures au match)' : 'libre (grille)'));
+            . ' — total sans O/U ' . ($anchor ? 'ancré (saisons antérieures au match)' : 'libre (grille)')
+            . ' — ' . ($dixonColes ? 'Dixon-Coles (ρ par population, saisons antérieures)' : 'Poisson indépendantes (ANCIEN)'));
 
         $bar = $this->output->createProgressBar();
         $bar->start();
         $run = $service->run($config, fn (int $n) => $bar->setProgress($n));
         $bar->finish();
         $this->newLine(2);
+
+        if ($dixonColes) {
+            $fits = app(DixonColesRho::class)->fits();
+            $config = $run->config;
+            $config['model']['dixon_coles_fits'] = $fits;
+            $run->update(['config' => $config]);
+            if ($run->export_path && Storage::disk('local')->exists($run->export_path)) {
+                $export = json_decode(Storage::disk('local')->get($run->export_path), true);
+                $export['config']['model']['dixon_coles_fits'] = $fits;
+                Storage::disk('local')->put($run->export_path, json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            }
+            $this->table(['Population', 'Saisons d\'estimation', 'Matchs', 'ρ', 'Erreur type', 'IC 95 %', 'Rapport de vraisemblance'], array_map(fn ($f) => [
+                $f['population'], implode(',', $f['seasons']) ?: '(aucune)', $f['matches'], $f['rho'] ?? 'non estimé', $f['se'] ?? '-',
+                $f['ci95'] ? "[{$f['ci95'][0]}, {$f['ci95'][1]}]" : '-', $f['lr_statistic'] ?? '-',
+            ], $fits));
+        }
 
         $this->info("Run #{$run->id} terminé — {$run->matches_evaluated}/{$run->matches_loaded} matchs évalués — export {$run->export_path}");
         $this->table(['Exclusion', 'Effectif'], collect($run->exclusions)->map(fn ($v, $k) => [$k, $v])->values()->all());

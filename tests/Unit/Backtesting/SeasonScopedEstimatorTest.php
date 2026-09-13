@@ -5,6 +5,7 @@ namespace Tests\Unit\Backtesting;
 use App\Models\HistoricalMatch;
 use App\Services\Backtesting\FootballData\CalibrationBacktestService;
 use App\Services\Backtesting\SeasonScopedEstimator;
+use App\Services\Probability\DixonColesRho;
 use App\Services\Probability\LeagueGoalAverages;
 use App\Services\Probability\PoissonModelService;
 use App\Services\Probability\XGModelService;
@@ -64,10 +65,12 @@ class SeasonScopedEstimatorTest extends TestCase
             public function scopeToSeasonsBefore(?string $season): void { $this->log[] = "scope:" . ($season ?? 'null'); }
             public function requireScope(bool $required): void { $this->log[] = 'require:' . ($required ? '1' : '0'); }
         };
+        $goals = new LeagueGoalAverages([]);
+        $rho = new DixonColesRho([]);
         $service = new CalibrationBacktestService(
-            new XGModelService(new PoissonModelService(), new LeagueGoalAverages([])),
+            new XGModelService(new PoissonModelService(), $goals, $rho),
             new PoissonModelService(),
-            [$spy],
+            [$spy, $goals, $rho],
         );
 
         $make = fn (string $season) => new HistoricalMatch([
@@ -84,9 +87,29 @@ class SeasonScopedEstimatorTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         new CalibrationBacktestService(
-            new XGModelService(new PoissonModelService(), new LeagueGoalAverages([])),
+            new XGModelService(new PoissonModelService(), new LeagueGoalAverages([]), new DixonColesRho([])),
             new PoissonModelService(),
             [new \stdClass()],
         );
+    }
+
+    public function test_engine_refuses_a_model_estimator_it_does_not_scope(): void
+    {
+        $goals = new LeagueGoalAverages([]);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('DixonColesRho');
+        new CalibrationBacktestService(
+            new XGModelService(new PoissonModelService(), $goals, new DixonColesRho([])),
+            new PoissonModelService(),
+            [$goals],
+        );
+    }
+
+    public function test_container_scopes_every_estimator_used_by_the_model(): void
+    {
+        $service = app(CalibrationBacktestService::class);
+        $this->assertInstanceOf(CalibrationBacktestService::class, $service);
+        $classes = array_map('get_class', app(XGModelService::class)->seasonScopedEstimators());
+        $this->assertSame([LeagueGoalAverages::class, DixonColesRho::class], $classes);
     }
 }

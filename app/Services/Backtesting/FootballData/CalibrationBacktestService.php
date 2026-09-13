@@ -56,6 +56,13 @@ class CalibrationBacktestService
                 throw new \InvalidArgumentException(get_class($e) . ' doit implémenter SeasonScopedEstimator');
             }
         }
+        // Tout estimateur utilisé par le modèle doit être borné par le moteur : sinon
+        // il serait lu sur toutes les saisons de travail, match évalué compris.
+        foreach ($xgModel->seasonScopedEstimators() as $e) {
+            if (!in_array($e, $this->estimators, true)) {
+                throw new \LogicException(get_class($e) . ' est utilisé par le modèle mais n\'est pas borné par le moteur de backtest (tag ' . SeasonScopedEstimator::TAG . ').');
+            }
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -273,7 +280,7 @@ class CalibrationBacktestService
         $lh = $pred['lambdas']['home'];
         $la = $pred['lambdas']['away'];
         foreach (['overUnder15' => 1.5, 'overUnder35' => 3.5] as $market => $line) {
-            $ou = $this->poisson->predictOverUnder($lh, $la, $line);
+            $ou = $this->poisson->predictOverUnder($lh, $la, $line, $pred['rho'] ?? null);
             $total = $m->fthg + $m->ftag;
             $rows[] = $this->row($m, self::FAMILY_DERIVED, $market, 'Over', $ou['over'] / 100, null, null, $total > $line);
             $rows[] = $this->row($m, self::FAMILY_DERIVED, $market, 'Under', $ou['under'] / 100, null, null, $total < $line);

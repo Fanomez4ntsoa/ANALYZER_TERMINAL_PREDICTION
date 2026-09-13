@@ -2,6 +2,7 @@
 
 namespace App\Services\Probability;
 
+use App\Services\Backtesting\ScopesToPriorWorkSeasons;
 use App\Services\Backtesting\SeasonScopedEstimator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -18,11 +19,10 @@ use Illuminate\Support\Facades\Schema;
  */
 class LeagueGoalAverages implements SeasonScopedEstimator
 {
+    use ScopesToPriorWorkSeasons;
+
     /** @var array<string, array<int, array{goals: float, matches: int}>>|null  saison → ligue → sommes */
     private ?array $bySeason;
-
-    private ?string $scopeSeason = null;
-    private bool $scopeRequired = false;
 
     /** @param array<string, array<int, array{goals: float, matches: int}>>|null $preset */
     public function __construct(?array $preset = null)
@@ -30,26 +30,9 @@ class LeagueGoalAverages implements SeasonScopedEstimator
         $this->bySeason = $preset;
     }
 
-    public function scopeToSeasonsBefore(?string $season): void
-    {
-        $this->scopeSeason = $season;
-    }
-
-    public function requireScope(bool $required): void
-    {
-        $this->scopeRequired = $required;
-    }
-
-    public function isScoped(): bool
-    {
-        return $this->scopeSeason !== null;
-    }
-
     public function totalFor(?int $leagueId): ?float
     {
-        if ($this->scopeRequired && $this->scopeSeason === null) {
-            throw new \LogicException('LeagueGoalAverages lu sans bornage de saison pendant un backtest : fuite temporelle refusée.');
-        }
+        $this->assertScopeIfRequired();
         if ($leagueId === null) {
             return null;
         }
@@ -57,7 +40,9 @@ class LeagueGoalAverages implements SeasonScopedEstimator
 
         $goals = 0.0;
         $matches = 0;
-        foreach ($this->allowedSeasons() as $season) {
+        $seasons = array_values(array_filter($this->allowedSeasons(), fn ($s) => isset($this->bySeason[$s][$leagueId])));
+        $this->assertTrainingSeasons($seasons);
+        foreach ($seasons as $season) {
             if (isset($this->bySeason[$season][$leagueId])) {
                 $goals += $this->bySeason[$season][$leagueId]['goals'];
                 $matches += $this->bySeason[$season][$leagueId]['matches'];
@@ -65,18 +50,6 @@ class LeagueGoalAverages implements SeasonScopedEstimator
         }
 
         return $matches > 0 ? round($goals / $matches, 3) : null;
-    }
-
-    /** @return string[] */
-    public function allowedSeasons(): array
-    {
-        $work = config('football-data.work_seasons', []);
-        if ($this->scopeSeason === null) {
-            return $work;
-        }
-
-        // Saisons AABB : l'ordre lexicographique est l'ordre chronologique.
-        return array_values(array_filter($work, fn (string $s) => strcmp($s, $this->scopeSeason) < 0));
     }
 
     private function load(): void

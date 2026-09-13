@@ -60,11 +60,24 @@ class XGModelService
 
     private PoissonModelService $poisson;
     private LeagueGoalAverages $leagueGoals;
+    private DixonColesRho $dixonColes;
 
-    public function __construct(PoissonModelService $poisson, LeagueGoalAverages $leagueGoals)
+    public function __construct(PoissonModelService $poisson, LeagueGoalAverages $leagueGoals, DixonColesRho $dixonColes)
     {
         $this->poisson = $poisson;
         $this->leagueGoals = $leagueGoals;
+        $this->dixonColes = $dixonColes;
+    }
+
+    /**
+     * Estimateurs de paramètres sur données historiques utilisés par ce modèle. Le
+     * moteur de backtest vérifie qu'ils sont tous bornés aux saisons antérieures.
+     *
+     * @return \App\Services\Backtesting\SeasonScopedEstimator[]
+     */
+    public function seasonScopedEstimators(): array
+    {
+        return [$this->leagueGoals, $this->dixonColes];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -84,10 +97,15 @@ class XGModelService
     {
         $advancedData = $marketOnly ? null : $match->advancedData;
 
+        // ρ de Dixon-Coles de la population du match ; null = Poisson indépendantes
+        $rho = config('xg-model.dixon_coles_low_score_correction')
+            ? $this->dixonColes->rhoFor($match->league_id)
+            : null;
+
         // 1. Estimer les λ depuis chaque signal
         $signals = $marketOnly
-            ? $this->collectMarketSignalOnly($match)
-            : $this->collectSignals($match, $advancedData);
+            ? $this->collectMarketSignalOnly($match, $rho)
+            : $this->collectSignals($match, $advancedData, $rho);
 
         // 2. Fusionner les λ avec pondération. L'avantage domicile est appliqué
         //    dans la fusion, aux seuls signaux qui ne le contiennent pas.
@@ -104,13 +122,14 @@ class XGModelService
         $lambdas['away'] = max(0.2, min(3.0, $lambdas['away']));
 
         // 5. Poisson → probabilités par marché
-        $analysis = $this->poisson->fullAnalysis($lambdas['home'], $lambdas['away']);
+        $analysis = $this->poisson->fullAnalysis($lambdas['home'], $lambdas['away'], $rho);
 
         // 6. Construire les prédictions au format Source (pick + confidence)
         $predictions = $this->buildPredictions($analysis);
 
         return [
             'lambdas' => $lambdas,
+            'rho' => $rho,
             'signals' => $signals,
             'analysis' => $analysis,
             'predictions' => $predictions,
@@ -136,7 +155,7 @@ class XGModelService
     /**
      * Collecter les λ estimés depuis chaque source de données.
      */
-    private function collectSignals(FootballMatch $match, $advancedData): array
+    private function collectSignals(FootballMatch $match, $advancedData, ?float $rho = null): array
     {
         $leagueAvg = $this->getLeagueAvgXg($match->league_id);
 
@@ -149,7 +168,7 @@ class XGModelService
         $signals['comparison'] = $this->lambdasFromComparison($advancedData, $leagueAvg);
 
         // Signal 3 : Probabilités implicites des cotes bookmakers
-        $signals['market'] = $this->lambdasFromOdds($match);
+        $signals['market'] = $this->lambdasFromOdds($match, $rho);
 
         // Signal 4 : Ajustement blessures
         $signals['injuries'] = $this->injuryModifier($advancedData);
@@ -162,9 +181,9 @@ class XGModelService
     /**
      * Mode marché seul : uniquement le signal cotes, sans moyenne de ligue.
      */
-    private function collectMarketSignalOnly(FootballMatch $match): array
+    private function collectMarketSignalOnly(FootballMatch $match, ?float $rho = null): array
     {
-        $market = $this->lambdasFromOdds($match);
+        $market = $this->lambdasFromOdds($match, $rho);
 
         if ($market === null) {
             throw new \InvalidArgumentException(
@@ -260,12 +279,15 @@ class XGModelService
      * Ancien comportement (config xg-model.legacy_constant_share_rescaling) :
      * partage de la grille conservé lors du recalage du total, ce qui déplace le 1X2.
      *
-     * Limite connue, mesurée avant implémentation : à total fixé, deux Poisson
-     * indépendantes ne reproduisent pas la probabilité de nul du marché (environ
-     * 2 points de moins). Le recalage conjoint déplace ce résidu, il ne le supprime
-     * pas ; la correction de Dixon-Coles sur les scores faibles est la piste.
+     * Avec ρ (Dixon-Coles), toutes les probabilités viennent de la matrice corrigée
+     * et renormalisée. P(Under 2.5) ne dépend pas de ρ, mais la renormalisation de la
+     * matrice tronquée la déplace de quelques centièmes : le total est alors affiné
+     * sur la matrice au partage trouvé, puis le partage recherché à nouveau.
+     *
+     * Limite des Poisson indépendantes (ρ = null) : à total fixé, elles ne
+     * reproduisent pas la probabilité de nul du marché (environ 2 points de moins).
      */
-    private function lambdasFromOdds(FootballMatch $match): ?array
+    private function lambdasFromOdds(FootballMatch $match, ?float $rho = null): ?array
     {
         $oddsHome = (float) $match->odds_home;
         $oddsDraw = (float) $match->odds_draw;
@@ -304,14 +326,20 @@ class XGModelService
         if ($impliedUnder !== null && !$legacyShare) {
             // Recalage conjoint : total fixé par l'O/U, partage cherché sur le 1X2
             $total = $this->totalFromUnder25($impliedUnder);
-            [$bestHome, $bestAway, $bestError] = $this->fitShareAtTotal($total, $fair);
+            [$bestHome, $bestAway, $bestError] = $this->fitShareAtTotal($total, $fair, $rho);
+            if ($rho !== null) {
+                for ($pass = 0; $pass < 2; $pass++) {
+                    $total = $this->totalAtShareFromUnder25($bestHome / ($bestHome + $bestAway), $impliedUnder, $rho);
+                    [$bestHome, $bestAway, $bestError] = $this->fitShareAtTotal($total, $fair, $rho);
+                }
+            }
             $totalSource = 'over_under';
         } else {
-            [$bestHome, $bestAway, $bestError] = $this->gridSearch1X2($fair);
+            [$bestHome, $bestAway, $bestError] = $this->gridSearch1X2($fair, $rho);
 
             if ($impliedUnder !== null && ($bestHome + $bestAway) > 0) {
                 // Ancien comportement : total recalé à partage constant
-                [$bestHome, $bestAway] = $this->rescaleAtConstantShare($bestHome, $bestAway, $this->totalFromUnder25Bisection($bestHome, $bestAway, $impliedUnder));
+                [$bestHome, $bestAway] = $this->rescaleAtConstantShare($bestHome, $bestAway, $this->totalFromUnder25Bisection($bestHome, $bestAway, $impliedUnder, $rho));
                 $totalSource = 'over_under_constant_share';
             } elseif ($impliedUnder === null && config('xg-model.anchor_total_on_league_average') && ($bestHome + $bestAway) > 0) {
                 $totalAnchor = $this->leagueGoals->totalFor($match->league_id);
@@ -323,7 +351,7 @@ class XGModelService
                 if ($totalAnchor !== null) {
                     [$bestHome, $bestAway, $bestError] = $legacyShare
                         ? [...$this->rescaleAtConstantShare($bestHome, $bestAway, $totalAnchor), $bestError]
-                        : $this->fitShareAtTotal($totalAnchor, $fair);
+                        : $this->fitShareAtTotal($totalAnchor, $fair, $rho);
                     $totalSource = 'league_anchor';
                 }
             }
@@ -334,6 +362,7 @@ class XGModelService
             'away' => round($bestAway, 3),
             'fit_error' => round($bestError, 4),
             'total_source' => $totalSource,
+            'rho' => $rho,
             'total_anchor' => $totalAnchor,
             'implied' => [
                 'home' => round($pHome * 100, 1),
@@ -349,7 +378,7 @@ class XGModelService
      *
      * @return array{0: float, 1: float, 2: float}  λh, λa, erreur
      */
-    private function gridSearch1X2(array $fair): array
+    private function gridSearch1X2(array $fair, ?float $rho = null): array
     {
         $bestHome = self::LEAGUE_AVG_XG;
         $bestAway = self::LEAGUE_AVG_XG;
@@ -357,7 +386,7 @@ class XGModelService
 
         for ($h = 0.3; $h <= 3.5; $h += 0.05) {
             for ($a = 0.2; $a <= 3.0; $a += 0.05) {
-                $pred = $this->poisson->predict1X2($h, $a);
+                $pred = $this->poisson->predict1X2($h, $a, $rho);
 
                 $error = abs($pred['home'] / 100 - $fair['home'])
                        + abs($pred['draw'] / 100 - $fair['draw'])
@@ -381,10 +410,10 @@ class XGModelService
      *
      * @return array{0: float, 1: float, 2: float}  λh, λa, erreur
      */
-    private function fitShareAtTotal(float $total, array $fair): array
+    private function fitShareAtTotal(float $total, array $fair, ?float $rho = null): array
     {
-        $error = function (float $share) use ($total, $fair): float {
-            $p = $this->poisson->probabilities1X2($share * $total, (1 - $share) * $total);
+        $error = function (float $share) use ($total, $fair, $rho): float {
+            $p = $this->poisson->probabilities1X2($share * $total, (1 - $share) * $total, $rho);
             return abs($p['home'] - $fair['home']) + abs($p['draw'] - $fair['draw']) + abs($p['away'] - $fair['away']);
         };
 
@@ -435,10 +464,37 @@ class XGModelService
     }
 
     /**
+     * Total tel que P(Under 2.5) de la matrice (corrigée par ρ, renormalisée) égale
+     * la probabilité implicite, au partage donné. Dichotomie, P(Under) décroissante.
+     */
+    private function totalAtShareFromUnder25(float $share, float $impliedUnder, ?float $rho): float
+    {
+        $lo = 0.1;
+        $hi = 10.0;
+        for ($i = 0; $i < 50; $i++) {
+            $mid = ($lo + $hi) / 2;
+            $matrix = $this->poisson->scoreMatrix($mid * $share, $mid * (1 - $share), $rho);
+            $under = 0.0;
+            for ($h = 0; $h <= 2; $h++) {
+                for ($a = 0; $a <= 2 - $h; $a++) {
+                    $under += $matrix[$h][$a];
+                }
+            }
+            if ($under > $impliedUnder) {
+                $lo = $mid;
+            } else {
+                $hi = $mid;
+            }
+        }
+
+        return ($lo + $hi) / 2;
+    }
+
+    /**
      * Ancien recalage (conservé pour la mesure) : dichotomie à partage constant sur
      * la sortie arrondie de predictOverUnder, tolérance 0,2 point, bornes 0,5 à 6.
      */
-    private function totalFromUnder25Bisection(float $home, float $away, float $impliedUnder): float
+    private function totalFromUnder25Bisection(float $home, float $away, float $impliedUnder, ?float $rho = null): float
     {
         $homeShare = $home / ($home + $away);
         $lo = 0.5;
@@ -447,7 +503,7 @@ class XGModelService
 
         for ($i = 0; $i < 40; $i++) {
             $mid = ($lo + $hi) / 2;
-            $pred = $this->poisson->predictOverUnder($mid * $homeShare, $mid * (1 - $homeShare), 2.5);
+            $pred = $this->poisson->predictOverUnder($mid * $homeShare, $mid * (1 - $homeShare), 2.5, $rho);
             $pUnderModel = $pred['under'] / 100;
 
             if (abs($pUnderModel - $impliedUnder) < 0.002) {

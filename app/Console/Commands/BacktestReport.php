@@ -22,6 +22,7 @@ class BacktestReport extends Command
     protected $signature = 'backtest:report
                             {run : Id du run backtest_fd_runs}
                             {--compare= : Id d\'un run de référence : ajoute un tableau des écarts par population}
+                            {--seasons= : Restreindre le rapport à ces saisons (AABB, virgules), pour les deux runs}
                             {--no-write : Ne pas écrire le rapport Markdown à côté de l\'export JSON}';
 
     protected $description = 'Rapport de calibration par population (Top 5, deuxièmes divisions, autres) d\'un run football-data';
@@ -38,6 +39,9 @@ class BacktestReport extends Command
 
     private array $out = [];
 
+    /** @var string[]|null */
+    private ?array $seasonFilter = null;
+
     public function handle(): int
     {
         $run = BacktestFdRun::find((int) $this->argument('run'));
@@ -51,6 +55,10 @@ class BacktestReport extends Command
             return self::FAILURE;
         }
 
+        $this->seasonFilter = $this->option('seasons')
+            ? array_map('trim', explode(',', $this->option('seasons')))
+            : null;
+
         $pops = $this->populations();
         $stats = $this->stats($run, $pops);
 
@@ -58,8 +66,13 @@ class BacktestReport extends Command
         $modelDesc = $model === null ? 'modèle : non renseigné (run antérieur aux corrections = ancien facteur domicile, partage constant, sans ancrage)'
             : 'modèle : facteur domicile ' . ($model['legacy_home_advantage_after_fusion'] ? 'ANCIEN' : 'corrigé')
                 . ', recalage O/U ' . (($model['legacy_constant_share_rescaling'] ?? true) ? 'à partage constant' : 'conjoint')
-                . ', total sans O/U ' . ($model['anchor_total_on_league_average'] ? 'ancré' . (($model['estimators_scoped_to_prior_seasons'] ?? false) ? ' (saisons antérieures)' : ' (EN ÉCHANTILLON, fuite)') : 'libre');
+                . ', total sans O/U ' . ($model['anchor_total_on_league_average'] ? 'ancré' . (($model['estimators_scoped_to_prior_seasons'] ?? false) ? ' (saisons antérieures)' : ' (EN ÉCHANTILLON, fuite)') : 'libre')
+                . ', ' . (($model['dixon_coles_low_score_correction'] ?? false) ? 'Dixon-Coles' : 'Poisson indépendantes');
         $this->p("# Run #{$run->id} ({$run->label}) — {$run->status} — saisons " . implode(',', $run->seasons) . " — entrée {$run->input_bookmaker} ouverture — {$modelDesc}\n");
+        if ($this->seasonFilter !== null) {
+            $this->p('**Rapport restreint aux saisons ' . implode(', ', $this->seasonFilter) . "** (run et run de référence).\n");
+        }
+        $this->sectionRho($run);
 
         $this->sectionMatches($run, $pops, $stats);
         $this->sectionMarkets($pops, $stats);
@@ -124,6 +137,7 @@ class BacktestReport extends Command
         }
 
         $agg = DB::table('backtest_fd_predictions')->where('run_id', $run->id)
+            ->when($this->seasonFilter !== null, fn ($q) => $q->whereIn('season', $this->seasonFilter))
             ->selectRaw("`div`, family, market, outcome, count(*) n,
                 sum(pow(model_probability - observed, 2)) sse_m,
                 sum(pinnacle_close_fair is not null) n_ref,
@@ -154,6 +168,7 @@ class BacktestReport extends Command
         }
 
         $evaluated = DB::table('backtest_fd_predictions')->where('run_id', $run->id)
+            ->when($this->seasonFilter !== null, fn ($q) => $q->whereIn('season', $this->seasonFilter))
             ->selectRaw('`div`, count(distinct historical_match_id) n')->groupBy('div')->pluck('n', 'div')->all();
 
         return ['pop' => $byPop, 'div' => $byDiv, 'evaluated' => $evaluated];
@@ -180,13 +195,50 @@ class BacktestReport extends Command
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ sections
 
+    private function sectionRho(BacktestFdRun $run): void
+    {
+        $fits = $run->config['model']['dixon_coles_fits'] ?? null;
+        if (!($run->config['model']['dixon_coles_low_score_correction'] ?? false)) {
+            return;
+        }
+        $this->p("## ρ de Dixon-Coles estimé par population\n");
+        $this->p("Maximum de vraisemblance sur les scores observés, saisons de travail strictement antérieures à la saison évaluée. Erreur type conditionnelle aux forces d'équipe estimées. Rapport de vraisemblance contre Poisson indépendantes (seuil 3,84 à 5 %).\n");
+        if (!$fits) {
+            $this->p("Aucune estimation enregistrée pour ce run.\n");
+            return;
+        }
+        $labels = [];
+        foreach (config('football-data.populations') as $key => $pop) {
+            $labels[$key] = $pop['label'];
+        }
+        $this->p('| Population | Saisons d\'estimation | Saison évaluée | Matchs | Nuls observés | ρ | Erreur type | IC 95 % | Rapport de vraisemblance |');
+        $this->p('|---|---|---|---|---|---|---|---|---|');
+        foreach ($fits as $f) {
+            $evaluated = $f['seasons'] === [] ? '-' : $this->nextSeason(end($f['seasons']));
+            $this->p(sprintf('| %s | %s | %s | %s | %s | %s | %s | %s | %s |', $labels[$f['population']] ?? $f['population'],
+                implode(', ', $f['seasons']) ?: '(aucune)', $evaluated, $this->n($f['matches']),
+                $f['draw_rate'] === null ? '-' : $this->pct($f['draw_rate']),
+                $f['rho'] === null ? 'non estimé' : sprintf('%+.3f', $f['rho']),
+                $f['se'] === null ? '-' : sprintf('%.3f', $f['se']),
+                $f['ci95'] === null ? '-' : sprintf('[%+.3f ; %+.3f]', $f['ci95'][0], $f['ci95'][1]),
+                $f['lr_statistic'] === null ? '-' : sprintf('%.2f', $f['lr_statistic'])));
+        }
+        $this->p("\nSans saison antérieure (première saison importée), ρ n'est pas estimé : ces matchs sont calculés avec deux Poisson indépendantes.\n");
+    }
+
+    private function nextSeason(string $season): string
+    {
+        $a = (int) substr($season, 2, 2);
+        return sprintf('%02d%02d', $a, ($a + 1) % 100);
+    }
+
     private function sectionMatches(BacktestFdRun $run, array $pops, array $stats): void
     {
         $this->p("## A. Matchs et exclusions par population\n");
         $this->p('| Population | Divisions | Chargés | Évalués | Sans score | Sans ' . strtoupper($run->input_bookmaker) . ' ouv. 1X2 | Sans ' . strtoupper($run->input_bookmaker) . ' ouv. O/U | Sans Pinnacle clôt. 1X2 | Sans Pinnacle clôt. O/U |');
         $this->p('|---|---|---|---|---|---|---|---|---|');
         $prefix = $run->input_bookmaker === 'ps' ? 'ps_open' : 'b365_open';
-        $hm = DB::table('historical_matches')->whereIn('season', $run->seasons)
+        $hm = DB::table('historical_matches')->whereIn('season', $this->seasonFilter !== null ? array_values(array_intersect($run->seasons, $this->seasonFilter)) : $run->seasons)
             ->selectRaw("`div`, count(*) n,
                 sum(fthg is null or ftag is null) no_score,
                 sum({$prefix}_home is null or {$prefix}_draw is null or {$prefix}_away is null) no_in_1x2,
@@ -315,9 +367,15 @@ class BacktestReport extends Command
     private function sectionCompare(BacktestFdRun $run, BacktestFdRun $ref, array $pops, array $stats, array $refStats): void
     {
         $this->p("## E. Écarts par rapport au run #{$ref->id} ({$ref->label})\n");
-        $this->p('Δ = run courant − run de référence. Brier : négatif = mieux. Biais et décalages en points.' . "\n");
-        $this->p('| Population | Δ Brier 1X2 | Brier 1X2 − entrée | Brier 1X2 − Pinnacle | Δ biais domicile | Biais domicile | Δ Brier transfert | Δ décalage Over transfert | Décalage Over transfert | Δ BTTS Oui écart | BTTS Oui écart | Δ Brier BTTS |');
-        $this->p('|---|---|---|---|---|---|---|---|---|---|---|---|');
+        $this->p('Δ = run courant − run de référence. Brier : négatif = mieux. Écarts et décalages en points ; « − obs. » = annoncée − observée, « − entrée » = annoncée − cote d\'entrée démarginalisée.' . "\n");
+
+        $gap = fn (?array $c) => $c ? $this->meanModel($c) - $this->observed($c) : null;
+        $gapIn = fn (?array $c) => $c && $c['n_in'] ? $this->meanModel($c) - $this->meanInput($c) : null;
+        $d = fn (?float $a, ?float $b) => ($a === null || $b === null) ? null : $a - $b;
+
+        $this->p("### 1X2\n");
+        $this->p('| Population | Brier 1X2 | Δ Brier | − entrée | − Pinnacle | Domicile − obs. | Δ | Nul − obs. | Δ | Nul − entrée | Δ | Extérieur − obs. | Δ |');
+        $this->p('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
         foreach ($pops as $label => $divs) {
             $s = $stats['pop'][$label] ?? null;
             $r = $refStats['pop'][$label] ?? null;
@@ -325,20 +383,36 @@ class BacktestReport extends Command
                 continue;
             }
             $w = $s['market']['adjustment|winner']; $rw = $r['market']['adjustment|winner'];
-            $h = $s['outcome']['adjustment|winner|1']; $rh = $r['outcome']['adjustment|winner|1'];
-            $tm = $s['market']['transfer|overUnder25']; $rtm = $r['market']['transfer|overUnder25'];
-            $t = $s['outcome']['transfer|overUnder25|Over']; $rt = $r['outcome']['transfer|overUnder25|Over'];
-            $b = $s['outcome']['derived|btts|Yes']; $rb = $r['outcome']['derived|btts|Yes'];
-            $bm = $s['market']['derived|btts']; $rbm = $r['market']['derived|btts'];
-            $bias = $this->meanModel($h) - $this->observed($h); $rbias = $this->meanModel($rh) - $this->observed($rh);
-            $shift = $this->meanModel($t) - $this->observed($t); $rshift = $this->meanModel($rt) - $this->observed($rt);
-            $bttsGap = $this->meanModel($b) - $this->observed($b); $rbttsGap = $this->meanModel($rb) - $this->observed($rb);
-            $this->p(sprintf('| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |', $label,
-                $this->dbr($this->brierModel($w) - $this->brierModel($rw)),
+            $o = fn ($x, $k) => $x['outcome']["adjustment|winner|{$k}"] ?? null;
+            $this->p(sprintf('| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |', $label,
+                $this->br($this->brierModel($w)), $this->dbr($this->brierModel($w) - $this->brierModel($rw)),
                 $this->dbr($this->brierModelOnInput($w) - $this->brierInput($w)), $this->dbr($this->brierModelOnRef($w) - $this->brierRef($w)),
-                $this->pts($bias - $rbias), $this->pts($bias),
-                $this->dbr($this->brierModel($tm) - $this->brierModel($rtm)), $this->pts($shift - $rshift), $this->pts($shift),
-                $this->pts($bttsGap - $rbttsGap), $this->pts($bttsGap), $this->dbr($this->brierModel($bm) - $this->brierModel($rbm))));
+                $this->pts($gap($o($s, '1'))), $this->pts($d($gap($o($s, '1')), $gap($o($r, '1')))),
+                $this->pts($gap($o($s, 'X'))), $this->pts($d($gap($o($s, 'X')), $gap($o($r, 'X')))),
+                $this->pts($gapIn($o($s, 'X'))), $this->pts($d($gapIn($o($s, 'X')), $gapIn($o($r, 'X')))),
+                $this->pts($gap($o($s, '2'))), $this->pts($d($gap($o($s, '2')), $gap($o($r, '2'))))));
+        }
+        $this->p('');
+
+        $this->p("### Transfert et marchés dérivés\n");
+        $this->p('| Population | Over transfert − obs. | Δ | Brier transfert | Δ | BTTS Oui − obs. | Δ | Δ Brier BTTS | Over 1.5 − obs. | Δ | Δ Brier 1.5 | Over 3.5 − obs. | Δ | Δ Brier 3.5 | 1X − obs. | Δ |');
+        $this->p('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+        foreach ($pops as $label => $divs) {
+            $s = $stats['pop'][$label] ?? null;
+            $r = $refStats['pop'][$label] ?? null;
+            if (!$s || !$r) {
+                continue;
+            }
+            $oc = fn ($x, $k) => $x['outcome'][$k] ?? null;
+            $mk = fn ($x, $k) => $x['market'][$k] ?? null;
+            $bd = fn ($k) => ($mk($s, $k) && $mk($r, $k)) ? $this->dbr($this->brierModel($mk($s, $k)) - $this->brierModel($mk($r, $k))) : '-';
+            $this->p(sprintf('| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |', $label,
+                $this->pts($gap($oc($s, 'transfer|overUnder25|Over'))), $this->pts($d($gap($oc($s, 'transfer|overUnder25|Over')), $gap($oc($r, 'transfer|overUnder25|Over')))),
+                $this->br($this->brierModel($mk($s, 'transfer|overUnder25'))), $bd('transfer|overUnder25'),
+                $this->pts($gap($oc($s, 'derived|btts|Yes'))), $this->pts($d($gap($oc($s, 'derived|btts|Yes')), $gap($oc($r, 'derived|btts|Yes')))), $bd('derived|btts'),
+                $this->pts($gap($oc($s, 'derived|overUnder15|Over'))), $this->pts($d($gap($oc($s, 'derived|overUnder15|Over')), $gap($oc($r, 'derived|overUnder15|Over')))), $bd('derived|overUnder15'),
+                $this->pts($gap($oc($s, 'derived|overUnder35|Over'))), $this->pts($d($gap($oc($s, 'derived|overUnder35|Over')), $gap($oc($r, 'derived|overUnder35|Over')))), $bd('derived|overUnder35'),
+                $this->pts($gap($oc($s, 'derived|doubleChance|1X'))), $this->pts($d($gap($oc($s, 'derived|doubleChance|1X')), $gap($oc($r, 'derived|doubleChance|1X'))))));
         }
         $this->p('');
     }

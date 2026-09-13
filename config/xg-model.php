@@ -26,4 +26,10 @@ return [
     // match que la grille tire du 1X2 (runs #3 et #5, mesure hors échantillon).
     'anchor_total_on_league_average' => false,
 
+    // Correction de Dixon-Coles sur les scores faibles (0-0, 1-0, 0-1, 1-1). ρ estimé
+    // par maximum de vraisemblance sur les scores observés, par population, sur des
+    // saisons strictement antérieures au match en backtest (DixonColesRho).
+    // false = deux lois de Poisson indépendantes, comportement des runs #2 à #6.
+    'dixon_coles_low_score_correction' => true,
+
 ];

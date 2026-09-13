@@ -3,6 +3,7 @@
 namespace Tests\Unit\Probability;
 
 use App\Models\FootballMatch;
+use App\Services\Probability\DixonColesRho;
 use App\Services\Probability\LeagueGoalAverages;
 use App\Services\Probability\PoissonModelService;
 use App\Services\Probability\XGModelService;
@@ -24,9 +25,18 @@ class XGModelServiceTest extends TestCase
         ]);
     }
 
-    private function model(?LeagueGoalAverages $goals = null): XGModelService
+    private function model(?LeagueGoalAverages $goals = null, ?DixonColesRho $rho = null): XGModelService
     {
-        return new XGModelService(new PoissonModelService(), $goals ?? $this->goals());
+        return new XGModelService(new PoissonModelService(), $goals ?? $this->goals(), $rho ?? new DixonColesRho([]));
+    }
+
+    /** Estimateur de ρ dont l'estimation est imposée (pas de données). */
+    private function fixedRho(?float $value): DixonColesRho
+    {
+        return new class($value) extends DixonColesRho {
+            public function __construct(private ?float $value) { parent::__construct([]); }
+            public function rhoFor(?int $leagueId): ?float { return $this->value; }
+        };
     }
 
     private function match(float $h, float $d, float $a, ?float $over = null, ?float $under = null, ?int $league = self::LEAGUE): FootballMatch
@@ -46,6 +56,7 @@ class XGModelServiceTest extends TestCase
             'xg-model.legacy_home_advantage_after_fusion' => false,
             'xg-model.legacy_constant_share_rescaling' => false,
             'xg-model.anchor_total_on_league_average' => false,
+            'xg-model.dixon_coles_low_score_correction' => false,
             'football-data.work_seasons' => ['2122', '2223', '2324'],
         ]);
     }
@@ -122,6 +133,7 @@ class XGModelServiceTest extends TestCase
         $this->assertFalse($defaults['anchor_total_on_league_average']);
         $this->assertFalse($defaults['legacy_constant_share_rescaling']);
         $this->assertFalse($defaults['legacy_home_advantage_after_fusion']);
+        $this->assertTrue($defaults['dixon_coles_low_score_correction']);
         $r = $this->model()->predict($this->match(1.80, 3.60, 4.50), true);
         $this->assertNull($r['signals']['market']['total_anchor']);
     }
@@ -170,5 +182,45 @@ class XGModelServiceTest extends TestCase
         $goals->scopeToSeasonsBefore('2324');
         $r = $this->model($goals)->predict($this->match(1.80, 3.60, 4.50, null, null, 999), true);
         $this->assertNull($r['signals']['market']['total_anchor']);
+    }
+
+    // ── Dixon-Coles
+
+    public function test_without_rho_estimate_model_is_identical_to_independent_poisson(): void
+    {
+        $match = $this->match(1.80, 3.60, 4.50, 1.80, 2.00);
+        $independent = $this->model()->predict($match, true);
+        config(['xg-model.dixon_coles_low_score_correction' => true]);
+        $noEstimate = $this->model(null, $this->fixedRho(null))->predict($match, true);
+
+        $this->assertNull($noEstimate['rho']);
+        $this->assertSame($independent['analysis'], $noEstimate['analysis']);
+    }
+
+    public function test_negative_rho_raises_draw_in_joint_fit_and_keeps_ou(): void
+    {
+        config(['xg-model.dixon_coles_low_score_correction' => true]);
+        $match = $this->match(1.80, 3.60, 4.50, 1.80, 2.00);
+        $independent = $this->model(null, $this->fixedRho(null))->predict($match, true);
+        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match, true);
+        $implied = $dc['signals']['market']['implied'];
+
+        $this->assertSame(-0.10, $dc['rho']);
+        $this->assertGreaterThan($independent['analysis']['1x2']['draw'] + 1.5, $dc['analysis']['1x2']['draw']);
+        $this->assertLessThan($this->l1($independent['analysis']['1x2'], $implied), $this->l1($dc['analysis']['1x2'], $implied));
+        $this->assertEqualsWithDelta($implied['under_2_5'], $dc['analysis']['overUnder25']['under'], 0.1);
+    }
+
+    public function test_negative_rho_raises_grid_total_without_ou(): void
+    {
+        config(['xg-model.dixon_coles_low_score_correction' => true]);
+        $match = $this->match(1.80, 3.60, 4.50);
+        $independent = $this->model(null, $this->fixedRho(null))->predict($match, true);
+        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match, true);
+
+        $this->assertGreaterThan(
+            $independent['lambdas']['home'] + $independent['lambdas']['away'] + 0.2,
+            $dc['lambdas']['home'] + $dc['lambdas']['away']
+        );
     }
 }
