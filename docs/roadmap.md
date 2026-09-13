@@ -118,10 +118,90 @@ calibré, sur quels marchés, sur quels championnats, et bat-il la clôture ?
 
 ---
 
-## Étape 3 — Interface ⬜ à faire
+## Étape 3 — Information absente des cotes d'ouverture ⬜ à faire
 
-Après l'étape 2, puisque l'interface affiche ce que le modèle produit et que
-l'étape 2 peut changer le périmètre.
+Jusqu'ici on réparait le modèle. On cherche maintenant si une information absente
+des cotes d'ouverture améliore la prédiction. Deux tests, dans cet ordre. Rien n'est
+implémenté avant que le test précédent soit mesuré et documenté.
+
+### Règles communes aux deux tests
+
+- **Prédiction écrite et commitée avant le run**, avec les seuils et les tranches
+  fixés à l'avance. Aucune tranche choisie après avoir vu les résultats.
+- **Échantillon de travail uniquement** (2122-2324). L'échantillon réservé n'est pas
+  touché.
+- **Un résultat négatif est un résultat qu'on garde** : il est documenté dans
+  `docs/decisions.md` au même titre qu'un résultat positif.
+- Tout poids, seuil ou coefficient estimé l'est sur des saisons strictement
+  antérieures au match (`SeasonScopedEstimator`), jamais sur la saison évaluée.
+- Lecture par population, comparaisons appariées sur les matchs communs avec
+  erreur type (`backtest:report --compare`), jamais d'agrégat sur 22 divisions.
+- Pas de meilleur segment : une division ou une tranche isolée pour son écart ne
+  fonde aucune conclusion (voir l'observation non exploitée du 13/09/2026).
+- Critère : calibration et Brier contre les résultats observés. Jamais de mise, de
+  ROI ni de cote inventée.
+
+### Test 1 — Mouvement de ligne
+
+Les cotes de clôture Bet365 et Pinnacle sont déjà en base.
+
+**Question.** L'amplitude du mouvement entre ouverture et clôture porte-t-elle une
+information que l'ouverture ne contient pas ?
+
+> **Avertissement : ce test est rétrospectif par nature.** En production, la clôture
+> est inconnue au moment de parier. S'il donne un signal, le mouvement devient une
+> **cible à prédire** à partir d'informations disponibles avant le coup d'envoi,
+> **jamais une entrée à consommer**. Aucune donnée de clôture n'entre dans le modèle
+> de production, conformément à la règle 5 de CLAUDE.md.
+
+Ce qu'on mesure, sur un même bookmaker de bout en bout pour ne pas mêler effet de
+source et effet de temps :
+
+- **Mouvement** : écart entre probabilité démarginalisée de clôture et d'ouverture,
+  par issue, et son amplitude sans signe.
+- **Calibration de l'ouverture selon l'amplitude** : Brier et écart annoncé −
+  observé du modèle nourri à l'ouverture, par tranche d'amplitude fixée avant le
+  run. Un mouvement fort signale-t-il une ouverture moins fiable ?
+- **Contenu du sens du mouvement** : l'écart observé − annoncé à l'ouverture suit-il
+  le sens du mouvement ? C'est attendu (la clôture intègre compositions et
+  blessures), le chiffre utile est la part de l'écart qu'il explique.
+- **Référence** : les résultats observés. La clôture Pinnacle ne peut pas servir de
+  référence ici, puisqu'elle est l'une des bornes du mouvement mesuré.
+
+### Test 2 — Désaccord entre bookmakers
+
+Bet365 et Pinnacle à l'ouverture. Les runs #8 (Bet365) et #9 (Pinnacle), même
+modèle, fournissent déjà les deux prédictions sur les mêmes matchs.
+
+**Questions.** Quand ils divergent, lequel prédit mieux ? L'ampleur du désaccord
+est-elle exploitable ?
+
+Ce qu'on mesure :
+
+- **Désaccord** : écart entre les probabilités démarginalisées Pinnacle et Bet365
+  à l'ouverture, par issue, et son amplitude.
+- **Qui prédit mieux quand ils divergent** : Brier apparié modèle Pinnacle − modèle
+  Bet365 par tranche d'amplitude du désaccord, tranches fixées avant le run.
+- **Exploitable** veut dire : une combinaison des deux sources, dont le poids est
+  estimé sur les saisons antérieures et peut dépendre de l'amplitude du désaccord,
+  améliore le Brier par rapport à la meilleure source seule, dans chaque population.
+  Exploitable ne veut jamais dire rentable.
+- **À vérifier avant le run** : l'heure de relevé des colonnes d'ouverture Bet365 et
+  Pinnacle dans football-data. Un désaccord peut venir d'un décalage de relevé
+  plutôt que d'une divergence d'opinion.
+
+### Jalon de clôture — validation sur l'échantillon réservé
+
+Quand plus rien ne bouge dans le modèle, un passage unique de `--sample=holdout`
+(2425-2526) valide l'ensemble des corrections d'un coup. Chaque passage sur
+l'échantillon réservé l'use : on ne le lance pas avant.
+
+---
+
+## Étape 4 — Interface ⬜ à faire
+
+Après la validation sur l'échantillon réservé, puisque l'interface affiche ce que
+le modèle produit et que les étapes 2 et 3 peuvent changer le périmètre.
 
 Maquette de référence validée : thème sombre phosphore, calibration en élément
 principal, simulation Monte-Carlo animée, tout en une page sans défilement.
@@ -130,7 +210,7 @@ stricte au réglage système.
 
 ---
 
-## Étape 4 — Journal des sélections ⬜ à faire
+## Étape 5 — Journal des sélections ⬜ à faire
 
 Une table qui enregistre chaque sélection affichée avec sa probabilité, sa cote
 et son horodatage, puis la clôture avec le résultat réel.
