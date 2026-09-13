@@ -14,6 +14,7 @@ class DixonColesRhoTest extends TestCase
         config([
             'football-data.work_seasons' => ['2122', '2223', '2324'],
             'football-data.holdout_seasons' => ['2425', '2526'],
+            'xg-model.dixon_coles_rho_scope' => 'population',
         ]);
     }
 
@@ -88,6 +89,24 @@ class DixonColesRhoTest extends TestCase
     {
         $rows = array_slice($this->simulate(-0.1, '2122', 'E0', 1, 3), 0, DixonColesRho::MIN_MATCHES - 1);
         $this->assertNull((new DixonColesRho($rows))->estimate($rows)['rho']);
+    }
+
+    public function test_global_scope_pools_all_divisions_by_default(): void
+    {
+        $this->assertSame('global', (require base_path('config/xg-model.php'))['dixon_coles_rho_scope']);
+        $rows = array_merge($this->simulate(-0.10, '2122', 'E0', 2, 31), $this->simulate(-0.10, '2122', 'E1', 2, 32), $this->simulate(-0.10, '2122', 'B1', 2, 33));
+        $estimator = new DixonColesRho($rows);
+        $estimator->scopeToSeasonsBefore('2223');
+
+        config(['xg-model.dixon_coles_rho_scope' => 'global']);
+        $global = $estimator->rhoForDivision('E0');
+        $this->assertSame($global, $estimator->rhoForDivision('B1'));
+        $this->assertSame(2280, $estimator->fit(DixonColesRho::GLOBAL)['matches']);
+
+        config(['xg-model.dixon_coles_rho_scope' => 'population']);
+        $this->assertSame(760, $estimator->fit('top5')['matches']);
+        $this->assertSame($estimator->fit('top5')['rho'], $estimator->rhoForDivision('E0'));
+        $this->assertNotSame($estimator->rhoForDivision('E0'), $estimator->rhoForDivision('B1'));
     }
 
     public function test_estimation_uses_only_strictly_prior_work_seasons_per_population(): void

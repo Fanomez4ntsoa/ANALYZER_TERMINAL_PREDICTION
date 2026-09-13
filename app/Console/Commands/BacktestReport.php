@@ -67,7 +67,7 @@ class BacktestReport extends Command
             : 'modèle : facteur domicile ' . ($model['legacy_home_advantage_after_fusion'] ? 'ANCIEN' : 'corrigé')
                 . ', recalage O/U ' . (($model['legacy_constant_share_rescaling'] ?? true) ? 'à partage constant' : 'conjoint')
                 . ', total sans O/U ' . ($model['anchor_total_on_league_average'] ? 'ancré' . (($model['estimators_scoped_to_prior_seasons'] ?? false) ? ' (saisons antérieures)' : ' (EN ÉCHANTILLON, fuite)') : 'libre')
-                . ', ' . (($model['dixon_coles_low_score_correction'] ?? false) ? 'Dixon-Coles' : 'Poisson indépendantes');
+                . ', ' . (($model['dixon_coles_low_score_correction'] ?? false) ? 'Dixon-Coles, ρ ' . ((($model['dixon_coles_rho_scope'] ?? 'population') === 'global') ? 'unique' : 'par population') : 'Poisson indépendantes');
         $this->p("# Run #{$run->id} ({$run->label}) — {$run->status} — saisons " . implode(',', $run->seasons) . " — entrée {$run->input_bookmaker} ouverture — {$modelDesc}\n");
         if ($this->seasonFilter !== null) {
             $this->p('**Rapport restreint aux saisons ' . implode(', ', $this->seasonFilter) . "** (run et run de référence).\n");
@@ -81,6 +81,7 @@ class BacktestReport extends Command
 
         if ($compare) {
             $this->sectionCompare($run, $compare, $pops, $stats, $this->stats($compare, $pops));
+            $this->sectionPaired($run, $compare, $pops);
         }
 
         $markdown = implode("\n", $this->out) . "\n";
@@ -201,16 +202,18 @@ class BacktestReport extends Command
         if (!($run->config['model']['dixon_coles_low_score_correction'] ?? false)) {
             return;
         }
-        $this->p("## ρ de Dixon-Coles estimé par population\n");
+        $this->p("## ρ de Dixon-Coles estimé\n");
         $this->p("Maximum de vraisemblance sur les scores observés, saisons de travail strictement antérieures à la saison évaluée. Erreur type conditionnelle aux forces d'équipe estimées. Rapport de vraisemblance contre Poisson indépendantes (seuil 3,84 à 5 %).\n");
         if (!$fits) {
             $this->p("Aucune estimation enregistrée pour ce run.\n");
             return;
         }
-        $labels = [];
+        $labels = ['all' => 'Toutes divisions (ρ unique)'];
         foreach (config('football-data.populations') as $key => $pop) {
             $labels[$key] = $pop['label'];
         }
+        usort($fits, fn ($a, $b) => [implode(',', $a['seasons']), $a['population']] <=> [implode(',', $b['seasons']), $b['population']]);
+        $fits = array_values(array_filter($fits, fn ($f) => $f['seasons'] !== []));
         $this->p('| Population | Saisons d\'estimation | Saison évaluée | Matchs | Nuls observés | ρ | Erreur type | IC 95 % | Rapport de vraisemblance |');
         $this->p('|---|---|---|---|---|---|---|---|---|');
         foreach ($fits as $f) {
@@ -416,4 +419,67 @@ class BacktestReport extends Command
         }
         $this->p('');
     }
+
+    /**
+     * Écart de Brier apparié match par match entre deux runs, sur les seuls matchs
+     * présents dans les deux (mêmes lignes marché × issue), avec erreur type. Les
+     * références (entrée démarginalisée, Pinnacle clôture) sont appariées de même.
+     */
+    private function sectionPaired(BacktestFdRun $run, BacktestFdRun $ref, array $pops): void
+    {
+        $this->p("## F. Écart apparié sur les matchs communs aux runs #{$run->id} et #{$ref->id}\n");
+        $this->p("Brier par match (somme sur les issues, divisée par le nombre d'issues). Δ = run #{$run->id} − run #{$ref->id} ; erreur type de la moyenne des différences par match ; z = Δ / erreur type. Seuls les matchs évalués dans les deux runs, avec clôture Pinnacle pour les colonnes Pinnacle.\n");
+        $markets = [
+            ['adjustment', 'winner', 3, '1X2'], ['adjustment', 'overUnder25', 2, 'O/U 2.5 ajustement'],
+            ['transfer', 'overUnder25', 2, 'O/U 2.5 transfert'], ['derived', 'btts', 2, 'BTTS'],
+            ['derived', 'overUnder15', 2, 'O/U 1.5'], ['derived', 'overUnder35', 2, 'O/U 3.5'],
+        ];
+        $this->p("| Population | Marché | Matchs communs | Δ Brier modèle | erreur type | z | Δ Brier entrée ouv. | Run #{$run->id} − Pinnacle | z | Run #{$ref->id} − Pinnacle | z |");
+        $this->p('|---|---|---|---|---|---|---|---|---|---|---|');
+        foreach ($pops as $label => $divs) {
+            foreach ($markets as [$family, $market, $k, $name]) {
+                $q = DB::table('backtest_fd_predictions as a')
+                    ->join('backtest_fd_predictions as b', function ($j) use ($ref) {
+                        $j->on('a.historical_match_id', '=', 'b.historical_match_id')
+                          ->on('a.family', '=', 'b.family')->on('a.market', '=', 'b.market')->on('a.outcome', '=', 'b.outcome')
+                          ->where('b.run_id', '=', $ref->id);
+                    })
+                    ->where('a.run_id', $run->id)->where('a.family', $family)->where('a.market', $market)->whereIn('a.div', $divs)
+                    ->when($this->seasonFilter !== null, fn ($q) => $q->whereIn('a.season', $this->seasonFilter))
+                    ->groupBy('a.historical_match_id')
+                    ->selectRaw('sum(pow(a.model_probability - a.observed, 2)) - sum(pow(b.model_probability - b.observed, 2)) d_model,
+                        sum(pow(a.input_open_fair - a.observed, 2)) - sum(pow(b.input_open_fair - b.observed, 2)) d_input,
+                        sum(pow(a.model_probability - a.observed, 2)) - sum(pow(a.pinnacle_close_fair - a.observed, 2)) d_run_ref,
+                        sum(pow(b.model_probability - b.observed, 2)) - sum(pow(b.pinnacle_close_fair - b.observed, 2)) d_cmp_ref,
+                        sum(a.pinnacle_close_fair is null) no_ref')
+                    ->get();
+                if ($q->isEmpty()) {
+                    continue;
+                }
+                $stat = function (iterable $values) use ($k): array {
+                    $v = array_values(array_filter(is_array($values) ? $values : iterator_to_array($values), fn ($x) => $x !== null));
+                    $n = count($v);
+                    if ($n < 2) {
+                        return [null, null, null, $n];
+                    }
+                    $mean = array_sum($v) / $n;
+                    $var = array_sum(array_map(fn ($x) => ($x - $mean) ** 2, $v)) / ($n - 1);
+                    $se = sqrt($var / $n);
+                    return [$mean / $k, $se / $k, $se > 0 ? $mean / $se : null, $n];
+                };
+                [$dm, $sem, $zm, $n] = $stat($q->pluck('d_model'));
+                [$di] = $stat($q->pluck('d_input'));
+                $withRef = $q->filter(fn ($r) => (int) $r->no_ref === 0);
+                [$dr, , $zr] = $stat($withRef->pluck('d_run_ref'));
+                [$dc, , $zc] = $stat($withRef->pluck('d_cmp_ref'));
+                $z = fn (?float $x) => $x === null ? '-' : sprintf('%+.1f', $x);
+                $this->p(sprintf('| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |', $label, $name, $this->n($n),
+                    $this->dbr5($dm), $sem === null ? '-' : sprintf('%.5f', $sem), $z($zm), $this->dbr5($di),
+                    $this->dbr5($dr), $z($zr), $this->dbr5($dc), $z($zc)));
+            }
+        }
+        $this->p('');
+    }
+
+    private function dbr5(?float $x): string { return $x === null ? '-' : sprintf('%+.5f', $x); }
 }

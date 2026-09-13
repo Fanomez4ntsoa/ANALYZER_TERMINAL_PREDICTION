@@ -32,4 +32,9 @@ return [
     // false = deux lois de Poisson indépendantes, comportement des runs #2 à #6.
     'dixon_coles_low_score_correction' => true,
 
+    // Portée de l'estimation de ρ. 'global' : un ρ unique sur toutes les divisions
+    // (défaut depuis le 13/09/2026, les trois populations ne se distinguant pas
+    // statistiquement au run #7). 'population' : un ρ par population (run #7).
+    'dixon_coles_rho_scope' => 'global',
+
 ];

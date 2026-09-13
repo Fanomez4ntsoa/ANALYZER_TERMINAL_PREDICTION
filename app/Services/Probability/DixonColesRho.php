@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Paramètre ρ de Dixon-Coles, estimé par population (config football-data.populations).
+ * Paramètre ρ de Dixon-Coles. Portée config xg-model.dixon_coles_rho_scope :
+ * 'global' (défaut) = un ρ unique sur toutes les divisions ; 'population' = un ρ par
+ * population (config football-data.populations), comportement du run #7.
  *
  * Estimation par maximum de vraisemblance sur les SCORES OBSERVÉS uniquement, jamais
  * sur les cotes : seules les colonnes saison, division, équipes et buts sont lues.
@@ -32,6 +34,7 @@ class DixonColesRho implements SeasonScopedEstimator
     use ScopesToPriorWorkSeasons;
 
     public const MIN_MATCHES = 500;
+    public const GLOBAL = 'all';
     private const CACHE_VERSION = 'v1';
 
     /** @var array<int, array{season: string, div: string, home_team: string, away_team: string, fthg: int, ftag: int}>|null */
@@ -63,6 +66,9 @@ class DixonColesRho implements SeasonScopedEstimator
         $population = $this->populationOf($div);
         if ($population === null) {
             return null;
+        }
+        if (config('xg-model.dixon_coles_rho_scope', 'global') !== 'population') {
+            $population = self::GLOBAL;
         }
 
         return $this->fit($population)['rho'];
@@ -370,13 +376,14 @@ class DixonColesRho implements SeasonScopedEstimator
         foreach ($pops as $key => $p) {
             $out[$key] = $p['divisions'] ?? array_values(array_diff($all, $explicit));
         }
+        $out[self::GLOBAL] = $all;
         return $out;
     }
 
     private function populationOf(string $div): ?string
     {
         foreach ($this->populationDivisions() as $key => $divs) {
-            if (in_array($div, $divs, true)) {
+            if ($key !== self::GLOBAL && in_array($div, $divs, true)) {
                 return $key;
             }
         }

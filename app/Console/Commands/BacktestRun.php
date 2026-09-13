@@ -18,6 +18,7 @@ class BacktestRun extends Command
                             {--legacy-home : Mesure : rétablir l\'ancien facteur domicile appliqué après fusion (y compris au signal marché)}
                             {--legacy-share : Mesure : rétablir l\'ancien recalage du total à partage domicile/extérieur constant}
                             {--legacy-poisson : Mesure : rétablir les deux lois de Poisson indépendantes (sans Dixon-Coles), comme les runs #2 à #6}
+                            {--rho-per-population : Mesure : un ρ de Dixon-Coles par population au lieu d\'un ρ unique (run #7)}
                             {--anchor : Mesure : activer l\'ancrage du total sans O/U sur la moyenne du championnat (saisons antérieures au match)}';
 
     protected $description = 'Backtest de calibration du modèle de production (marché seul) sur football-data — aucune mise, aucun ROI';
@@ -66,7 +67,9 @@ class BacktestRun extends Command
         $legacyShare = (bool) $this->option('legacy-share');
         $anchor = (bool) $this->option('anchor');
         $dixonColes = !$this->option('legacy-poisson');
+        $rhoScope = $this->option('rho-per-population') ? 'population' : 'global';
         config([
+            'xg-model.dixon_coles_rho_scope' => $rhoScope,
             'xg-model.dixon_coles_low_score_correction' => $dixonColes,
             'xg-model.legacy_home_advantage_after_fusion' => $legacyHome,
             'xg-model.legacy_constant_share_rescaling' => $legacyShare,
@@ -84,6 +87,7 @@ class BacktestRun extends Command
                 'legacy_constant_share_rescaling' => $legacyShare,
                 'anchor_total_on_league_average' => $anchor,
                 'dixon_coles_low_score_correction' => $dixonColes,
+                'dixon_coles_rho_scope' => $rhoScope,
                 'estimators_scoped_to_prior_seasons' => true,
             ],
         ];
@@ -92,7 +96,7 @@ class BacktestRun extends Command
         $this->line('Modèle : facteur domicile ' . ($legacyHome ? 'ANCIEN (après fusion, marché inclus)' : 'sur les seuls signaux hors marché')
             . ' — recalage O/U ' . ($legacyShare ? 'ANCIEN (partage constant)' : 'conjoint (partage cherché au total O/U)')
             . ' — total sans O/U ' . ($anchor ? 'ancré (saisons antérieures au match)' : 'libre (grille)')
-            . ' — ' . ($dixonColes ? 'Dixon-Coles (ρ par population, saisons antérieures)' : 'Poisson indépendantes (ANCIEN)'));
+            . ' — ' . ($dixonColes ? 'Dixon-Coles (ρ ' . ($rhoScope === 'global' ? 'unique' : 'par population') . ', saisons antérieures)' : 'Poisson indépendantes (ANCIEN)'));
 
         $bar = $this->output->createProgressBar();
         $bar->start();
