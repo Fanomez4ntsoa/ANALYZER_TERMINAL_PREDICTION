@@ -222,3 +222,61 @@ avec le niveau de buts du championnat (D2 −10,6 à 2,98 buts/match, SP2 −3,8
 2,23) : le total de buts implicite en transfert ne suit pas le championnat.
 Les marchés dérivés indépendants (BTTS, O/U 1.5, O/U 3.5) sont à moins de 3
 points de l'observé dans les trois populations.
+
+---
+
+## 2026-09-13 — Avantage domicile : plus jamais appliqué au signal marché
+
+Le facteur domicile était appliqué après la fusion des signaux, donc aussi à la
+part de λ issue des cotes, qui pricent déjà l'avantage du terrain. Il s'applique
+désormais aux seuls signaux xg_proxy et comparison, avant la fusion ; en mode
+marché seul il ne s'applique plus. L'ancien comportement reste disponible pour la
+mesure (`backtest:run --legacy-home`).
+
+Prédiction formulée avant le run : le Brier 1X2 rejoint celui de Bet365 ouverture
+démarginalisé et reste au-dessus de la clôture Pinnacle. Run #4 (correction seule) :
+confirmée dans les trois populations. Écart au Brier d'entrée +0,0003 / +0,0003 /
++0,0001, écart à Pinnacle +0,0008 / +0,0013 / +0,0014, aucune division sous
+Pinnacle. Biais domicile ramené de +4,9 / +5,3 / +4,7 à +1,0 / +1,3 / +0,8.
+
+Le résidu ne vient pas du facteur domicile : le modèle annonce 1,6 à 2,1 points de
+nul de moins que sa cote d'entrée, répartis sur le domicile et l'extérieur. La
+grille 1X2 reproduit la cote à 0,2 point près ; c'est le rééchelonnage du total sur
+l'O/U à partage λh/λa constant qui fait baisser le nul. Non corrigé, en attente de
+validation d'un ajustement conjoint.
+
+L'hypothèse selon laquelle le biais domicile expliquait le BTTS Oui sous-estimé du
+Top 5 est rejetée : l'écart passe de −2,6 à −3,0.
+
+---
+
+## 2026-09-13 — Ancrage du total sur la moyenne du championnat : pas retenu en l'état
+
+Sans cotes O/U, le total est remplacé par la moyenne de buts du championnat
+(`LeagueGoalAverages`, saisons de travail). Run #5 (seul) et run #3 (avec la
+correction domicile) : le décalage moyen de l'Over 2.5 en transfert disparaît
+(+0,3 / −0,7 / +0,1 au run #3), mais le Brier ne suit pas.
+
+Deux défauts, mesurés :
+
+- **Fuite dans la mesure.** Sur l'échantillon de travail, l'ancre est la moyenne
+  des matchs mêmes qu'on évalue. Les moyennes varient jusqu'à 0,64 but par match
+  d'une saison à l'autre (E3), 0,46 en E0. Mesure refaite hors échantillon sur 2223
+  et 2324 (15 582 matchs), ancre calculée sur les seules saisons antérieures, avec
+  reproduction exacte des runs #3 et #4 sur l'ancre en échantillon et le total
+  libre : l'avantage de Brier de l'ancre se réduit de 0,0011 / 0,0015 / 0,0020, et
+  le décalage résiduel remonte à −0,6 / −1,1 / −2,9. Toute ancre mesurée en
+  backtest doit n'utiliser que des saisons antérieures au match.
+- **Perte de résolution.** Un total constant par championnat efface la variation
+  match par match que la grille tirait du 1X2. Corrélation entre P(Over) annoncée
+  et résultat, 2223-2324 : 0,196 → 0,091 (Top 5), 0,145 → 0,114 (deuxièmes),
+  0,143 → 0,048 (inférieures).
+
+Bilan hors fuite, Brier transfert libre → ancre antérieure : 0,2440 → 0,2468
+(Top 5, pire), 0,2480 → 0,2453 (deuxièmes, mieux), 0,2497 → 0,2500 (inférieures,
+neutre). Pinnacle clôture : 0,2370 / 0,2406 / 0,2407.
+
+L'ancrage reste actif par défaut dans le code commité (`config/xg-model.php`), en
+attendant une décision. Piste proposée, non codée : corriger la moyenne du total de
+grille par un facteur multiplicatif par championnat estimé sur les saisons
+antérieures, ce qui garde la variation match par match.

@@ -43,7 +43,10 @@ quatre signaux :
 | Pseudo-xG | 0.20 | `footystats_data`, dérivé du pourcentage de victoire API-Football |
 | Blessures | multiplicatif | Nombre de joueurs absents, plancher 0.7 |
 
-Puis avantage domicile (×1.08 / ×0.952) et bornage des λ.
+L'avantage domicile (×1.20 / ×0.88) s'applique aux seuls signaux comparaison et
+pseudo-xG, avant la fusion : les cotes le contiennent déjà. En mode marché seul il
+ne s'applique pas. Sans cotes Over/Under, le total des λ est ancré sur la moyenne
+de buts du championnat (`config/xg-model.php`). Puis bornage des λ.
 
 `PoissonModelService` construit une matrice 7×7 de scores en supposant les deux
 lois indépendantes, et en dérive les probabilités de chaque marché.
@@ -75,6 +78,7 @@ marché dépasse les 40 % affichés.
 |---|---|
 | `Probability/XGModelService` | Estimation des λ |
 | `Probability/PoissonModelService` | Matrice de scores et probabilités |
+| `Probability/LeagueGoalAverages` | Buts par match par championnat, saisons de travail (ancre du total sans O/U) |
 | `PredictionService` | Persistance des probabilités |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base |
 | `Api/ApiFootballService` | Fixtures, stats, cotes |
@@ -131,7 +135,9 @@ football-data:import --seasons=2324 --divisions=E0,D1 [--force-download]
        → TeamNameAudit : noms distincts par division, paires ne différant que par un
          caractère non-ASCII signalées
 
-backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps
+backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--no-anchor]
+  │    (config/xg-model.php : facteur domicile hors signal marché, ancrage du total sans O/U ;
+  │     les deux options rétablissent l'ancien comportement pour la mesure)
   └─ CalibrationBacktestService::run
        ├─ pour chaque match : FootballMatch non persisté, cotes d'OUVERTURE seulement
        ├─ XGModelService::predict($match, marketOnly: true)      passe complète (1X2 + O/U 2.5)
@@ -142,6 +148,12 @@ backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps
        │                                                          tranches de 5 pts (n, moyenne, observé)
        ├─ table backtest_fd_predictions                           une ligne par match × famille × marché × issue
        └─ backtest_fd_runs + storage/app/private/backtest/run_{id}_{label}.json
+
+backtest:report {run} [--compare={run}]
+  └─ lecture par population (config football-data.populations), jamais 22 divisions confondues
+       → Brier modèle / entrée démarginalisée / Pinnacle clôture, annoncée vs observée,
+         biais domicile, décalage Over en transfert, segmentation par division
+       → storage/app/private/backtest/run_{id}_{label}_populations.md
 ```
 
 La clôture Pinnacle démarginalisée est la référence et n'entre jamais dans le

@@ -68,12 +68,30 @@ Fait le 13/09/2026 :
   - BTTS, O/U 1.5, O/U 3.5 : moins de 3 points d'écart partout ; BTTS Oui
     sous-estimé de 2,6 points dans le Top 5.
 
+- `backtest:report {run} [--compare=]` : rapport par population en commande
+  (`config/football-data.php` : `populations`).
+- Corrections du modèle (`config/xg-model.php`), mesurées une par une sur
+  l'échantillon de travail, Bet365 ouverture, 23 388 matchs par run :
+  - Run #4, avantage domicile hors signal marché : biais domicile +4,9 / +5,3 /
+    +4,7 → +1,0 / +1,3 / +0,8, Brier 1X2 égal à l'entrée à 0,0003 près et
+    au-dessus de Pinnacle. Retenue.
+  - Run #5, ancrage du total seul : 1X2 inchangé, décalage Over en transfert
+    effacé en moyenne.
+  - Run #3, les deux : 1X2 identique au run #4, décalage Over +0,3 / −0,7 / +0,1,
+    mais mesure en échantillon. Hors échantillon (ancre des saisons antérieures,
+    2223-2324) : Brier transfert pire dans le Top 5, meilleur dans les deuxièmes
+    divisions, neutre ailleurs. Ancrage non retenu en l'état.
+  - BTTS Oui du Top 5 : −2,6 → −3,0. Pas lié au biais domicile.
+
 Reste à faire :
 
-- Transformer le rapport par population en commande `backtest:report`
+- Décider du sort de l'ancrage (désactiver, ou remplacer par un facteur
+  multiplicatif par championnat estimé sur les saisons antérieures)
+- Décider d'un ajustement conjoint total/partage dans `lambdasFromOdds` : le
+  rééchelonnage à partage constant retire 1,6 à 2,1 points au nul
+- Rendre `backtest:run` capable d'ancrer sur les seules saisons antérieures, pour
+  que toute mesure d'ancre soit sans fuite
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
-- Décider, sur l'échantillon de travail seulement, du sort de l'avantage domicile
-  appliqué après le signal marché, et du calage du total de buts en transfert
 - Seulement ensuite : `--sample=holdout`
 
 Questions auxquelles cette étape doit répondre : le Poisson sur cotes est-il
