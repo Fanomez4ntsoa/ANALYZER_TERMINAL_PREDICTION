@@ -197,3 +197,28 @@ paire, trois noms non-ASCII en tout (King’s Lynn, Preußen Münster).
 Le zip d'une saison présent dans `storage/app/private/football-data/{saison}/`
 n'est jamais retéléchargé (`--force-download` pour rafraîchir), et des CSV déjà
 décompressés dans `{saison}/csv/` ou `{saison}/` suffisent sans zip.
+
+---
+
+## 2026-09-13 — Le backtest se lit par population, jamais sur les 22 divisions confondues
+
+Sur 7 800 matchs par saison, les cinq grands championnats n'en font que 1 750.
+Un agrégat sur 22 divisions décrit surtout la quatrième division anglaise. Les
+résultats se lisent donc en trois populations aux efficiences de marché
+différentes : Top 5 (E0, D1, I1, SP1, F1), deuxièmes divisions (E1, D2, I2, SP2,
+F2), inférieures et autres (le reste). Aucun chiffre agrégé toutes divisions
+n'est produit ni cité. Le rapport par population se calcule sur
+`backtest_fd_predictions` (`storage/app/private/backtest/tools/report-populations.php`,
+à transformer en commande `backtest:report` si l'usage se confirme).
+
+Premier run complet (run #2, travail, Bet365 ouverture, 23 388 matchs) : les
+deux défauts vus à la validation sont uniformes selon le niveau. Le biais
+domicile 1X2 vaut +4,9 / +5,3 / +4,7 points selon la population, et se
+décompose en un décalage constant du modèle par rapport à la cote d'entrée
+démarginalisée (+4,6 à +5,6 dans chacune des dix divisions majeures) : c'est
+l'avantage domicile ajouté après le signal marché, qui le contient déjà. Le
+décalage de l'Over 2.5 en transfert vaut −5,3 / −5,9 / −5,5 points, et croît
+avec le niveau de buts du championnat (D2 −10,6 à 2,98 buts/match, SP2 −3,8 à
+2,23) : le total de buts implicite en transfert ne suit pas le championnat.
+Les marchés dérivés indépendants (BTTS, O/U 1.5, O/U 3.5) sont à moins de 3
+points de l'observé dans les trois populations.

@@ -54,9 +54,23 @@ Fait le 13/09/2026 :
   - BTTS, O/U 1.5, O/U 3.5 (tests indépendants) : moyennes à moins de 3 pts de
     l'observé, Brier 0,242 / 0,163 / 0,211
 
+- Run #2 (`backtest:run --sample=work --input=b365`, 22 divisions, 23 388 matchs
+  évalués, 64 exclus faute de cote Bet365 d'ouverture), lu par population
+  (`storage/app/private/backtest/run_2_work-b365-22div_populations.md`) :
+  - Biais domicile 1X2 uniforme : +4,9 (Top 5), +5,3 (deuxièmes divisions),
+    +4,7 (inférieures). Pinnacle clôture : 0 dans les trois. Décalage constant
+    modèle − cote d'entrée de +4,6 à +5,6 dans les dix divisions majeures.
+  - Transfert Over 2.5 uniforme : −5,3 / −5,9 / −5,5, plus fort dans les
+    championnats à buts (D2 −10,6, D1 et E0 −6,7) que dans les faibles
+    (SP1 −3,4, SP2 −3,8).
+  - Brier 1X2 modèle contre Pinnacle clôture : 0,1936 / 0,1919 (Top 5),
+    0,2104 / 0,2079 (deuxièmes), 0,1974 / 0,1950 (inférieures).
+  - BTTS, O/U 1.5, O/U 3.5 : moins de 3 points d'écart partout ; BTTS Oui
+    sous-estimé de 2,6 points dans le Top 5.
+
 Reste à faire :
 
-- Lancer `backtest:run --sample=work` sur les 22 divisions
+- Transformer le rapport par population en commande `backtest:report`
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
 - Décider, sur l'échantillon de travail seulement, du sort de l'avantage domicile
   appliqué après le signal marché, et du calage du total de buts en transfert
