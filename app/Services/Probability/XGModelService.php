@@ -70,14 +70,21 @@ class XGModelService
 
     /**
      * Générer les prédictions complètes pour un match.
-     * C'est cette méthode qui sera appelée pour créer la Source D.
+     *
+     * @param bool $marketOnly  Mode "marché seul" (backtest football-data) : seul le
+     *                          signal cotes est collecté, la fusion se renormalise sur
+     *                          ce seul poids, le reste du pipeline est inchangé. Lève
+     *                          une exception si les cotes 1X2 manquent, pour que le
+     *                          repli sur la moyenne de ligue ne soit jamais atteint.
      */
-    public function predict(FootballMatch $match): array
+    public function predict(FootballMatch $match, bool $marketOnly = false): array
     {
-        $advancedData = $match->advancedData;
+        $advancedData = $marketOnly ? null : $match->advancedData;
 
         // 1. Estimer les λ depuis chaque signal
-        $signals = $this->collectSignals($match, $advancedData);
+        $signals = $marketOnly
+            ? $this->collectMarketSignalOnly($match)
+            : $this->collectSignals($match, $advancedData);
 
         // 2. Fusionner les λ avec pondération
         $lambdas = $this->fuseLambdas($signals);
@@ -143,6 +150,22 @@ class XGModelService
         $signals['_league_avg'] = $leagueAvg;
 
         return $signals;
+    }
+
+    /**
+     * Mode marché seul : uniquement le signal cotes, sans moyenne de ligue.
+     */
+    private function collectMarketSignalOnly(FootballMatch $match): array
+    {
+        $market = $this->lambdasFromOdds($match);
+
+        if ($market === null) {
+            throw new \InvalidArgumentException(
+                "Mode marché seul : cotes 1X2 incomplètes pour {$match->home_team} vs {$match->away_team}"
+            );
+        }
+
+        return ['market' => $market];
     }
 
     /**
