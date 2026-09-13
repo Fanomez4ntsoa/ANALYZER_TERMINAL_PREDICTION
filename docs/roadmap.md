@@ -87,14 +87,20 @@ Fait le 13/09/2026 :
   total/partage ; règle générale des estimateurs bornés aux saisons strictement
   antérieures (`SeasonScopedEstimator`).
 
-Reste à faire, dans cet ordre :
+- Run #6, recalage conjoint : biais domicile +0,6 / +0,5 / +0,2, nul toujours
+  sous-estimé de 2,2 / 2,1 / 1,2 points, Brier 1X2 au-dessus de Bet365 ouverture
+  (+0,0005 / +0,0004 / +0,0002) et de Pinnacle. Transfert inchangé (−6,7 / −7,3 /
+  −6,8 sur l'Over). Conservé par défaut.
 
-- Run #6 : recalage conjoint, échantillon de travail, Bet365 ouverture
+Reste à faire (ordre fixé par l'utilisateur ; inversion des deux premiers
+points proposée, en attente de décision) :
+
 - Facteur multiplicatif par championnat sur le total de grille, estimé sur les
   saisons antérieures, mesuré sur le modèle à recalage conjoint
-- Test futur, une chose à la fois : correction de Dixon-Coles sur les scores
-  faibles, mesurée sur le BTTS (Oui sous-estimé de 3 points dans le Top 5) et sur
-  les lignes 1.5 et 3.5. Les commentaires du code affirment à tort qu'elle existe.
+- Correction de Dixon-Coles sur les scores faibles, mesurée sur le nul, le BTTS
+  (Oui sous-estimé de 2,5 points dans le Top 5), les lignes 1.5 et 3.5 et le
+  décalage de l'Over en transfert. Les commentaires du code affirment à tort
+  qu'elle existe.
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
 - Seulement ensuite : `--sample=holdout`
 

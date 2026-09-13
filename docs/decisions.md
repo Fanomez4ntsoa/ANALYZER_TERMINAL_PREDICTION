@@ -343,3 +343,44 @@ Réserve de Claude, formulée avant le run après une sonde sur cinq profils de 
 vers l'outsider, il ne le supprime pas. La première prédiction devrait donc
 échouer sur le nul. Ce déficit est la signature de l'indépendance des deux lois,
 ce qui renvoie à Dixon-Coles.
+
+---
+
+## 2026-09-13 — Run #6 : le recalage conjoint ne résorbe pas le nul, les deux prédictions échouent en partie
+
+Run #6 (recalage conjoint, domicile corrigé, ancrage désactivé, Bet365 ouverture,
+23 388 matchs), comparé au run #4 (même modèle, partage constant) :
+
+| Population | Biais domicile #4 → #6 | Nul, écart à l'observé #4 → #6 | Extérieur #4 → #6 | Brier 1X2 #4 → #6 | Entrée | Pinnacle |
+|---|---|---|---|---|---|---|
+| Top 5 | +1,0 → +0,6 | −2,4 → −2,2 | +1,4 → +1,6 | 0,1926 → 0,1929 | 0,1924 | 0,1919 |
+| Deuxièmes divisions | +1,3 → +0,5 | −2,3 → −2,1 | +1,0 → +1,6 | 0,2092 → 0,2093 | 0,2089 | 0,2079 |
+| Inférieures et autres | +0,8 → +0,2 | −1,4 → −1,2 | +0,7 → +1,0 | 0,1963 → 0,1965 | 0,1963 | 0,1950 |
+
+- **Prédiction de Claude** : échec sur le nul, comme annoncé par la sonde avant le
+  run. L'écart modèle − cote d'entrée sur le nul passe de −1,6 / −2,1 / −1,7 à
+  −1,4 / −1,8 / −1,5. Le biais domicile tombe sous 0,5 dans les divisions
+  inférieures seulement (+0,6 / +0,5 / +0,2). Le résidu est passé du domicile à
+  l'extérieur.
+- **Prédiction de l'utilisateur** : échec sur le premier point. Le Brier 1X2 reste
+  au-dessus de Bet365 ouverture (+0,0005 / +0,0004 / +0,0002), un peu plus qu'au
+  run #4. Il reste au-dessus de Pinnacle (+0,0010 / +0,0014 / +0,0015) ; aucune
+  division ne passe dessous, pas de fuite à chercher.
+- L'O/U 2.5 d'ajustement reproduit désormais exactement la cote d'entrée (Brier
+  égal à 0,0000 près), et le transfert est identique au run #4, comme attendu.
+- BTTS Oui : −3,0 / −1,6 / −1,2 → −2,5 / −1,1 / −0,7. Double chance 1X, marché
+  principal du projet, sous-estimé de 1,6 / 1,6 / 1,0 point.
+
+Lecture : le modèle n'exploite pas deux marchés, il les met en contradiction. Deux
+Poisson indépendantes ne peuvent pas produire à la fois le total du marché O/U et
+la probabilité de nul du marché 1X2. Forcer le total injecte cette erreur de forme
+dans le 1X2. C'est la même contradiction, vue de l'autre côté, que le décalage de
+l'Over en transfert : sans O/U, la grille atteint le nul du marché en baissant le
+total (0,2 à 0,4 but sous le total O/U sur les profils sondés), d'où −6,7 points
+sur l'Over.
+
+Recalage conjoint conservé par défaut : il est géométriquement juste, reproduit
+l'O/U à l'identique et réduit le biais domicile ; sa perte de Brier 1X2 (0,0001 à
+0,0003) est inférieure au gain de la correction domicile. Proposition soumise à
+décision : passer Dixon-Coles avant le facteur multiplicatif, puisque le résidu
+sur le nul, qui contamine les autres mesures, est toujours là.
