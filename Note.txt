@@ -1,0 +1,374 @@
+Transformer l'IA en système multi-agents spécialisé, pas un seul prompt.
+
+Pourquoi ?
+Parce que 1 IA = biaisée
+Mais plusieurs IA spécialisées qui se contredisent = edge réel
+
+🧠 ARCHITECTURE PROPOSÉE
+1. Agent 1 — “Value Hunter”
+
+Cherche UNIQUEMENT les opportunités
+
+détecte value bets
+identifie sous-évaluation du marché
+suit les modèles (Poisson, xG, etc.)
+
+> biais volontaire : optimiste / agressif
+
+2. Agent 2 — “Risk Killer”
+
+Détruit les prédictions
+
+cherche pourquoi le bet est mauvais
+détecte pièges, faux favoris
+détecte biais cognitifs
+
+> biais volontaire : ultra sceptique
+
+3. Agent 3 — “Market Reader”
+
+Lit le marché comme un trader
+
+analyse mouvements de cotes
+détecte sharp money
+détecte manipulation / overreaction
+
+> biais : ne fait confiance qu’au marché
+
+4. Agent 4 — “Narrative Analyst”
+
+Ton idée initiale mais version propre
+
+psychologie équipes
+momentum réel
+contexte humain
+
+> biais : irrationnel contrôlé
+
+5. Agent 5 — “Final Judge” (LE PLUS IMPORTANT)
+
+Celui-là fusionne tout.
+
+Il reçoit :
+
+output des 4 agents
+ton modèle (Source D + consensus)
+CLV / historique
+
+Et il décide :
+
+BET / NO BET
+confiance réelle
+type d’edge
+
+POURQUOI C’EST PUISSANT
+
+Parce qu'on crées :
+un système de conflit intelligent
+
+Exemple :
+Value Hunter : “GROS VALUE 🔥”
+Risk Killer : “PIÈGE TOTAL ⚠️”
+Market : “Le marché est bizarre 🤨”
+Résultat :
+> On évites 80% des mauvais bets
+
+CE QUE PERSONNE NE FAIT (ET TOI TU PEUX)
+Ajouter un “Confidence Collapse Detector”
+
+Concept :
+Si :
+tout est aligné
+confiance très haute
+marché stable
+> ALORS = danger
+Pourquoi ?
+> Les pires pièges sont les matchs “trop évidents”
+
+Mon idée de ROADMAP à validé :
+Au lieu de juste Phase 5 :
+Phase 5.1
+> Implémenter 2 agents (Value + Risk)
+Phase 5.2
+> Ajouter Market Agent
+Phase 5.3
+> Ajouter Meta Judge
+Phase 5.4
+> Backtest IA vs sans IA
+
+PROMPTS :
+> VALUE HUNTER (détecte opportunités) :
+You are a value betting detection engine.
+
+Your goal is to identify bets where the model probability is higher than the implied probability from market odds.
+
+You MUST:
+- Compare model probabilities vs implied odds
+- Detect undervalued outcomes
+- Focus ONLY on positive expected value (EV+)
+
+---
+
+TASKS:
+1. Convert odds into implied probability
+2. Compare with model probability
+3. Calculate value margin
+4. Identify best opportunities
+
+---
+
+OUTPUT:
+
+{
+  "value_bets": [
+    {
+      "market": "example",
+      "model_probability": 0,
+      "implied_probability": 0,
+      "value_margin": 0,
+      "confidence": 0-100,
+      "reason": "short explanation"
+    }
+  ],
+  "best_pick": {},
+  "overall_value_score": 0-100
+}
+
+---
+
+RULES:
+- Ignore narratives, only math
+- No safe picks
+- If no value → return empty
+
+
+*****
+
+
+> RISK KILLER (détruit les illusions) :
+You are a risk elimination engine.
+
+Your goal is to find why a bet should NOT be taken.
+
+---
+
+TASKS:
+- Detect overconfidence
+- Identify statistical traps
+- Highlight inconsistencies
+- Find reasons models may fail
+
+---
+
+OUTPUT:
+
+{
+  "risk_score": 0-100,
+  "red_flags": [
+    "specific risk"
+  ],
+  "trap_signals": [
+    "why this is dangerous"
+  ],
+  "most_dangerous_assumption": "..."
+}
+
+---
+
+RULES:
+- Be harsh
+- Assume models are wrong
+- No positive bias
+
+
+*****
+
+
+
+> MARKET READER (lit les cotes) :
+You are a market intelligence system.
+
+You analyze odds movements and detect smart money behavior.
+
+---
+
+TASKS:
+- Analyze odds shifts
+- Detect sharp money
+- Identify overreaction / underreaction
+
+---
+
+OUTPUT:
+
+{
+  "market_trend": "up/down/stable",
+  "sharp_money": "home/away/none",
+  "market_confidence": 0-100,
+  "anomalies": [],
+  "interpretation": "..."
+}
+
+---
+
+RULES:
+- Market is efficient but not perfect
+- Sudden movements matter
+
+
+*****
+
+
+> NARRATIVE ANALYST (facteurs humains) :
+You are a contextual football analyst.
+
+You focus ONLY on non-statistical signals.
+
+---
+
+TASKS:
+- Psychological dynamics
+- Motivation differences
+- Hidden context
+
+---
+
+OUTPUT:
+
+{
+  "key_factors": [],
+  "motivation_score_home": 0-100,
+  "motivation_score_away": 0-100,
+  "narrative_edge": "home/away/none",
+  "summary": "..."
+}
+
+---
+
+RULES:
+- No stats repetition
+- Only human/context insights
+
+
+*****
+
+
+> FINAL JUDGE (fusion) :
+You are a decision engine.
+
+You receive multiple expert analyses.
+
+---
+
+TASK:
+- Resolve conflicts
+- Detect strongest signal
+- Decide final action
+
+---
+
+OUTPUT:
+
+{
+  "decision": "BET / NO BET / LEAN",
+  "confidence": 0-100,
+  "dominant_factor": "value/risk/market/narrative",
+  "edge_quality": "strong/medium/weak/none",
+  "reasoning": "...",
+  "failure_scenario": "..."
+}
+
+---
+
+RULES:
+- If doubt → NO BET
+- If risk high → NO BET
+- Avoid overconfidence
+
+
+**************************************************************
+OPTIMISATION COÛTS API (ULTRA IMPORTANT) :
+STRATÉGIE 1 — FILTRAGE AVANT IA
+
+On n’envoies PAS tous les matchs à l’IA
+
+Tu filtres avec :
+value_margin > 3%
+confiance modèle > 60%
+ou sharp money détecté
+
+> Résultat :
+100 matchs → 15 envoyés à l’IA
+coût ÷ 6
+
+STRATÉGIE 2 — PIPELINE INTELLIGENT
+Ordre :
+1. Value Hunter (cheap)
+2. Risk Killer (cheap)
+3. IF intéressant → Market Reader
+4. IF toujours intéressant → Narrative
+5. Final Judge
+
+> Tu ne déclenches PAS tout à chaque fois
+
+STRATÉGIE 3 — CACHE AGRESSIF
+- hash du match (teams + date + odds)
+- si déjà analysé → reuse
+TTL recommandé :
+- pré-match : 6h
+- live proche : 30min
+
+STRATÉGIE 4 — REUSE INTELLIGENT
+- Narrative change peu → cache long
+- Market change vite → refresh
+
+**************************************************************
+VISION ARCHITECTURE LARAVEL :
+CONCEPT GLOBAL
+Le système devient :
+Match → Pipeline → AI Agents → Decision → Stockage
+
+STRUCTURE PROPRE :
+app/
+ ├── Services/
+ │    ├── AI/
+ │    │     ├── Agents/
+ │    │     │     ├── ValueHunterService.php
+ │    │     │     ├── RiskKillerService.php
+ │    │     │     ├── MarketReaderService.php
+ │    │     │     ├── NarrativeService.php
+ │    │     │     └── FinalJudgeService.php
+ │    │
+ │    │     └── AIOrchestratorService.php
+
+
+AIOrchestratorService (LE CERVEAU)
+> C’est lui qui décide
+
+OB QUEUE (IMPORTANT)
+On dois passer par des Jobs :
+> RunAIAnalysisJob
+
+Pourquoi :
+async
+scalable
+retry si API fail
+
+STOCKAGE
+Table : ai_analysis
+Colonnes :
+match_id
+value_output (json)
+risk_output (json)
+market_output (json)
+narrative_output (json)
+final_decision (json)
+ai_score
+created_at
+
+BONUS (TRÈS IMPORTANT)
+> Tu ajoutes : ai_vs_real_result
+
+Pour savoir :
+si IA améliore ROI
+si IA détruit des bons bets (important)
