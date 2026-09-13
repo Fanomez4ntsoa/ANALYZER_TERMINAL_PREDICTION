@@ -50,12 +50,12 @@ ne s'applique pas. Puis bornage des λ.
 `PoissonModelService` construit une matrice 7×7 de scores en supposant les deux
 lois indépendantes, et en dérive les probabilités de chaque marché.
 
-**Dixon-Coles n'est pas implémenté**, contrairement à ce que laissent croire deux
-commentaires du code. L'en-tête de `PoissonModelService` cite « Dixon & Coles
-(1997) » pour un modèle à lois indépendantes, alors que Dixon-Coles est justement
-la correction de cette indépendance sur les scores faibles (0-0, 1-0, 0-1, 1-1).
-`XGModelService` attribue à des « études Dixon-Coles » les constantes d'avantage
-domicile ×1.20 / ×0.88, sans source vérifiable.
+Correction de Dixon-Coles sur les scores faibles (0-0, 1-0, 0-1, 1-1), active par
+défaut : ρ par population, estimé par `DixonColesRho` sur les scores observés des
+saisons de travail (strictement antérieures au match en backtest). Sans estimation,
+deux lois indépendantes. Jusqu'au 13/09/2026, le code citait Dixon-Coles sans
+l'implémenter ; `XGModelService` attribue toujours à des « études Dixon-Coles » les
+constantes d'avantage domicile ×1.20 / ×0.88, sans source vérifiable.
 
 Signal marché, avec cotes Over/Under : total fixé par l'O/U, puis partage
 domicile-extérieur recherché sur le 1X2 à ce total (recalage conjoint). Sans O/U :
@@ -91,6 +91,7 @@ marché dépasse les 40 % affichés.
 |---|---|
 | `Probability/XGModelService` | Estimation des λ |
 | `Probability/PoissonModelService` | Matrice de scores et probabilités |
+| `Probability/DixonColesRho` | ρ de Dixon-Coles par population, maximum de vraisemblance sur les scores (saisons antérieures) |
 | `Probability/LeagueGoalAverages` | Buts par match par championnat, saisons de travail (ancre du total sans O/U) |
 | `PredictionService` | Persistance des probabilités |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base |
@@ -148,7 +149,7 @@ football-data:import --seasons=2324 --divisions=E0,D1 [--force-download]
        → TeamNameAudit : noms distincts par division, paires ne différant que par un
          caractère non-ASCII signalées
 
-backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--legacy-share] [--anchor]
+backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--legacy-share] [--legacy-poisson] [--anchor]
   │    (config/xg-model.php : facteur domicile hors signal marché, recalage conjoint, ancrage désactivé ;
   │     --legacy-* rétablissent l'ancien comportement, --anchor active l'ancrage, pour la mesure)
   │    estimateurs tagués SeasonScopedEstimator bornés à chaque match aux saisons antérieures
@@ -163,7 +164,7 @@ backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--le
        ├─ table backtest_fd_predictions                           une ligne par match × famille × marché × issue
        └─ backtest_fd_runs + storage/app/private/backtest/run_{id}_{label}.json
 
-backtest:report {run} [--compare={run}]
+backtest:report {run} [--compare={run}] [--seasons=]
   └─ lecture par population (config football-data.populations), jamais 22 divisions confondues
        → Brier modèle / entrée démarginalisée / Pinnacle clôture, annoncée vs observée,
          biais domicile, décalage Over en transfert, segmentation par division

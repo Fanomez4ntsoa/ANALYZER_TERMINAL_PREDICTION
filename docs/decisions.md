@@ -384,3 +384,65 @@ l'O/U à l'identique et réduit le biais domicile ; sa perte de Brier 1X2 (0,000
 0,0003) est inférieure au gain de la correction domicile. Proposition soumise à
 décision : passer Dixon-Coles avant le facteur multiplicatif, puisque le résidu
 sur le nul, qui contamine les autres mesures, est toujours là.
+
+---
+
+## 2026-09-13 — Dixon-Coles : la cause est l'indépendance, pas le partage ni le total
+
+Le run #6 l'a montré : deux lois de Poisson indépendantes ne peuvent pas produire à
+la fois le total du marché O/U et le taux de nul du 1X2. On corrigeait des
+symptômes. La correction de Dixon & Coles (1997) s'attaque à la cause : un facteur
+τ sur les scores 0-0, 1-0, 0-1 et 1-1, puis renormalisation de la matrice.
+
+**Estimation de ρ.** Maximum de vraisemblance sur les scores observés, jamais sur
+les cotes (`DixonColesRho` ne lit que saison, division, équipes et buts). Modèle
+complet de Dixon-Coles : attaque et défense par équipe, avantage domicile par
+championnat-saison, ρ par population (Top 5, deuxièmes divisions, autres).
+Maximisation alternée ; l'estimateur retrouve ρ = −0,12, 0 et −0,20 sur des scores
+simulés, chaque fois dans son intervalle de confiance.
+
+**Règle des saisons antérieures, appliquée par le moteur.** Pour un match de la
+saison s, ρ est estimé sur les saisons de travail strictement antérieures à s. Trois
+garde-fous lèvent une exception : estimateur lu sans bornage pendant un run ; ligne
+d'une saison non antérieure dans les données d'estimation, quel que soit le
+chargeur ; estimateur utilisé par le modèle mais non borné par le moteur. Sans
+saison antérieure (2122) : pas de ρ, deux Poisson indépendantes, donc 2122 est
+identique au run #6. La comparaison qui compte porte sur 2223 et 2324.
+
+**Anciens comportements reproductibles.** `--legacy-poisson` reproduit le run #6 et
+`--legacy-poisson --legacy-share` le run #4, à l'identique (4 800 lignes chacun,
+écart nul).
+
+**ρ estimés avant le run (scores seulement) :**
+
+| Population | Saison évaluée 2223 (estimé sur 2122) | Saison évaluée 2324 (estimé sur 2122-2223) |
+|---|---|---|
+| Top 5 | −0,069, IC 95 % [−0,131 ; −0,008] | −0,042, IC 95 % [−0,086 ; +0,002] |
+| Deuxièmes divisions | −0,091, IC 95 % [−0,150 ; −0,032] | −0,057, IC 95 % [−0,098 ; −0,016] |
+| Inférieures et autres | −0,059, IC 95 % [−0,103 ; −0,015] | −0,044, IC 95 % [−0,075 ; −0,013] |
+
+Les intervalles se recouvrent largement : les trois populations ne se distinguent
+pas. Un ρ unique serait une simplification défendable.
+
+**Faits mathématiques, établis avant le run.** Les quatre corrections s'annulent en
+somme et portent sur des scores d'au plus deux buts : à λ fixés, ρ ne change ni
+P(Under 2.5) ni P(Under 3.5). Il augmente le nul, le BTTS Oui et l'Over 1.5 quand
+ρ < 0. L'O/U 3.5 ne peut bouger que par le déplacement des λ.
+
+**Repère, sans servir à l'estimation.** Une sonde sur cinq profils de cotes montre
+que 1X2 et O/U deviennent cohérents vers ρ = −0,10 : l'écart de nul du recalage
+conjoint et l'écart entre total de grille et total O/U s'annulent ensemble. Les ρ
+estimés sur les scores valent environ la moitié.
+
+Prédictions notées avant le run #7 :
+
+- **Claude** : (1) l'écart sur le nul au 1X2 se réduit nettement ; (2) le décalage
+  de l'Over en transfert diminue sans ancre ; (3) le BTTS Oui du Top 5 se
+  rapproche de l'observé. Précision ajoutée d'après la sonde et les ρ estimés :
+  réduction de l'ordre de la moitié, pas de disparition.
+- **Utilisateur** : (4) Brier 1X2 sous Bet365 ouverture démarginalisé ; (5) au-dessus
+  de Pinnacle clôture. S'il passe dessous : chercher une fuite, en commençant par
+  la période d'estimation de ρ.
+- **Hypothèse à trancher** : si ρ résorbe le déficit de nul, le décalage de l'Over en
+  transfert diminue sans ancre, et le facteur multiplicatif par championnat devient
+  inutile.
