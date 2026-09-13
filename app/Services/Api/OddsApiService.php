@@ -336,18 +336,22 @@ class OddsApiService
 
     /**
      * Normaliser les cotes d'un événement vers le format FootballMatch.
-     * Retourne les meilleures cotes parmi tous les bookmakers.
+     * Ne retient que les cotes du bookmaker configuré (odds-api.bookmaker).
+     * Si ce bookmaker est absent de la réponse, toutes les cotes restent à null
+     * et ne seront donc pas stockées (aucun repli sur un autre bookmaker).
      */
     private function normalizeOdds(array $event): array
     {
         $bookmakers = $event['bookmakers'] ?? [];
+        $selectedBookmaker = (string) config('odds-api.bookmaker', 'bet365');
         $result = [
             'event_id' => $event['id'],
             'home_team' => $event['home_team'],
             'away_team' => $event['away_team'],
             'commence_time' => $event['commence_time'],
             'bookmaker_count' => count($bookmakers),
-            // Cotes 1X2 (meilleures parmi tous les bookmakers)
+            'bookmaker' => $selectedBookmaker,
+            // Cotes 1X2 (bookmaker configuré uniquement)
             'odds_home' => null,
             'odds_draw' => null,
             'odds_away' => null,
@@ -391,19 +395,10 @@ class OddsApiService
 
                         if ($name === $event['home_team']) {
                             $bookmakerOdds['home'] = $price;
-                            if ($result['odds_home'] === null || $price > $result['odds_home']) {
-                                $result['odds_home'] = $price;
-                            }
                         } elseif ($name === 'Draw') {
                             $bookmakerOdds['draw'] = $price;
-                            if ($result['odds_draw'] === null || $price > $result['odds_draw']) {
-                                $result['odds_draw'] = $price;
-                            }
                         } else {
                             $bookmakerOdds['away'] = $price;
-                            if ($result['odds_away'] === null || $price > $result['odds_away']) {
-                                $result['odds_away'] = $price;
-                            }
                         }
                     }
                     continue;
@@ -424,9 +419,6 @@ class OddsApiService
                         $resultKey = "odds_{$bookKey}";
 
                         $bookmakerOdds[$bookKey] = $price;
-                        if ($result[$resultKey] === null || $price > $result[$resultKey]) {
-                            $result[$resultKey] = $price;
-                        }
                     }
                     continue;
                 }
@@ -438,14 +430,8 @@ class OddsApiService
 
                         if ($name === 'yes') {
                             $bookmakerOdds['btts_yes'] = $price;
-                            if ($result['odds_btts_yes'] === null || $price > $result['odds_btts_yes']) {
-                                $result['odds_btts_yes'] = $price;
-                            }
                         } elseif ($name === 'no') {
                             $bookmakerOdds['btts_no'] = $price;
-                            if ($result['odds_btts_no'] === null || $price > $result['odds_btts_no']) {
-                                $result['odds_btts_no'] = $price;
-                            }
                         }
                     }
                     continue;
@@ -465,9 +451,6 @@ class OddsApiService
                         $resultKey = "odds_{$bookKey}";
 
                         $bookmakerOdds[$bookKey] = $price;
-                        if ($result[$resultKey] === null || $price > $result[$resultKey]) {
-                            $result[$resultKey] = $price;
-                        }
                     }
                     continue;
                 }
@@ -478,7 +461,17 @@ class OddsApiService
             }
         }
 
-        // Calculer les cotes moyennes (pour comparaison avec les meilleures)
+        // Cotes retenues : uniquement celles du bookmaker configuré
+        $selectedOdds = $result['bookmakers_detail'][$selectedBookmaker] ?? null;
+        if ($selectedOdds === null) {
+            Log::info("OddsApi: bookmaker '{$selectedBookmaker}' absent pour {$event['home_team']} vs {$event['away_team']} — aucune cote retenue");
+        } else {
+            foreach ($selectedOdds as $key => $price) {
+                $result["odds_{$key}"] = $price;
+            }
+        }
+
+        // Cotes moyennes tous bookmakers (information uniquement)
         $result['odds_avg'] = $this->calculateAverageOdds($result['bookmakers_detail']);
 
         return $result;

@@ -5,6 +5,30 @@
 
 ---
 
+## ⚠️ Simplification du 2026-09-13 (branche `refactor/predictions-only`)
+
+> Cette section prime sur tout ce qui suit. Les sections « Architecture cible », « Roadmap » et « Règles de travail » ci-dessous décrivent l'état **antérieur** et sont conservées comme historique.
+
+**Principe :** le modèle produit des probabilités, rien d'autre. Consensus, confiance pondérée, score, niveaux, verdicts value et Layer 2 ont été supprimés.
+
+**Flux actuel :** `pipeline:run-sync` → `/analysis` bouton « Calculer » → `MatchAnalysisController::analyzeExistingMatch` → `ContextEnricherService::enrich` (features horodatées via `context_data.collected_at`) → `PredictionService::computeAndStore` → table `predictions`.
+
+**Table `predictions`** (une ligne par match × marché × issue) : `market`, `outcome`, `model_probability`, `odds`, `implied_probability` (1/cote), `fair_probability` (marge retirée, ensemble normalisé ; DC dérivée du 1X2 fair), `edge` (= modèle − fair), `bookmaker`, `odds_taken_at`, `computed_at`. Marchés : 1X2, Double Chance 1X/X2/12, Over/Under 2.5, BTTS.
+
+**Supprimé :** Sources A/B/C (modèle `Source`, formulaire manuel, `DataImportService`, `ParserService`, `ImportReactHistory`, `config/reliability.php`), Source E, `AnalyzerService`, `CalculatorService`, `ValueAnalyzer`, `RulesService`, tout Layer 2 (`Layer2Service`, `Analyzers/`, `FormationProfiles`, `Layer2Coefficients`), modèles `Recommendation`/`MatchValidation`/`Combo`, code mort du contrôleur, `routes/api.php`.
+
+**Débranché sans suppression :** agents Claude (`app/Services/AI/*`, `ai:batch`, `ai:test` sortent avec un message), `ComboSelectorService`, `ComboBuilderService`, `GenerateDailyCombosJob` (commande `combos:generate` retirée).
+
+**Intact :** `XGModelService`, `PoissonModelService`, `MatchEnricherService`, clients API, `ContextEnricherService`, `CLVTrackerService`, tables `matches` et `advanced_data`.
+
+**Tables laissées en base sans code (données historiques) :** `recommendations`, `match_validations`, `sources`, `combos`. Colonnes mortes de `matches` : `global_confidence`, `layer1_score`, `layer2_score`, `convergence`, `context`, `sources_data`.
+
+**Cotes :** un seul bookmaker (`ODDS_API_BOOKMAKER=bet365`, `API_FOOTBALL_PREFERRED_BOOKMAKER=8`), plus de cote max multi-bookmakers ni de repli. Bookmaker absent = cote non stockée.
+
+**Mode strict :** `Model::preventSilentlyDiscardingAttributes()` actif (attribut hors `$fillable` → exception).
+
+---
+
 ## Contexte du projet
 
 Système de prédiction football personnel, long terme, avec pour objectif d'atteindre **70-80% de réussite sur des combos 3-4 matchs à cote totale 1.90~2.10**.

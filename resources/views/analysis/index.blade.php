@@ -29,11 +29,6 @@
         </div>
 
         <div class="flex items-center gap-3">
-            <a href="{{ route('analysis.manual') }}"
-               class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
-                Saisie manuelle
-            </a>
-
             @if($matches->count() > 0)
                 <button @click="runAll()"
                         :disabled="analyzing"
@@ -45,8 +40,8 @@
                     </svg>
                     <svg x-show="analyzing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                     <span x-text="analyzing
-                        ? (reanalyzing ? 'Re-analyse en cours...' : 'Analyse en cours...') + ' (' + analyzed + '/' + total + ')'
-                        : (pendingMatches.length === 0 ? 'Re-analyser tous les matchs' : 'Analyser tous les matchs')"></span>
+                        ? (reanalyzing ? 'Recalcul en cours...' : 'Calcul en cours...') + ' (' + analyzed + '/' + total + ')'
+                        : (pendingMatches.length === 0 ? 'Recalculer tous les matchs' : 'Calculer tous les matchs')"></span>
                 </button>
             @endif
         </div>
@@ -86,8 +81,8 @@
                         <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Competition</th>
                         <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Heure</th>
                         <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cotes 1X2</th>
-                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Sources</th>
-                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Confiance</th>
+                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Données</th>
+                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Prédictions</th>
                         <th class="px-3 py-3"></th>
                     </tr>
                 </thead>
@@ -118,7 +113,7 @@
                             </td>
                             <td class="px-3 py-3 text-center">
                                 <div class="flex items-center justify-center gap-1">
-                                    @foreach($match->available_sources as $src => $available)
+                                    @foreach($match->available_data as $src => $available)
                                         <span class="px-1.5 py-0.5 text-[10px] font-semibold rounded {{ $available ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-300' }}"
                                               title="{{ $src }}">
                                             {{ strtoupper(substr($src, 0, 1)) }}
@@ -126,13 +121,14 @@
                                     @endforeach
                                 </div>
                             </td>
-                            <td class="px-3 py-3 text-center" id="confidence-{{ $match->id }}">
+                            <td class="px-3 py-3 text-center" id="status-{{ $match->id }}">
                                 @if($match->is_analyzed)
-                                    <span class="font-semibold {{ $match->global_confidence >= 70 ? 'text-emerald-600' : ($match->global_confidence >= 50 ? 'text-amber-600' : 'text-slate-400') }}">
-                                        {{ $match->global_confidence }}%
+                                    <span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-50 text-emerald-700"
+                                          title="Calculé le {{ displayDate($match->computed_at) }}">
+                                        {{ $match->predictions->count() }} issues
                                     </span>
                                 @else
-                                    <span class="text-slate-300 text-xs">Non analyse</span>
+                                    <span class="text-slate-300 text-xs">Non calculé</span>
                                 @endif
                             </td>
                             <td class="px-3 py-3 text-right">
@@ -218,7 +214,7 @@ function matchAnalyzer() {
                 this.analyzed++;
             }
 
-            this.currentMatch = 'Termine !';
+            this.currentMatch = 'Terminé !';
             this.analyzing = false;
 
             setTimeout(() => {
@@ -229,7 +225,7 @@ function matchAnalyzer() {
         async reanalyzeAll() {
             if (this.allMatches.length === 0) return;
 
-            if (!confirm(`Re-analyser les ${this.allMatches.length} matchs ? Les recommandations actuelles seront ecrasees.`)) {
+            if (!confirm(`Recalculer les ${this.allMatches.length} matchs ? Les prédictions actuelles seront écrasées.`)) {
                 return;
             }
 
@@ -245,7 +241,7 @@ function matchAnalyzer() {
                 this.analyzed++;
             }
 
-            this.currentMatch = 'Re-analyse terminee !';
+            this.currentMatch = 'Recalcul terminé !';
             this.analyzing = false;
             this.reanalyzing = false;
 
@@ -267,12 +263,9 @@ function matchAnalyzer() {
                 const data = await response.json();
 
                 if (data.success) {
-                    // Mettre à jour la confiance dans le tableau
-                    const cell = document.getElementById(`confidence-${matchId}`);
+                    const cell = document.getElementById(`status-${matchId}`);
                     if (cell) {
-                        const conf = data.global_confidence;
-                        const color = conf >= 70 ? 'text-emerald-600' : (conf >= 50 ? 'text-amber-600' : 'text-slate-400');
-                        cell.innerHTML = `<span class="font-semibold ${color}">${conf}%</span>`;
+                        cell.innerHTML = `<span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-50 text-emerald-700">${data.predictions_count} issues</span>`;
                     }
                 } else {
                     this.errors.push(`${matchName}: ${data.error || 'Erreur inconnue'}`);

@@ -40,25 +40,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/analyze-match/{match}', [MatchAnalysisController::class, 'analyzeExistingMatch'])
             ->name('analyze_match');
 
-        // Ancien formulaire de saisie manuelle (Sources A/B/C)
-        Route::get('/manual', [MatchAnalysisController::class, 'manualInput'])
-            ->name('manual');
-
-        // Ancien POST analyse manuelle (inchangé)
-        Route::post('/', [MatchAnalysisController::class, 'analyze'])
-            ->name('analyze');
-
-        // Résultats
+        // Prédictions du dernier match calculé (ou ?match_id=)
         Route::get('/results', [MatchAnalysisController::class, 'results'])
             ->name('results');
-
-        // Sauvegarder
-        Route::post('/save', [MatchAnalysisController::class, 'save'])
-            ->name('save');
-
-        // Nouveau match (reset)
-        Route::get('/new', [MatchAnalysisController::class, 'newMatch'])
-            ->name('new');
     });
     
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -75,9 +59,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/{id}', [MatchAnalysisController::class, 'show'])
             ->name('show');
 
-        // Route::get('/{match}', [MatchAnalysisController::class, 'showMatch'])
-        //     ->name('show');
-        
         // Supprimer un match
         Route::delete('/{match}', [MatchAnalysisController::class, 'deleteMatch'])
             ->name('delete');
@@ -147,11 +128,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 'anthropic_key' => !empty(env('ANTHROPIC_API_KEY')),
                 'pipeline_time' => env('PIPELINE_SCHEDULE_TIME', '14:00'),
                 'pipeline_update' => env('PIPELINE_SCHEDULE_UPDATE', '17:00'),
-                'combo_min_confidence' => env('COMBO_MIN_CONFIDENCE', 65),
-                'combo_min_odds' => env('COMBO_MIN_ODDS', 1.90),
-                'combo_max_odds' => env('COMBO_MAX_ODDS', 2.10),
-                'combo_min_matches' => env('COMBO_MIN_MATCHES', 3),
-                'combo_max_matches' => env('COMBO_MAX_MATCHES', 4),
+                'bookmaker_odds_api' => config('odds-api.bookmaker'),
+                'bookmaker_api_football' => config('api-football.preferred_bookmaker'),
             ],
         ]);
     })->name('settings.index');

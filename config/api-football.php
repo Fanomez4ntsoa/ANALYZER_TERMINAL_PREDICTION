@@ -63,8 +63,9 @@ return [
         'odds'       => 120,     // 2h — cotes (stables avant kickoff)
     ],
 
-    // Bookmaker prioritaire pour /odds (1 call ciblé = payload réduit).
-    // 8 = Bet365 (le plus complet : 86 marchés sur tests). Fallback automatique sur tous bookmakers.
+    // Bookmaker unique pour /odds (id API-Football). 8 = Bet365.
+    // Aucun repli sur les autres bookmakers : s'il ne couvre pas le match, aucune cote n'est stockée.
+    // Doit désigner le même bookmaker que odds-api.bookmaker.
     'preferred_bookmaker' => env('API_FOOTBALL_PREFERRED_BOOKMAKER', 8),
 
     // Limites API (plan gratuit : 100 req/jour)

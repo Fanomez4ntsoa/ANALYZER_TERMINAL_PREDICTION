@@ -243,10 +243,11 @@ class ApiFootballService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Récupérer les cotes d'un match : 1 appel /odds → tous marchés / lignes / bookmakers.
+     * Récupérer les cotes d'un match : 1 appel /odds ciblé sur le bookmaker configuré
+     * (api-football.preferred_bookmaker, Bet365 par défaut).
      *
-     * Stratégie : essayer le bookmaker préféré (Bet365 par défaut) d'abord pour limiter
-     * le payload, fallback sur tous les bookmakers si le préféré ne couvre pas le match.
+     * Aucun repli sur les autres bookmakers : si le bookmaker configuré ne couvre
+     * pas le match, on retourne null et aucune cote n'est stockée.
      *
      * @return array|null  Cotes normalisées (cf. parseFixtureOdds) ou null si pas dispo
      */
@@ -254,7 +255,6 @@ class ApiFootballService
     {
         $preferred = (int) config('api-football.preferred_bookmaker', 8);
 
-        // 1. Tentative ciblée sur le bookmaker préféré
         $payload = $this->cachedRequest(
             "fixture_odds_{$fixtureId}_bk{$preferred}",
             'odds',
@@ -262,24 +262,10 @@ class ApiFootballService
             ['fixture' => $fixtureId, 'bookmaker' => $preferred]
         );
 
-        $parsed = $this->parseFixtureOdds($payload);
+        $parsed = $this->parseFixtureOdds($payload, $preferred);
 
-        // 2. Fallback : si le préféré n'a pas couvert (= aucune cote pivot 2.5),
-        // on récupère tous les bookmakers et prend la meilleure cote par marché.
-        if ($parsed === null || ($parsed['odds_over_2_5'] === null && $parsed['odds_under_2_5'] === null)) {
-            Log::info("ApiFootball: bookmaker préféré ({$preferred}) sans cotes pour fixture {$fixtureId} — fallback all bookmakers");
-
-            $payloadAll = $this->cachedRequest(
-                "fixture_odds_{$fixtureId}_all",
-                'odds',
-                '/odds',
-                ['fixture' => $fixtureId]
-            );
-
-            $parsedAll = $this->parseFixtureOdds($payloadAll);
-            if ($parsedAll !== null) {
-                return $parsedAll;
-            }
+        if ($parsed === null) {
+            Log::info("ApiFootball: bookmaker {$preferred} sans cotes pour fixture {$fixtureId} — aucune cote stockée");
         }
 
         return $parsed;
@@ -287,16 +273,24 @@ class ApiFootballService
 
     /**
      * Normaliser la réponse /odds en un dictionnaire de cotes.
-     * Quand plusieurs bookmakers offrent une ligne, on garde la MEILLEURE cote.
+     * Seul le bookmaker $bookmakerId est lu ; les autres sont ignorés.
+     * Retourne null si ce bookmaker est absent de la réponse.
      */
-    private function parseFixtureOdds(?array $response): ?array
+    private function parseFixtureOdds(?array $response, int $bookmakerId): ?array
     {
         if (empty($response) || empty($response[0])) {
             return null;
         }
 
         $event = $response[0];
-        $bookmakers = $event['bookmakers'] ?? [];
+        $bookmakers = array_values(array_filter(
+            $event['bookmakers'] ?? [],
+            fn ($b) => (int) ($b['id'] ?? 0) === $bookmakerId
+        ));
+
+        if (empty($bookmakers)) {
+            return null;
+        }
 
         // Lignes Goals Over/Under cibles (mappées vers le suffixe colonne)
         $goalLines = [
@@ -309,6 +303,7 @@ class ApiFootballService
         $result = [
             'fixture_id' => $event['fixture']['id'] ?? null,
             'bookmaker_count' => count($bookmakers),
+            'bookmaker' => $bookmakers[0]['name'] ?? (string) $bookmakerId,
             'bookmakers_used' => array_map(fn($b) => $b['name'] ?? '?', $bookmakers),
             // 1X2
             'odds_home' => null,
@@ -325,8 +320,9 @@ class ApiFootballService
             'odds_dc_1x' => null, 'odds_dc_12' => null, 'odds_dc_x2' => null,
         ];
 
-        $applyMax = function (string $key, float $price) use (&$result) {
-            if ($result[$key] === null || $price > $result[$key]) {
+        // Première valeur rencontrée pour le bookmaker retenu (pas de max multi-bookmakers)
+        $apply = function (string $key, float $price) use (&$result) {
+            if ($result[$key] === null) {
                 $result[$key] = $price;
             }
         };
@@ -340,9 +336,9 @@ class ApiFootballService
                     foreach ($values as $v) {
                         $price = (float) $v['odd'];
                         $val = strtolower($v['value']);
-                        if ($val === 'home') $applyMax('odds_home', $price);
-                        elseif ($val === 'draw') $applyMax('odds_draw', $price);
-                        elseif ($val === 'away') $applyMax('odds_away', $price);
+                        if ($val === 'home') $apply('odds_home', $price);
+                        elseif ($val === 'draw') $apply('odds_draw', $price);
+                        elseif ($val === 'away') $apply('odds_away', $price);
                     }
                     continue;
                 }
@@ -355,7 +351,7 @@ class ApiFootballService
                         $side = strtolower($m[1]);  // over | under
                         $point = (string) (float) $m[2];  // normaliser "2.5" / "3.5"
                         if (!isset($goalLines[$point])) continue;
-                        $applyMax("odds_{$side}_{$goalLines[$point]}", $price);
+                        $apply("odds_{$side}_{$goalLines[$point]}", $price);
                     }
                     continue;
                 }
@@ -364,8 +360,8 @@ class ApiFootballService
                     foreach ($values as $v) {
                         $price = (float) $v['odd'];
                         $val = strtolower($v['value']);
-                        if ($val === 'yes') $applyMax('odds_btts_yes', $price);
-                        elseif ($val === 'no') $applyMax('odds_btts_no', $price);
+                        if ($val === 'yes') $apply('odds_btts_yes', $price);
+                        elseif ($val === 'no') $apply('odds_btts_no', $price);
                     }
                     continue;
                 }
@@ -375,9 +371,9 @@ class ApiFootballService
                     foreach ($values as $v) {
                         $price = (float) $v['odd'];
                         $val = strtolower($v['value']);
-                        if ($val === 'home/draw') $applyMax('odds_dc_1x', $price);
-                        elseif ($val === 'home/away') $applyMax('odds_dc_12', $price);
-                        elseif ($val === 'draw/away') $applyMax('odds_dc_x2', $price);
+                        if ($val === 'home/draw') $apply('odds_dc_1x', $price);
+                        elseif ($val === 'home/away') $apply('odds_dc_12', $price);
+                        elseif ($val === 'draw/away') $apply('odds_dc_x2', $price);
                     }
                     continue;
                 }

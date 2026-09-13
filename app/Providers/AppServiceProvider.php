@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Blade;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -20,6 +20,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Mode strict partiel : un attribut absent de $fillable passé à
+        // create()/update()/fill() lève une exception au lieu d'être perdu.
+        // preventLazyLoading() n'est volontairement pas activé : XGModelService
+        // et les vues chargent des relations à la demande.
+        Model::preventSilentlyDiscardingAttributes();
     }
 }

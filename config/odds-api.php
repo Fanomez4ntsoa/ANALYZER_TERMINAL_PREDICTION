@@ -11,6 +11,11 @@ return [
     // Format des cotes
     'odds_format' => 'decimal',
 
+    // Bookmaker unique dont on retient les cotes (clé The Odds API).
+    // Si ce bookmaker est absent de la réponse, aucune cote n'est stockée.
+    // Doit désigner le même bookmaker que api-football.preferred_bookmaker.
+    'bookmaker' => env('ODDS_API_BOOKMAKER', 'bet365'),
+
     // Marchés "featured" disponibles sur l'endpoint /sports/{sport}/odds (1 call par ligue).
     // The Odds API limite cet endpoint à : h2h, spreads, totals, outrights.
     'default_markets' => ['h2h', 'totals'],

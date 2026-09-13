@@ -28,6 +28,13 @@ class AiBatchAnalyze extends Command
         FinalJudgeService $finalJudge,
         ClaudeClient $claude
     ): int {
+        // Hors flux depuis la simplification (2026-09-13) : la table
+        // `recommendations` n'est plus alimentée, ce batch n'a plus d'entrée.
+        $this->warn('Commande hors flux depuis la simplification : les agents IA sont débranchés du pipeline.');
+        $this->line('Les fichiers app/Services/AI/* et la table ai_analysis sont conservés pour une éventuelle réintégration.');
+        return self::SUCCESS;
+
+        // @phpstan-ignore-next-line — code conservé volontairement (débranché)
         if (!$claude->isConfigured()) {
             $this->error('ANTHROPIC_API_KEY non configuree');
             return self::FAILURE;
