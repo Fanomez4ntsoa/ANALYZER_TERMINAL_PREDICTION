@@ -280,3 +280,66 @@ L'ancrage reste actif par défaut dans le code commité (`config/xg-model.php`),
 attendant une décision. Piste proposée, non codée : corriger la moyenne du total de
 grille par un facteur multiplicatif par championnat estimé sur les saisons
 antérieures, ce qui garde la variation match par match.
+
+---
+
+## 2026-09-13 — Règle du backtest : tout paramètre estimé l'est sur des saisons strictement antérieures
+
+Tout paramètre estimé sur des matchs historiques (moyenne de championnat, facteur
+de calibration, constante réglée) ne peut l'être, pour un match évalué, que sur
+des saisons strictement antérieures à la sienne. Cela vaut pour l'ancre du total
+comme pour tout paramètre futur. L'ancre mesurée aux runs #3 et #5 violait cette
+règle : elle incluait les matchs évalués.
+
+C'est une règle du moteur, pas une précaution au cas par cas :
+
+- tout service qui estime un paramètre depuis `historical_matches` implémente
+  `SeasonScopedEstimator` et est tagué dans `AppServiceProvider` ;
+- `CalibrationBacktestService` borne chaque estimateur tagué à la saison du match
+  avant de le prédire, puis retire le bornage en fin de run ;
+- pendant un run, un estimateur lu sans bornage lève une exception au lieu de fuir ;
+- sans saison antérieure disponible (2122, première saison importée), il n'y a pas
+  d'estimation : le paramètre n'est pas appliqué, aucune constante ne le remplace.
+
+Les saisons réservées ne servent jamais d'estimation, même antérieures : un match
+de 2526 s'estime sur 2122 à 2324 seulement. En production, sans bornage, les
+estimateurs utilisent les saisons de travail.
+
+---
+
+## 2026-09-13 — Ancrage du total désactivé par défaut
+
+Sans fuite, l'ancre absolue dégrade le Brier du transfert dans le Top 5 : un total
+constant par championnat efface la variation match par match que la grille tire
+des cotes 1X2. On ne garde pas en production une correction qui échange de la
+variance utile contre une moyenne juste. L'ancrage reste disponible
+(`config/xg-model.php`, `backtest:run --anchor`), désactivé.
+
+---
+
+## 2026-09-13 — Recalage conjoint du total et du partage
+
+Avec cotes Over/Under, le total λh + λa est fixé par P(Under 2.5) démarginalisée,
+puis le partage domicile-extérieur est recherché sur le 1X2 à ce total. Avant, le
+partage trouvé par la grille à un total libre était conservé lors du recalage,
+ce qui retirait 1,6 à 2,1 points au nul (run #4). Même critère d'erreur que la
+grille (somme des écarts absolus), un seul paramètre libre : une seule chose
+change. L'ancien chemin reste mesurable (`--legacy-share`) et reproduit le run #4
+à l'identique (4 800 lignes, écart nul).
+
+Sous deux Poisson indépendantes, le total de buts suit une Poisson de paramètre
+λh + λa : P(Under 2.5) ne dépend que du total, et le total se calcule exactement.
+
+Prédictions notées avant le run #6 :
+
+- **Claude** : biais du nul disparu, biais domicile sous 0,5 point.
+- **Utilisateur** : Brier 1X2 légèrement sous celui de Bet365 ouverture
+  démarginalisé, puisque le modèle utilise deux marchés au lieu d'un, et toujours
+  au-dessus de Pinnacle clôture. S'il passe sous Pinnacle : chercher une fuite.
+
+Réserve de Claude, formulée avant le run après une sonde sur cinq profils de cotes :
+à total fixé par l'O/U, aucun partage ne rend le nul du marché. Il manque environ
+2 points dans tous les cas (−0,7 à −2,4). Le recalage conjoint déplace le résidu
+vers l'outsider, il ne le supprime pas. La première prédiction devrait donc
+échouer sur le nul. Ce déficit est la signature de l'indépendance des deux lois,
+ce qui renvoie à Dixon-Coles.

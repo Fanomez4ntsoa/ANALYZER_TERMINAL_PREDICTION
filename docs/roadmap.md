@@ -83,14 +83,18 @@ Fait le 13/09/2026 :
     divisions, neutre ailleurs. Ancrage non retenu en l'état.
   - BTTS Oui du Top 5 : −2,6 → −3,0. Pas lié au biais domicile.
 
-Reste à faire :
+- Décisions du 13/09/2026 : ancrage désactivé par défaut ; recalage conjoint
+  total/partage ; règle générale des estimateurs bornés aux saisons strictement
+  antérieures (`SeasonScopedEstimator`).
 
-- Décider du sort de l'ancrage (désactiver, ou remplacer par un facteur
-  multiplicatif par championnat estimé sur les saisons antérieures)
-- Décider d'un ajustement conjoint total/partage dans `lambdasFromOdds` : le
-  rééchelonnage à partage constant retire 1,6 à 2,1 points au nul
-- Rendre `backtest:run` capable d'ancrer sur les seules saisons antérieures, pour
-  que toute mesure d'ancre soit sans fuite
+Reste à faire, dans cet ordre :
+
+- Run #6 : recalage conjoint, échantillon de travail, Bet365 ouverture
+- Facteur multiplicatif par championnat sur le total de grille, estimé sur les
+  saisons antérieures, mesuré sur le modèle à recalage conjoint
+- Test futur, une chose à la fois : correction de Dixon-Coles sur les scores
+  faibles, mesurée sur le BTTS (Oui sous-estimé de 3 points dans le Top 5) et sur
+  les lignes 1.5 et 3.5. Les commentaires du code affirment à tort qu'elle existe.
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
 - Seulement ensuite : `--sample=holdout`
 

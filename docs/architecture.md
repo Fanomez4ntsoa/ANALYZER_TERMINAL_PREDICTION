@@ -45,11 +45,24 @@ quatre signaux :
 
 L'avantage domicile (×1.20 / ×0.88) s'applique aux seuls signaux comparaison et
 pseudo-xG, avant la fusion : les cotes le contiennent déjà. En mode marché seul il
-ne s'applique pas. Sans cotes Over/Under, le total des λ est ancré sur la moyenne
-de buts du championnat (`config/xg-model.php`). Puis bornage des λ.
+ne s'applique pas. Puis bornage des λ.
 
 `PoissonModelService` construit une matrice 7×7 de scores en supposant les deux
 lois indépendantes, et en dérive les probabilités de chaque marché.
+
+**Dixon-Coles n'est pas implémenté**, contrairement à ce que laissent croire deux
+commentaires du code. L'en-tête de `PoissonModelService` cite « Dixon & Coles
+(1997) » pour un modèle à lois indépendantes, alors que Dixon-Coles est justement
+la correction de cette indépendance sur les scores faibles (0-0, 1-0, 0-1, 1-1).
+`XGModelService` attribue à des « études Dixon-Coles » les constantes d'avantage
+domicile ×1.20 / ×0.88, sans source vérifiable.
+
+Signal marché, avec cotes Over/Under : total fixé par l'O/U, puis partage
+domicile-extérieur recherché sur le 1X2 à ce total (recalage conjoint). Sans O/U :
+grille sur (λh, λa), total libre.
+
+Tout paramètre estimé sur `historical_matches` implémente `SeasonScopedEstimator` :
+en backtest, il n'est estimé que sur les saisons strictement antérieures au match.
 
 **Limite connue** : le signal comparaison est lui-même dérivé d'un Poisson sur
 cotes. Il est donc largement redondant avec le signal marché. Le poids réel du
@@ -135,9 +148,10 @@ football-data:import --seasons=2324 --divisions=E0,D1 [--force-download]
        → TeamNameAudit : noms distincts par division, paires ne différant que par un
          caractère non-ASCII signalées
 
-backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--no-anchor]
-  │    (config/xg-model.php : facteur domicile hors signal marché, ancrage du total sans O/U ;
-  │     les deux options rétablissent l'ancien comportement pour la mesure)
+backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--legacy-share] [--anchor]
+  │    (config/xg-model.php : facteur domicile hors signal marché, recalage conjoint, ancrage désactivé ;
+  │     --legacy-* rétablissent l'ancien comportement, --anchor active l'ancrage, pour la mesure)
+  │    estimateurs tagués SeasonScopedEstimator bornés à chaque match aux saisons antérieures
   └─ CalibrationBacktestService::run
        ├─ pour chaque match : FootballMatch non persisté, cotes d'OUVERTURE seulement
        ├─ XGModelService::predict($match, marketOnly: true)      passe complète (1X2 + O/U 2.5)
