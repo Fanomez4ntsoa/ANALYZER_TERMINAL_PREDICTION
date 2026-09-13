@@ -495,3 +495,67 @@ petit résidu.
 
 **ρ par population** : les intervalles de confiance se recouvrent pour les deux
 saisons évaluées. Les populations ne se distinguent pas statistiquement.
+
+---
+
+## 2026-09-13 — Observation non exploitée : résidu de l'Over dans les divisions à buts
+
+Après Dixon-Coles (run #7), le décalage de l'Over 2.5 en transfert reste de −3 à −5
+points dans sept divisions à buts (E0, D1, D2, N1, G1, SC0, SC1). **On ne construit
+rien dessus.** Chaque écart reste sous deux erreurs types, et ces sept divisions ont
+été sélectionnées parmi vingt-deux précisément pour leur écart : c'est le piège du
+meilleur segment, où la sélection elle-même fabrique l'effet. L'observation est
+consignée pour être revue sur l'échantillon réservé, pas pour justifier un réglage.
+
+---
+
+## 2026-09-13 — ρ unique sur toutes les divisions
+
+Les intervalles de confiance des trois ρ par population se recouvrent largement
+(run #7) : un paramètre par population n'est pas justifié par les données. Un
+paramètre de moins, c'est une occasion de moins de se tromper. ρ est désormais
+estimé une fois sur toutes les divisions, saisons strictement antérieures
+(`dixon_coles_rho_scope` = `global`). `--rho-per-population` reproduit le run #7 à
+l'identique.
+
+ρ unique estimé avant le run, scores seulement :
+
+| Saison évaluée | Saisons d'estimation | Matchs | ρ | IC 95 % | ρ par population au run #7 |
+|---|---|---|---|---|---|
+| 2223 | 2122 | 7 822 | −0,070 | [−0,101 ; −0,040] | Top 5 −0,069, deuxièmes −0,091, autres −0,059 |
+| 2324 | 2122-2223 | 15 652 | −0,047 | [−0,069 ; −0,026] | Top 5 −0,042, deuxièmes −0,057, autres −0,044 |
+
+Prédictions notées avant le run #8 (Bet365 ouverture, ρ unique), comparé au run #7
+sur les matchs communs de 2223-2324 :
+
+- **Claude** : aucune population ne se dégrade de plus de deux erreurs types sur le
+  1X2, le transfert, le BTTS ou les O/U 1.5 et 3.5. Top 5 quasi inchangé (ρ presque
+  identique). Deuxièmes divisions : ρ plus faible en valeur absolue, donc nul et
+  Over en transfert un peu plus sous-estimés (Over transfert de −0,2 vers −1
+  environ). Divisions inférieures : ρ un peu plus fort en 2223, léger mieux.
+- **Utilisateur** : la mesure ne se dégrade dans aucune population.
+
+---
+
+## 2026-09-13 — Sensibilité à la source : Pinnacle ouverture contre Bet365 ouverture
+
+Run #9 : même modèle que le run #8 (Dixon-Coles, ρ unique), entrée Pinnacle
+ouverture (`--input=ps`). C'est une mesure de sensibilité à la source, pas une
+recherche d'avantage. Comparaison appariée sur les matchs communs aux deux runs.
+
+Couverture Pinnacle ouverture équivalente à Bet365 sur l'échantillon de travail ;
+marge 1X2 moyenne 2,5 à 4,5 % contre 5,4 à 7,1 % pour Bet365.
+
+Prédictions notées avant le run #9 :
+
+- **Claude** : le modèle suivant sa cote d'entrée à une erreur type près (run #7),
+  le Brier 1X2 nourri à Pinnacle ouverture est plus bas que nourri à Bet365
+  ouverture dans les trois populations, d'un écart du même ordre que celui entre
+  les deux cotes d'entrée démarginalisées. Le gain devrait être le plus visible
+  hors Top 5, où les marges Bet365 sont les plus fortes. Le transfert et les
+  marchés dérivés suivent dans le même sens. Le modèle reste au-dessus de Pinnacle
+  clôture.
+- **Point de vigilance, écrit avant le run** : Pinnacle ouverture et Pinnacle clôture
+  viennent du même bookmaker. Si le modèle nourri à Pinnacle ouverture rejoint ou
+  passe sous Pinnacle clôture, vérifier d'abord ce que contiennent réellement les
+  colonnes PSH/PSD/PSA de football-data (heure de relevé) avant toute conclusion.
