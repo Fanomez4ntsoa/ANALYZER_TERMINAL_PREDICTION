@@ -47,10 +47,14 @@ class PredictionService
         $analysis = $result['analysis'];
 
         $computedAt = now();
-        $bookmaker = config('odds-api.bookmaker');
-        // La table matches ne trace pas l'heure du relevé de cotes : on
-        // retient la dernière écriture de la ligne (cf. résumé, en suspens).
-        $oddsTakenAt = $match->updated_at;
+
+        // Frontière de provenance des cotes :
+        //  - odds_fetched_at renseigné → relevé API-Football sur le bookmaker configuré
+        //    (depuis le commit c6f76e2 du 2026-09-13) ;
+        //  - odds_fetched_at null → cotes héritées = maximum multi-bookmakers,
+        //    étiquetées `legacy_max` pour que le backtest puisse les exclure.
+        $oddsTakenAt = $match->odds_fetched_at;
+        $bookmaker = $oddsTakenAt !== null ? config('odds-api.bookmaker') : 'legacy_max';
 
         // Probabilités du modèle en décimal 0..1
         $model = [

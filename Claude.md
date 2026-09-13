@@ -17,13 +17,15 @@
 
 **Supprimé :** Sources A/B/C (modèle `Source`, formulaire manuel, `DataImportService`, `ParserService`, `ImportReactHistory`, `config/reliability.php`), Source E, `AnalyzerService`, `CalculatorService`, `ValueAnalyzer`, `RulesService`, tout Layer 2 (`Layer2Service`, `Analyzers/`, `FormationProfiles`, `Layer2Coefficients`), modèles `Recommendation`/`MatchValidation`/`Combo`, code mort du contrôleur, `routes/api.php`.
 
-**Débranché sans suppression :** agents Claude (`app/Services/AI/*`, `ai:batch`, `ai:test` sortent avec un message), `ComboSelectorService`, `ComboBuilderService`, `GenerateDailyCombosJob` (commande `combos:generate` retirée).
+**Débranché sans suppression :** agents Claude (`app/Services/AI/*`, `ai:batch`, `ai:test` sortent avec un message), `ComboSelectorService::generateForDate` et `GenerateDailyCombosJob` (sortent avec le même message), `ComboBuilderService` (commande `combos:generate` retirée).
 
 **Intact :** `XGModelService`, `PoissonModelService`, `MatchEnricherService`, clients API, `ContextEnricherService`, `CLVTrackerService`, tables `matches` et `advanced_data`.
 
 **Tables laissées en base sans code (données historiques) :** `recommendations`, `match_validations`, `sources`, `combos`. Colonnes mortes de `matches` : `global_confidence`, `layer1_score`, `layer2_score`, `convergence`, `context`, `sources_data`.
 
-**Cotes :** un seul bookmaker (`ODDS_API_BOOKMAKER=bet365`, `API_FOOTBALL_PREFERRED_BOOKMAKER=8`), plus de cote max multi-bookmakers ni de repli. Bookmaker absent = cote non stockée.
+**Cotes :** une seule source, API-Football `/odds` (`enrichWithApiFootballOdds`), sur un seul bookmaker (`API_FOOTBALL_PREFERRED_BOOKMAKER=8` = Bet365, `ODDS_API_BOOKMAKER=bet365` pour le CLV). Plus de cote max multi-bookmakers ni de repli ; bookmaker absent = cote non stockée. `matches.odds_fetched_at` horodate le relevé. The Odds API (`FetchOddsJob`, `linkOddsApiEvent`) ne stocke plus que `odds_api_event_id` pour le CLV tracker et n'écrit plus jamais dans `odds_*`.
+
+**Provenance :** `predictions.bookmaker` vaut le bookmaker configuré si `matches.odds_fetched_at` est renseigné, sinon `legacy_max` (cotes héritées = maximum multi-bookmakers, antérieures au commit c6f76e2). Le backtest doit exclure `legacy_max`.
 
 **Mode strict :** `Model::preventSilentlyDiscardingAttributes()` actif (attribut hors `$fillable` → exception).
 

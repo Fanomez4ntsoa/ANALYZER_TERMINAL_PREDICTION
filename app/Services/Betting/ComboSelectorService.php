@@ -60,6 +60,24 @@ class ComboSelectorService
      */
     public function generateForDate(string $date): array
     {
+        // Hors flux depuis la simplification (2026-09-13) : la relation
+        // `recommendations` n'existe plus, ce sélecteur n'a plus d'entrée.
+        Log::warning('ComboSelector hors flux depuis la simplification : les combos sont débranchés du pipeline.');
+
+        return [
+            'combos' => [],
+            'ai_combo' => null,
+            'stats' => [
+                'eligible_matches' => 0,
+                'candidate_picks' => 0,
+                'combinations' => 0,
+                'valid' => 0,
+                'saved' => 0,
+                'message' => 'Commande hors flux depuis la simplification : les combos sont débranchés du pipeline.',
+            ],
+        ];
+
+        // @phpstan-ignore-next-line — code conservé volontairement (débranché)
         // 1. Récupérer les matchs éligibles avec leurs candidats multi-marchés
         $eligible = $this->getEligibleMatchesWithCandidates($date);
 

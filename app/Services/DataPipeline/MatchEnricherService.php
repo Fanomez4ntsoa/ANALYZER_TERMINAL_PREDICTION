@@ -111,6 +111,9 @@ class MatchEnricherService
             return $match;
         }
 
+        // Heure du relevé : frontière legacy_max / bookmaker configuré (cf. PredictionService)
+        $updates['odds_fetched_at'] = now();
+
         $match->update($updates);
 
         Log::info("MatchEnricher: cotes API-Football enrichies pour match #{$match->id}", [
@@ -129,46 +132,28 @@ class MatchEnricherService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ENRICHISSEMENT COTES (The Odds API) — conservé pour CLV tracker uniquement
+    // LIAISON The Odds API — CLV tracker uniquement
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Enrichir un match avec les cotes de The Odds API.
-     * NOTE : depuis la migration vers API-Football, cette méthode n'est plus appelée
-     * pour l'enrichissement principal. Conservée pour le CLV tracker qui compare les
-     * cotes dans le temps via l'event_id The Odds API.
+     * Lier un match à son événement The Odds API (odds_api_event_id) pour le CLV tracker.
+     *
+     * Depuis la simplification (2026-09-13), The Odds API n'écrit plus JAMAIS dans
+     * les colonnes odds_* de `matches` : la seule source de cotes est API-Football /odds
+     * (enrichWithApiFootballOdds). Les cotes The Odds API vont dans `odds_movements`.
      */
-    public function enrichWithOdds(FootballMatch $match, array $normalizedOdds): FootballMatch
+    public function linkOddsApiEvent(FootballMatch $match, array $normalizedOdds): FootballMatch
     {
-        $updates = [];
-
-        $columns = [
-            'odds_home', 'odds_draw', 'odds_away',
-            'odds_over_2_0', 'odds_under_2_0',
-            'odds_over_2_25', 'odds_under_2_25',
-            'odds_over_2_5', 'odds_under_2_5',
-            'odds_btts_yes', 'odds_btts_no',
-            'odds_dc_1x', 'odds_dc_12', 'odds_dc_x2',
-        ];
-
-        foreach ($columns as $col) {
-            if (($normalizedOdds[$col] ?? null) !== null) {
-                $updates[$col] = $normalizedOdds[$col];
-            }
+        if (empty($normalizedOdds['event_id'])) {
+            return $match;
         }
 
-        // Stocker l'event ID pour le suivi CLV
-        if (!empty($normalizedOdds['event_id'])) {
-            $updates['odds_api_event_id'] = $normalizedOdds['event_id'];
-        }
+        $match->update(['odds_api_event_id' => $normalizedOdds['event_id']]);
 
-        if (!empty($updates)) {
-            $match->update($updates);
-            Log::info("MatchEnricher (TheOddsApi/CLV): cotes enrichies pour match #{$match->id}", [
-                'match' => $match->full_name,
-                'bookmakers' => $normalizedOdds['bookmaker_count'] ?? 0,
-            ]);
-        }
+        Log::info("MatchEnricher (TheOddsApi/CLV): event lié pour match #{$match->id}", [
+            'match' => $match->full_name,
+            'event_id' => $normalizedOdds['event_id'],
+        ]);
 
         return $match;
     }
