@@ -51,8 +51,9 @@ ne s'applique pas. Puis bornage des λ.
 lois indépendantes, et en dérive les probabilités de chaque marché.
 
 Correction de Dixon-Coles sur les scores faibles (0-0, 1-0, 0-1, 1-1), active par
-défaut : ρ par population, estimé par `DixonColesRho` sur les scores observés des
-saisons de travail (strictement antérieures au match en backtest). Sans estimation,
+défaut : ρ unique sur toutes les divisions, estimé par `DixonColesRho` sur les
+scores observés des saisons de travail (strictement antérieures au match en
+backtest). Un ρ par population reste disponible (`dixon_coles_rho_scope`). Sans estimation,
 deux lois indépendantes. Jusqu'au 13/09/2026, le code citait Dixon-Coles sans
 l'implémenter ; `XGModelService` attribue toujours à des « études Dixon-Coles » les
 constantes d'avantage domicile ×1.20 / ×0.88, sans source vérifiable.
@@ -149,7 +150,7 @@ football-data:import --seasons=2324 --divisions=E0,D1 [--force-download]
        → TeamNameAudit : noms distincts par division, paires ne différant que par un
          caractère non-ASCII signalées
 
-backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--legacy-share] [--legacy-poisson] [--anchor]
+backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--legacy-home] [--legacy-share] [--legacy-poisson] [--rho-per-population] [--anchor]
   │    (config/xg-model.php : facteur domicile hors signal marché, recalage conjoint, ancrage désactivé ;
   │     --legacy-* rétablissent l'ancien comportement, --anchor active l'ancrage, pour la mesure)
   │    estimateurs tagués SeasonScopedEstimator bornés à chaque match aux saisons antérieures
@@ -166,8 +167,9 @@ backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--le
 
 backtest:report {run} [--compare={run}] [--seasons=]
   └─ lecture par population (config football-data.populations), jamais 22 divisions confondues
-       → Brier modèle / entrée démarginalisée / Pinnacle clôture, annoncée vs observée,
+       → ρ estimés, Brier modèle / entrée démarginalisée / Pinnacle clôture, annoncée vs observée,
          biais domicile, décalage Over en transfert, segmentation par division
+       → avec --compare : écarts par population et écart apparié sur les matchs communs (erreur type, z)
        → storage/app/private/backtest/run_{id}_{label}_populations.md
 ```
 

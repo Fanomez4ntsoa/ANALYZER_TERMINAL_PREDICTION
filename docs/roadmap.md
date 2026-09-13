@@ -22,7 +22,7 @@ Inclut le passage à une cote unique de bookmaker jouable.
 
 ---
 
-## Étape 2 — Backtest honnête 🔄 en cours (branche `feat/backtest-football-data`)
+## Étape 2 — Backtest honnête ✅ 13/09/2026 (branche `feat/backtest-football-data`)
 
 **L'étape décisive.** Rien de structurant ne se décide avant ses résultats.
 
@@ -105,13 +105,25 @@ Fait le 13/09/2026 :
 - **Facteur multiplicatif par championnat : abandonné** (règle fixée avant le
   run #7, condition remplie).
 
-Reste à faire :
+- Run #8, ρ unique sur toutes les divisions : aucune dégradation de plus de deux
+  erreurs types dans aucune population. Retenu par défaut.
+- Run #9, entrée Pinnacle ouverture contre Bet365 ouverture : Brier 1X2 plus bas de
+  0,00005 / 0,00014 / 0,00013 (z −0,8 / −2,0 / −1,8), soit la moitié de l'écart
+  entre les deux cotes d'entrée ; gain net seulement sur le transfert des divisions
+  inférieures. Sensibilité à la source faible.
 
-- Décider d'un ρ unique : les trois populations ne se distinguent pas
-  statistiquement
-- BTTS Oui du Top 5 toujours sous-estimé de 2 points : non expliqué, à surveiller
-- Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
-- Seulement ensuite : `--sample=holdout`
+**Modèle en fin d'étape** : avantage domicile hors signal marché, recalage conjoint
+total/partage, Dixon-Coles à ρ unique estimé sur les saisons antérieures, ancrage
+désactivé. Sur 2223-2324, Brier 1X2 égal à celui de la cote d'entrée et au-dessus
+de Pinnacle clôture ; marchés dérivés à moins de 2 points de l'observé, sauf le
+BTTS Oui du Top 5 (−2).
+
+Laissé ouvert :
+
+- BTTS Oui du Top 5 sous-estimé de 2 points : non expliqué, à surveiller
+- Résidu de l'Over en transfert dans les divisions à buts : observation non
+  exploitée (`docs/decisions.md`)
+- Échantillon réservé : non touché, gardé pour le jalon de validation de l'étape 3
 
 Questions auxquelles cette étape doit répondre : le Poisson sur cotes est-il
 calibré, sur quels marchés, sur quels championnats, et bat-il la clôture ?

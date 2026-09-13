@@ -559,3 +559,52 @@ Prédictions notées avant le run #9 :
   viennent du même bookmaker. Si le modèle nourri à Pinnacle ouverture rejoint ou
   passe sous Pinnacle clôture, vérifier d'abord ce que contiennent réellement les
   colonnes PSH/PSD/PSA de football-data (heure de relevé) avant toute conclusion.
+
+---
+
+## 2026-09-13 — Runs #8 et #9 : ρ unique retenu, Pinnacle ouverture légèrement meilleure hors Top 5
+
+Lecture sur 2223-2324, comparaisons appariées sur les matchs communs (Δ Brier,
+erreur type, z). Les tableaux par population des deux runs ne se comparent pas
+directement : les exclusions diffèrent (42 matchs du Top 5 sans O/U Pinnacle).
+
+**Run #8, ρ unique contre ρ par population (run #7), Bet365 ouverture :**
+
+| Population | 1X2 | Transfert O/U 2.5 | BTTS | O/U 1.5 | O/U 3.5 |
+|---|---|---|---|---|---|
+| Top 5 | −0,00002 (z −3,5) | −0,00011 (z −0,8) | −0,00001 (z −1,2) | −0,00001 (z −1,8) | 0,00000 (z −0,8) |
+| Deuxièmes divisions | +0,00004 (z +1,4) | +0,00001 (z 0,0) | +0,00001 (z +0,5) | −0,00008 (z −2,8) | 0,00000 (z +0,4) |
+| Inférieures et autres | −0,00001 (z −1,4) | +0,00004 (z +0,3) | +0,00001 (z +0,8) | +0,00001 (z +0,6) | 0,00000 (z −0,9) |
+
+- Prédiction de l'utilisateur, aucune dégradation : **confirmée**, aucun Brier ne se
+  dégrade de plus de deux erreurs types. **ρ unique retenu.**
+- Prédiction de Claude : **confirmée dans le sens**. Top 5 quasi inchangé. Divisions
+  inférieures : Over en transfert −2,4 → −1,7. Deuxièmes divisions : nul −0,4 → −0,8
+  et Over en transfert −0,2 → −1,7, un peu plus que le −1 annoncé, à Brier
+  identique. Les trois populations ont désormais un décalage de transfert voisin
+  (−1,5 / −1,7 / −1,7).
+
+**Run #9, Pinnacle ouverture contre Bet365 ouverture (run #8), même modèle :**
+
+| Population | Δ Brier 1X2 modèle | Δ Brier 1X2 des cotes d'entrée | Δ transfert O/U 2.5 | Δ O/U 2.5 ajustement | Modèle Pinnacle − Pinnacle clôture, 1X2 |
+|---|---|---|---|---|---|
+| Top 5 | −0,00005 (z −0,8) | −0,00009 | −0,00085 (z −1,4) | +0,00011 (z +0,8) | +0,00064 (z +2,4) |
+| Deuxièmes divisions | −0,00014 (z −2,0) | −0,00026 | −0,00004 (z −0,1) | −0,00003 (z −0,2) | +0,00121 (z +4,3) |
+| Inférieures et autres | −0,00013 (z −1,8) | −0,00019 | −0,00242 (z −4,0) | −0,00018 (z −1,6) | +0,00092 (z +4,4) |
+
+Sur les trois saisons, 2122 comprise, le 1X2 donne −0,00004 / −0,00009 / −0,00019
+(z −0,8 / −1,3 / −3,2).
+
+- Prédiction de Claude : **en partie confirmée.** Le Brier 1X2 baisse dans les trois
+  populations, mais seulement de la moitié de l'écart entre les deux cotes
+  d'entrée, et sans effet détectable dans le Top 5. Le gain est le plus net hors
+  Top 5, surtout sur le transfert des divisions inférieures. Les marchés dérivés
+  ne suivent pas tous : dans le Top 5, l'O/U 2.5 d'ajustement et les dérivés sont
+  un peu moins bons avec Pinnacle, sans être significatifs.
+- Le modèle nourri à Pinnacle ouverture reste au-dessus de Pinnacle clôture dans
+  les trois populations : **point de vigilance non déclenché**.
+- Lecture : la sensibilité à la source est faible. La supériorité de Pinnacle
+  ouverture sur Bet365 ouverture ne passe qu'à moitié dans le modèle, et n'est
+  mesurable que hors Top 5. Ce n'est pas un avantage : la règle 6 de CLAUDE.md
+  impose une cote de bookmaker unique et jouable, et le choix de la source de
+  production reste un choix de jouabilité, pas de calibration.
