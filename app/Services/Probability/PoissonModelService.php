@@ -3,10 +3,18 @@
 namespace App\Services\Probability;
 
 /**
- * Distribution de Poisson pour prédire les scores de football.
+ * Distribution des scores de football à partir de λ domicile et λ extérieur.
  *
- * Base théorique : Dixon & Coles (1997) — chaque équipe marque
- * indépendamment selon une distribution de Poisson avec paramètre λ (xG).
+ * $rho = null : deux lois de Poisson indépendantes (Maher, 1982), comportement
+ * historique conservé à l'identique pour reproduire les runs antérieurs.
+ *
+ * $rho = float : correction de Dixon & Coles (1997) sur les scores faibles.
+ *   P(x, y) = τ(x, y) · Poisson(x; λ) · Poisson(y; μ), puis renormalisation de la
+ *   matrice tronquée, avec
+ *   τ(0,0) = 1 − λμρ   τ(0,1) = 1 + λρ   τ(1,0) = 1 + μρ   τ(1,1) = 1 − ρ
+ *   et τ = 1 ailleurs. Les quatre corrections s'annulent en somme et portent
+ *   toutes sur des scores d'au plus deux buts : P(Under 2.5) et P(Under 3.5) ne
+ *   dépendent pas de ρ à λ fixés ; le nul, le BTTS et l'O/U 1.5 en dépendent.
  *
  * P(X=k) = (λ^k * e^-λ) / k!
  */
@@ -26,7 +34,7 @@ class PoissonModelService
      * @param float $awayLambda xG attendu de l'équipe extérieur
      * @return array Matrice [home_goals][away_goals] => probability
      */
-    public function scoreMatrix(float $homeLambda, float $awayLambda): array
+    public function scoreMatrix(float $homeLambda, float $awayLambda, ?float $rho = null): array
     {
         $matrix = [];
 
@@ -36,7 +44,45 @@ class PoissonModelService
             }
         }
 
+        if ($rho === null) {
+            return $matrix;
+        }
+
+        $matrix[0][0] *= self::tau(0, 0, $homeLambda, $awayLambda, $rho);
+        $matrix[0][1] *= self::tau(0, 1, $homeLambda, $awayLambda, $rho);
+        $matrix[1][0] *= self::tau(1, 0, $homeLambda, $awayLambda, $rho);
+        $matrix[1][1] *= self::tau(1, 1, $homeLambda, $awayLambda, $rho);
+
+        $total = 0.0;
+        foreach ($matrix as $row) {
+            $total += array_sum($row);
+        }
+        if ($total > 0) {
+            foreach ($matrix as $h => $row) {
+                foreach ($row as $a => $p) {
+                    $matrix[$h][$a] = $p / $total;
+                }
+            }
+        }
+
         return $matrix;
+    }
+
+    /**
+     * Facteur de Dixon-Coles τ(x, y). Borné à 0 : un ρ hors du domaine valide pour
+     * ces λ ne produit jamais de probabilité négative.
+     */
+    public static function tau(int $homeGoals, int $awayGoals, float $homeLambda, float $awayLambda, float $rho): float
+    {
+        $t = match (true) {
+            $homeGoals === 0 && $awayGoals === 0 => 1 - $homeLambda * $awayLambda * $rho,
+            $homeGoals === 0 && $awayGoals === 1 => 1 + $homeLambda * $rho,
+            $homeGoals === 1 && $awayGoals === 0 => 1 + $awayLambda * $rho,
+            $homeGoals === 1 && $awayGoals === 1 => 1 - $rho,
+            default => 1.0,
+        };
+
+        return max(0.0, $t);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -48,9 +94,26 @@ class PoissonModelService
      *
      * @return array ['home' => float, 'draw' => float, 'away' => float] (0-100)
      */
-    public function predict1X2(float $homeLambda, float $awayLambda): array
+    public function predict1X2(float $homeLambda, float $awayLambda, ?float $rho = null): array
     {
-        $matrix = $this->scoreMatrix($homeLambda, $awayLambda);
+        $p = $this->probabilities1X2($homeLambda, $awayLambda, $rho);
+
+        return [
+            'home' => round($p['home'] * 100, 1),
+            'draw' => round($p['draw'] * 100, 1),
+            'away' => round($p['away'] * 100, 1),
+        ];
+    }
+
+    /**
+     * Probabilités 1X2 non arrondies (0-1), normalisées sur la matrice tronquée.
+     * Sert aux ajustements fins sur les cotes ; predict1X2 en est l'arrondi.
+     *
+     * @return array ['home' => float, 'draw' => float, 'away' => float]
+     */
+    public function probabilities1X2(float $homeLambda, float $awayLambda, ?float $rho = null): array
+    {
+        $matrix = $this->scoreMatrix($homeLambda, $awayLambda, $rho);
 
         $home = 0;
         $draw = 0;
@@ -65,17 +128,12 @@ class PoissonModelService
             }
         }
 
-        // Normaliser à 100%
         $total = $home + $draw + $away;
         if ($total <= 0) {
-            return ['home' => 33.3, 'draw' => 33.3, 'away' => 33.3];
+            return ['home' => 1 / 3, 'draw' => 1 / 3, 'away' => 1 / 3];
         }
 
-        return [
-            'home' => round(($home / $total) * 100, 1),
-            'draw' => round(($draw / $total) * 100, 1),
-            'away' => round(($away / $total) * 100, 1),
-        ];
+        return ['home' => $home / $total, 'draw' => $draw / $total, 'away' => $away / $total];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -88,9 +146,9 @@ class PoissonModelService
      * @param float $line Ligne de buts (ex: 2.5, 1.5, 3.5)
      * @return array ['over' => float, 'under' => float] (0-100)
      */
-    public function predictOverUnder(float $homeLambda, float $awayLambda, float $line = 2.5): array
+    public function predictOverUnder(float $homeLambda, float $awayLambda, float $line = 2.5, ?float $rho = null): array
     {
-        $matrix = $this->scoreMatrix($homeLambda, $awayLambda);
+        $matrix = $this->scoreMatrix($homeLambda, $awayLambda, $rho);
         $threshold = (int) floor($line);
 
         $under = 0;
@@ -121,8 +179,23 @@ class PoissonModelService
      *
      * @return array ['yes' => float, 'no' => float] (0-100)
      */
-    public function predictBTTS(float $homeLambda, float $awayLambda): array
+    public function predictBTTS(float $homeLambda, float $awayLambda, ?float $rho = null): array
     {
+        if ($rho !== null) {
+            $matrix = $this->scoreMatrix($homeLambda, $awayLambda, $rho);
+            $bttsYes = 0.0;
+            for ($h = 1; $h <= self::MAX_GOALS; $h++) {
+                for ($a = 1; $a <= self::MAX_GOALS; $a++) {
+                    $bttsYes += $matrix[$h][$a];
+                }
+            }
+
+            return [
+                'yes' => round($bttsYes * 100, 1),
+                'no' => round((1 - $bttsYes) * 100, 1),
+            ];
+        }
+
         // P(Home ≥ 1) = 1 - P(Home = 0)
         // P(Away ≥ 1) = 1 - P(Away = 0)
         // P(BTTS) = P(Home ≥ 1) * P(Away ≥ 1) — indépendance Poisson
@@ -145,9 +218,9 @@ class PoissonModelService
      *
      * @return array ['1X' => float, '12' => float, 'X2' => float] (0-100)
      */
-    public function predictDoubleChance(float $homeLambda, float $awayLambda): array
+    public function predictDoubleChance(float $homeLambda, float $awayLambda, ?float $rho = null): array
     {
-        $p = $this->predict1X2($homeLambda, $awayLambda);
+        $p = $this->predict1X2($homeLambda, $awayLambda, $rho);
 
         return [
             '1X' => round($p['home'] + $p['draw'], 1),
@@ -166,9 +239,9 @@ class PoissonModelService
      * @param int $top Nombre de scores à retourner
      * @return array [['score' => '1-0', 'probability' => 12.3], ...]
      */
-    public function topScores(float $homeLambda, float $awayLambda, int $top = 5): array
+    public function topScores(float $homeLambda, float $awayLambda, int $top = 5, ?float $rho = null): array
     {
-        $matrix = $this->scoreMatrix($homeLambda, $awayLambda);
+        $matrix = $this->scoreMatrix($homeLambda, $awayLambda, $rho);
         $scores = [];
 
         for ($h = 0; $h <= self::MAX_GOALS; $h++) {
@@ -194,18 +267,19 @@ class PoissonModelService
      *
      * @return array Toutes les prédictions dérivées
      */
-    public function fullAnalysis(float $homeLambda, float $awayLambda): array
+    public function fullAnalysis(float $homeLambda, float $awayLambda, ?float $rho = null): array
     {
-        $p1x2 = $this->predict1X2($homeLambda, $awayLambda);
-        $ou25 = $this->predictOverUnder($homeLambda, $awayLambda, 2.5);
-        $btts = $this->predictBTTS($homeLambda, $awayLambda);
-        $dc = $this->predictDoubleChance($homeLambda, $awayLambda);
-        $topScores = $this->topScores($homeLambda, $awayLambda);
+        $p1x2 = $this->predict1X2($homeLambda, $awayLambda, $rho);
+        $ou25 = $this->predictOverUnder($homeLambda, $awayLambda, 2.5, $rho);
+        $btts = $this->predictBTTS($homeLambda, $awayLambda, $rho);
+        $dc = $this->predictDoubleChance($homeLambda, $awayLambda, $rho);
+        $topScores = $this->topScores($homeLambda, $awayLambda, 5, $rho);
 
         $totalExpected = round($homeLambda + $awayLambda, 2);
 
         return [
             'lambdas' => ['home' => $homeLambda, 'away' => $awayLambda],
+            'rho' => $rho,
             'totalExpected' => $totalExpected,
             '1x2' => $p1x2,
             'overUnder25' => $ou25,

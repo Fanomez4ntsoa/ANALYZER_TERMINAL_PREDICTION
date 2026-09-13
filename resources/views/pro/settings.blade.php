@@ -17,7 +17,7 @@
             @php
                 $apis = [
                     ['name' => 'API-Football', 'key' => $config['api_football_key'], 'detail' => 'Stats, H2H, blessures, predictions'],
-                    ['name' => 'The Odds API', 'key' => $config['odds_api_key'], 'detail' => 'Cotes multi-bookmakers'],
+                    ['name' => 'The Odds API', 'key' => $config['odds_api_key'], 'detail' => 'Cotes (bookmaker unique) + CLV'],
                     ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],
                     ['name' => 'Anthropic (Claude)', 'key' => $config['anthropic_key'], 'detail' => 'Analyse IA narrative (Phase 5)'],
                 ];
@@ -113,17 +113,14 @@
     {{-- Config combos --}}
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="px-5 py-3 border-b border-slate-100">
-            <h3 class="text-sm font-semibold text-slate-800">Configuration combos</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Seuils pour la selection automatique (Phase 6)</p>
+            <h3 class="text-sm font-semibold text-slate-800">Bookmaker de référence</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Un seul bookmaker, aucune cote stockée s'il est absent</p>
         </div>
         <div class="p-5 space-y-3">
             @php
                 $comboParams = [
-                    ['label' => 'Confiance minimum', 'key' => 'combo_min_confidence', 'unit' => '%'],
-                    ['label' => 'Cote totale min', 'key' => 'combo_min_odds', 'unit' => ''],
-                    ['label' => 'Cote totale max', 'key' => 'combo_max_odds', 'unit' => ''],
-                    ['label' => 'Matchs minimum', 'key' => 'combo_min_matches', 'unit' => ''],
-                    ['label' => 'Matchs maximum', 'key' => 'combo_max_matches', 'unit' => ''],
+                    ['label' => 'The Odds API (ODDS_API_BOOKMAKER)', 'key' => 'bookmaker_odds_api', 'unit' => ''],
+                    ['label' => 'API-Football id (API_FOOTBALL_PREFERRED_BOOKMAKER)', 'key' => 'bookmaker_api_football', 'unit' => ''],
                 ];
             @endphp
 
@@ -135,63 +132,6 @@
             @endforeach
 
             <p class="text-xs text-slate-400 pt-2">Ces valeurs sont configurees dans le fichier .env</p>
-        </div>
-    </div>
-
-    {{-- Sources --}}
-    <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div class="px-5 py-3 border-b border-slate-100">
-            <h3 class="text-sm font-semibold text-slate-800">Hierarchie des sources</h3>
-        </div>
-        <div class="p-5">
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-slate-100">
-                            <th class="text-left px-3 py-2 text-xs font-semibold text-slate-500">Source</th>
-                            <th class="text-left px-3 py-2 text-xs font-semibold text-slate-500">Type</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">Poids</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">1X2</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">O/U</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">BTTS</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">DC</th>
-                            <th class="text-center px-3 py-2 text-xs font-semibold text-slate-500">Disponibilite</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50">
-                        @php
-                            $sources = [
-                                ['name' => 'D', 'type' => 'Poisson + xG + cotes', 'weight' => 'Principal', 'w' => '80%', 'ou' => '75%', 'btts' => '70%', 'dc' => '92%', 'avail' => 'Auto'],
-                                ['name' => 'E', 'type' => 'API-Football predictions', 'weight' => 'Secondaire', 'w' => '65%', 'ou' => '55%', 'btts' => '50%', 'dc' => '82%', 'avail' => 'Auto'],
-                                ['name' => 'A', 'type' => 'good-sport.co', 'weight' => 'Optionnel', 'w' => '60%', 'ou' => '61%', 'btts' => '63%', 'dc' => '86%', 'avail' => 'Manuel'],
-                                ['name' => 'B', 'type' => 'mybets.today', 'weight' => 'Optionnel', 'w' => '59%', 'ou' => '68%', 'btts' => '67%', 'dc' => '90%', 'avail' => 'Manuel'],
-                                ['name' => 'C', 'type' => 'probabilities', 'weight' => 'Optionnel', 'w' => '68%', 'ou' => '64%', 'btts' => '66%', 'dc' => '88%', 'avail' => 'Manuel'],
-                            ];
-                        @endphp
-                        @foreach($sources as $src)
-                            <tr class="hover:bg-slate-50">
-                                <td class="px-3 py-2 font-semibold text-slate-800">{{ $src['name'] }}</td>
-                                <td class="px-3 py-2 text-slate-600">{{ $src['type'] }}</td>
-                                <td class="text-center px-3 py-2">
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded
-                                        {{ $src['weight'] === 'Principal' ? 'bg-blue-50 text-blue-700' : ($src['weight'] === 'Secondaire' ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-400') }}">
-                                        {{ $src['weight'] }}
-                                    </span>
-                                </td>
-                                <td class="text-center px-3 py-2 text-xs font-mono text-slate-600">{{ $src['w'] }}</td>
-                                <td class="text-center px-3 py-2 text-xs font-mono text-slate-600">{{ $src['ou'] }}</td>
-                                <td class="text-center px-3 py-2 text-xs font-mono text-slate-600">{{ $src['btts'] }}</td>
-                                <td class="text-center px-3 py-2 text-xs font-mono text-slate-600">{{ $src['dc'] }}</td>
-                                <td class="text-center px-3 py-2">
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded {{ $src['avail'] === 'Auto' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
-                                        {{ $src['avail'] }}
-                                    </span>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
         </div>
     </div>
 

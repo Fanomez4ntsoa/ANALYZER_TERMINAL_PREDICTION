@@ -55,7 +55,8 @@ class FetchOddsJob implements ShouldQueue
             'remaining' => $usage['remaining'],
         ]);
 
-        // Récupérer les matchs de la date qui n'ont pas encore de cotes Odds API
+        // Matchs de la date pas encore liés à un événement The Odds API.
+        // Ce job ne stocke que odds_api_event_id (CLV) : il n'écrit aucune cote dans matches.
         $matches = FootballMatch::where('data_source', 'api')
             ->whereDate('match_date', $this->date)
             ->whereIn('league_id', $this->leagueIds)
@@ -63,7 +64,7 @@ class FetchOddsJob implements ShouldQueue
             ->get();
 
         if ($matches->isEmpty()) {
-            Log::info("Pipeline: aucun match à enrichir avec des cotes pour le {$this->date}");
+            Log::info("Pipeline: aucun match à lier à The Odds API pour le {$this->date}");
             return;
         }
 
@@ -102,7 +103,7 @@ class FetchOddsJob implements ShouldQueue
                         );
 
                         if ($odds) {
-                            $enricher->enrichWithOdds($match, $odds);
+                            $enricher->linkOddsApiEvent($match, $odds);
                             $enrichedCount++;
                         } else {
                             Log::debug("Pipeline: pas de cotes trouvées pour {$match->full_name}");
@@ -127,7 +128,7 @@ class FetchOddsJob implements ShouldQueue
 
         Log::info("Pipeline: FetchOddsJob terminé", [
             'date' => $this->date,
-            'enriched' => $enrichedCount,
+            'linked' => $enrichedCount,
             'failed' => $failedCount,
             'total' => $matches->count(),
         ]);

@@ -14,7 +14,7 @@
         :sublabel="'Yield: ' . ($backtestYield >= 0 ? '+' : '') . $backtestYield . '%'"
         :color="$backtestROI >= 0 ? 'green' : 'red'" />
     <x-pro.metric label="Max Drawdown" :value="number_format($backtestDrawdown, 0)" sublabel="perte max consecutive" color="amber" />
-    <x-pro.metric label="Matchs aujourd'hui" :value="$matchesToday" :sublabel="$analyzedMatches . ' analyses au total'" color="slate" />
+    <x-pro.metric label="Matchs aujourd'hui" :value="$matchesToday" :sublabel="$analyzedMatches . ' avec prédictions'" color="slate" />
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -64,8 +64,8 @@
                 <span class="text-slate-700 font-medium">{{ $totalMatches }}</span>
             </div>
             <div class="flex items-center justify-between">
-                <span class="text-slate-500">Confiance moyenne</span>
-                <span class="text-slate-700 font-medium">{{ $avgConfidence }}%</span>
+                <span class="text-slate-500">Matchs avec prédictions</span>
+                <span class="text-slate-700 font-medium">{{ $analyzedMatches }}</span>
             </div>
         </div>
     </x-pro.card>
@@ -110,8 +110,7 @@
                 </a>
             @empty
                 <div class="px-5 py-10 text-center text-sm text-slate-400">
-                    Aucun combo genere.
-                    <code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs ml-1">php artisan combos:generate</code>
+                    Aucun combo en base (génération hors flux).
                 </div>
             @endforelse
         </div>
@@ -138,10 +137,8 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3 flex-shrink-0">
-                    @if($match->global_confidence)
-                        <span class="text-sm font-semibold {{ $match->global_confidence >= 70 ? 'text-emerald-600' : ($match->global_confidence >= 50 ? 'text-amber-600' : 'text-slate-400') }}">
-                            {{ $match->global_confidence }}%
-                        </span>
+                    @if($match->predictions_count > 0)
+                        <span class="px-2 py-0.5 text-xs font-medium rounded bg-blue-50 text-blue-700">{{ $match->predictions_count }} issues</span>
                     @endif
                     @if($match->completed)
                         <span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-50 text-emerald-700">FT</span>

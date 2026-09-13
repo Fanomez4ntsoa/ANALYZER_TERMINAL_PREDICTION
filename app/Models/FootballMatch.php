@@ -18,6 +18,7 @@ class FootballMatch extends Model
         'react_id',
         'api_football_id',
         'odds_api_event_id',
+        'odds_fetched_at',
         'home_team',
         'home_team_id',
         'away_team',
@@ -81,6 +82,7 @@ class FootballMatch extends Model
         'match_date' => 'datetime',
         'validated_at' => 'datetime',
         'enriched_at' => 'datetime',
+        'odds_fetched_at' => 'datetime',
         'predicted_at' => 'datetime',
         'odds_home' => 'decimal:3',
         'odds_draw' => 'decimal:3',
@@ -120,27 +122,11 @@ class FootballMatch extends Model
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Un match a plusieurs sources (A, B, C)
+     * Un match a plusieurs prédictions (une par marché et issue)
      */
-    public function sources(): HasMany
+    public function predictions(): HasMany
     {
-        return $this->hasMany(Source::class, 'match_id', 'id');
-    }
-
-    /**
-     * Un match a plusieurs recommandations
-     */
-    public function recommendations(): HasMany
-    {
-        return $this->hasMany(Recommendation::class, 'match_id', 'id');
-    }
-
-    /**
-     * Un match a plusieurs combinés
-     */
-    public function combos(): HasMany
-    {
-        return $this->hasMany(Combo::class, 'match_id', 'id');
+        return $this->hasMany(Prediction::class, 'match_id', 'id');
     }
 
     /**
@@ -160,7 +146,7 @@ class FootballMatch extends Model
     }
 
     /**
-     * Un match a une entrée de données avancées (Layer 2)
+     * Un match a une entrée de données avancées (API-Football normalisées)
      */
     public function advancedData(): HasOne
     {
@@ -190,39 +176,6 @@ class FootballMatch extends Model
         return "{$this->score_home} - {$this->score_away}";
     }
 
-    /**
-     * Vérifie si le match a des données Layer 2
-     */
-    public function getHasLayer2Attribute(): bool
-    {
-        return $this->advancedData !== null;
-    }
-
-
-    /**
-     * Source A
-     */
-    public function getSourceAAttribute(): ?Source
-    {
-        return $this->sources->where('source_type', 'A')->first();
-    }
-
-    /**
-     * Source B
-     */
-    public function getSourceBAttribute(): ?Source
-    {
-        return $this->sources->where('source_type', 'B')->first();
-    }
-
-    /**
-     * Source C
-     */
-    public function getSourceCAttribute(): ?Source
-    {
-        return $this->sources->where('source_type', 'C')->first();
-    }
-
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // SCOPES (Filtres réutilisables)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -249,14 +202,6 @@ class FootballMatch extends Model
     public function scopeCompleted($query)
     {
         return $query->where('completed', true);
-    }
-
-    /**
-     * Matchs avec données Layer 2
-     */
-    public function scopeWithLayer2($query)
-    {
-        return $query->whereHas('advancedData');
     }
 
     /**

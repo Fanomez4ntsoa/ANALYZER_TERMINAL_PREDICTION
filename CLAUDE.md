@@ -1,0 +1,78 @@
+# CLAUDE.md
+
+Feuille de route courte. Lis ce fichier en début de session. Les détails sont
+dans `docs/`, à consulter seulement quand la tâche l'exige.
+
+---
+
+## Ce que fait le système
+
+Il calcule des probabilités par marché pour des matchs de football, à partir
+d'un modèle de Poisson dont les paramètres sont estimés sur les cotes.
+
+Il ne décide rien. Pas de verdict BET / NO BET, pas de score de confiance, pas
+de niveau. Il affiche la probabilité du modèle, la cote réelle et l'écart entre
+les deux. L'utilisateur décide seul de s'engager ou non.
+
+La métrique qui fait foi est la **calibration** : quand le modèle annonce 70 %,
+la fréquence observée doit être proche de 70 %. Pas le taux de réussite brut,
+qui ne veut rien dire sans la cote associée.
+
+**Stack** : Laravel 12, PHP 8.2, Blade + Tailwind + Alpine, MariaDB.
+
+---
+
+## Règles de travail
+
+1. **Corriger avant d'ajouter.** Aucune fonctionnalité nouvelle sur une base
+   buguée.
+2. **Montrer avant d'appliquer.** Expose le plan et attends validation sur toute
+   modification non triviale.
+3. **Une branche par étape.** Voir `docs/git-workflow.md`.
+4. **Ne jamais introduire de décision automatique.** Si une règle produit un
+   verdict à la place de l'utilisateur, elle n'a pas sa place ici.
+5. **Ne jamais utiliser une donnée indisponible avant le coup d'envoi.** Toute
+   feature collectée après un match est une fuite temporelle et invalide toute
+   mesure faite dessus.
+6. **Une cote est celle d'un bookmaker unique et jouable.** Jamais un maximum ni
+   une moyenne entre bookmakers.
+7. **Documenter à la fin de chaque étape** : une entrée dans `docs/decisions.md`,
+   mise à jour de `docs/roadmap.md`. Ne touche pas à ce fichier sauf si une
+   règle change.
+
+---
+
+## Documentation
+
+| Fichier | Quand le lire |
+|---|---|
+| `docs/architecture.md` | Avant de modifier du code : ce qui existe et ce qui est débranché |
+| `docs/decisions.md` | Avant de remettre en cause un choix : pourquoi il a été fait |
+| `docs/roadmap.md` | Pour savoir où on en est et ce qui vient ensuite |
+| `docs/git-workflow.md` | Branches, commits, fusions, tags |
+| `docs/archive/roadmap-2026-04.md` | Historique. Décrit l'ancien système, supprimé en septembre 2026. Utile uniquement pour retrouver l'origine d'une constante. **Ne décrit pas le système actuel.** |
+
+---
+
+## Commandes
+
+```bash
+php artisan pipeline:run-sync {date}     # Import matchs + cotes
+php artisan pipeline:backfill --from= --to=
+php artisan context:enrich --date=       # Fatigue, enjeux, météo
+php artisan market:track snapshot|close|clv
+php artisan app:reset [--force]
+```
+
+Analyse d'un match : depuis `/analysis`, bouton Analyser.
+
+---
+
+## État
+
+- Étape 1 terminée le 13/09/2026 : 12 116 lignes supprimées, le système sort des
+  probabilités et plus de verdicts.
+- Sont débranchés, code conservé : les 5 agents IA, les combinés, le Layer 2.
+- Le backtest est **faux** tant que l'étape 2 n'est pas faite. N'utilise aucun
+  chiffre venant de `/backtest` ou `/dashboard` pour justifier quoi que ce soit.
+- Aucune mesure fiable de performance n'existe à ce jour.

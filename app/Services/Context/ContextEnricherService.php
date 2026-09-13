@@ -54,6 +54,10 @@ class ContextEnricherService
         // Mettre à jour l'importance si les enjeux l'exigent
         $enriched['importance'] = $this->resolveImportance($enriched);
 
+        // Horodatage de la collecte : permet de distinguer une donnée collectée
+        // avant le coup d'envoi d'une donnée collectée rétroactivement.
+        $enriched['collected_at'] = now()->toIso8601String();
+
         Log::info("ContextEnricher: enrichi pour {$match->full_name}", [
             'dimensions' => array_keys(array_filter([
                 'fatigue' => $enriched['fatigue']['available'] ?? false,

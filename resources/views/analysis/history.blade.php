@@ -8,7 +8,7 @@
 
 {{-- Filtres --}}
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-6">
-    <form method="GET" action="{{ route('history.index') }}" class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3 items-end">
+    <form method="GET" action="{{ route('history.index') }}" class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end">
         <div class="lg:col-span-2">
             <label class="block text-xs font-medium text-slate-600 mb-1">Recherche</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Equipe..."
@@ -34,22 +34,6 @@
                 <option value="upcoming" @selected(($filters['status'] ?? '') === 'upcoming')>A venir</option>
                 <option value="live" @selected(($filters['status'] ?? '') === 'live')>En cours</option>
             </select>
-        </div>
-
-        <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">Conv.</label>
-            <select name="convergence" class="w-full border border-slate-300 rounded-lg text-sm px-3 py-1.5 focus:ring-2 focus:ring-blue-500">
-                <option value="">Toutes</option>
-                <option value="high" @selected(($filters['convergence'] ?? '') === 'high')>Haute</option>
-                <option value="medium" @selected(($filters['convergence'] ?? '') === 'medium')>Moyenne</option>
-                <option value="low" @selected(($filters['convergence'] ?? '') === 'low')>Basse</option>
-            </select>
-        </div>
-
-        <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">Conf. min</label>
-            <input type="number" name="min_confidence" value="{{ $filters['min_confidence'] ?? '' }}" min="0" max="100" step="5" placeholder="0"
-                   class="w-full border border-slate-300 rounded-lg text-sm px-3 py-1.5 focus:ring-2 focus:ring-blue-500">
         </div>
 
         <div class="flex gap-2">
@@ -96,8 +80,7 @@
                         <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Competition</th>
                         <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Score</th>
                         <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cotes</th>
-                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Confiance</th>
-                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Conv.</th>
+                        <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Prédictions</th>
                         <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Statut</th>
                         <th class="px-3 py-3"></th>
                     </tr>
@@ -125,21 +108,8 @@
                                 {{ (float)$match->odds_home > 0 ? number_format($match->odds_home, 2) . '/' . number_format($match->odds_draw, 2) . '/' . number_format($match->odds_away, 2) : 'N/D' }}
                             </td>
                             <td class="px-3 py-3 text-center">
-                                @if($match->global_confidence)
-                                    <span class="font-semibold {{ $match->global_confidence >= 70 ? 'text-emerald-600' : ($match->global_confidence >= 50 ? 'text-amber-600' : 'text-slate-400') }}">
-                                        {{ $match->global_confidence }}%
-                                    </span>
-                                @else
-                                    <span class="text-slate-300">--</span>
-                                @endif
-                            </td>
-                            <td class="px-3 py-3 text-center">
-                                @if($match->convergence === 'high')
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-50 text-emerald-700">Haute</span>
-                                @elseif($match->convergence === 'medium')
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded bg-amber-50 text-amber-700">Moy.</span>
-                                @elseif($match->convergence === 'low')
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded bg-red-50 text-red-700">Basse</span>
+                                @if($match->predictions_count > 0)
+                                    <span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-50 text-emerald-700">{{ $match->predictions_count }} issues</span>
                                 @else
                                     <span class="text-slate-300">--</span>
                                 @endif
