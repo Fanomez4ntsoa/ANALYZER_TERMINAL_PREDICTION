@@ -446,3 +446,52 @@ Prédictions notées avant le run #7 :
 - **Hypothèse à trancher** : si ρ résorbe le déficit de nul, le décalage de l'Over en
   transfert diminue sans ancre, et le facteur multiplicatif par championnat devient
   inutile.
+
+---
+
+## 2026-09-13 — Run #7 : Dixon-Coles referme le nul et le transfert ; le facteur multiplicatif est abandonné
+
+Run #7 (Dixon-Coles, recalage conjoint, domicile corrigé, Bet365 ouverture,
+23 388 matchs). Contrôle : sur 2122, sans ρ, tous les écarts au run #6 sont nuls.
+Lecture sur 2223-2324, comparée au run #6 sur les mêmes saisons :
+
+| Population | Nul − entrée #6 → #7 | Over transfert − observé #6 → #7 | Brier transfert #6 → #7 | Pinnacle | BTTS Oui − observé #6 → #7 | 1X − observé #6 → #7 |
+|---|---|---|---|---|---|---|
+| Top 5 | −1,4 → −0,3 | −6,9 → −1,7 | 0,2440 → 0,2397 | 0,2370 | −2,5 → −2,0 | −1,9 → −1,2 |
+| Deuxièmes divisions | −1,8 → −0,1 | −7,0 → −0,2 | 0,2480 → 0,2439 | 0,2406 | −0,6 → +0,2 | −1,8 → −0,6 |
+| Inférieures et autres | −1,5 → −0,4 | −7,3 → −2,4 | 0,2497 → 0,2450 | 0,2407 | −0,7 → −0,2 | −1,2 → −0,4 |
+
+Brier 1X2, écart apparié match par match (erreur type entre parenthèses) :
+
+| Population | Modèle − Bet365 ouv., run #6 | Modèle − Bet365 ouv., run #7 | Modèle − Pinnacle, run #7 |
+|---|---|---|---|
+| Top 5 | +0,00043 (0,00013) | +0,00012 (0,00007) | +0,00073 (0,00027) |
+| Deuxièmes divisions | +0,00035 (0,00015) | +0,00002 (0,00008) | +0,00131 (0,00029) |
+| Inférieures et autres | +0,00022 (0,00010) | +0,00001 (0,00006) | +0,00104 (0,00022) |
+
+Prédictions :
+
+- (1) nul nettement réduit : **confirmée**, 73 à 94 % du déficit résorbé, plus que la
+  moitié annoncée par Claude.
+- (2) décalage de l'Over en transfert en baisse sans ancre : **confirmée**, de −7
+  points à −1,7 / −0,2 / −2,4. L'écart de Brier du transfert à Pinnacle est divisé
+  par deux (+0,0073 / +0,0074 / +0,0091 → +0,0029 / +0,0034 / +0,0043).
+- (3) BTTS Oui du Top 5 plus proche : **marginale**, −2,5 → −2,0. Dixon-Coles
+  n'explique pas l'essentiel de cet écart (E0 −2,2, D1 −2,9, F1 −3,2).
+- (4) Brier 1X2 sous Bet365 ouverture : **échec**. Le modèle rejoint sa cote d'entrée,
+  indiscernable du bruit, sans passer dessous. Des marchés cohérents entre eux
+  portent la même information : l'O/U n'ajoute rien au 1X2.
+- (5) au-dessus de Pinnacle clôture : **confirmée** dans les trois populations.
+  Aucune fuite à chercher.
+- O/U 3.5 inchangé, comme établi avant le run. L'Over 1.5 des deuxièmes divisions
+  passe à +1,9 (surestimé).
+
+**Facteur multiplicatif par championnat : abandonné**, selon la règle fixée avant le
+run : le déficit de nul est résorbé et le décalage du transfert a baissé sans ancre.
+Point de vigilance, sans rien construire dessus : le résidu reste de −3 à −5 points
+dans des divisions à buts (E0, D1, D2, N1, G1, SC0, SC1), chacune à moins de deux
+erreurs types, et la population au ρ le plus fort (deuxièmes divisions) a le plus
+petit résidu.
+
+**ρ par population** : les intervalles de confiance se recouvrent pour les deux
+saisons évaluées. Les populations ne se distinguent pas statistiquement.

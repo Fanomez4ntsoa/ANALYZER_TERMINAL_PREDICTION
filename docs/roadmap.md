@@ -98,15 +98,18 @@ Fait le 13/09/2026 :
   maximum de vraisemblance sur les scores, par population, sur les saisons
   strictement antérieures au match.
 
+- Run #7, Dixon-Coles (lecture 2223-2324) : nul au niveau de la cote d'entrée
+  (−0,3 / −0,1 / −0,4), Over en transfert −1,7 / −0,2 / −2,4 au lieu de −7,
+  Brier 1X2 égal à Bet365 ouverture et au-dessus de Pinnacle, Brier transfert
+  à mi-chemin de Pinnacle. Retenu par défaut.
+- **Facteur multiplicatif par championnat : abandonné** (règle fixée avant le
+  run #7, condition remplie).
+
 Reste à faire :
 
-- Run #7 : Dixon-Coles, échantillon de travail, Bet365 ouverture ; lecture sur
-  2223-2324 (2122 n'a pas de ρ)
-- **Facteur multiplicatif par championnat : à trancher selon le run #7.** Si ρ
-  résorbe le déficit de nul et que le décalage de l'Over en transfert diminue sans
-  ancre, il devient inutile et on l'abandonne.
-- Simplifier à un ρ unique si les populations ne se distinguent pas (intervalles
-  de confiance qui se recouvrent, constaté avant le run)
+- Décider d'un ρ unique : les trois populations ne se distinguent pas
+  statistiquement
+- BTTS Oui du Top 5 toujours sous-estimé de 2 points : non expliqué, à surveiller
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
 - Seulement ensuite : `--sample=holdout`
 
