@@ -55,8 +55,10 @@ class BacktestReport extends Command
         $stats = $this->stats($run, $pops);
 
         $model = $run->config['model'] ?? null;
-        $modelDesc = $model === null ? 'modèle : non renseigné (run antérieur aux corrections = ancien facteur domicile, sans ancrage)'
-            : 'modèle : facteur domicile ' . ($model['legacy_home_advantage_after_fusion'] ? 'ANCIEN' : 'corrigé') . ', total sans O/U ' . ($model['anchor_total_on_league_average'] ? 'ancré' : 'non ancré');
+        $modelDesc = $model === null ? 'modèle : non renseigné (run antérieur aux corrections = ancien facteur domicile, partage constant, sans ancrage)'
+            : 'modèle : facteur domicile ' . ($model['legacy_home_advantage_after_fusion'] ? 'ANCIEN' : 'corrigé')
+                . ', recalage O/U ' . (($model['legacy_constant_share_rescaling'] ?? true) ? 'à partage constant' : 'conjoint')
+                . ', total sans O/U ' . ($model['anchor_total_on_league_average'] ? 'ancré' . (($model['estimators_scoped_to_prior_seasons'] ?? false) ? ' (saisons antérieures)' : ' (EN ÉCHANTILLON, fuite)') : 'libre');
         $this->p("# Run #{$run->id} ({$run->label}) — {$run->status} — saisons " . implode(',', $run->seasons) . " — entrée {$run->input_bookmaker} ouverture — {$modelDesc}\n");
 
         $this->sectionMatches($run, $pops, $stats);

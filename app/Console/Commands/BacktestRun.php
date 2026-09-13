@@ -14,7 +14,8 @@ class BacktestRun extends Command
                             {--input=b365 : Bookmaker dont les cotes d\'OUVERTURE alimentent le modèle : b365 | ps}
                             {--label= : Étiquette du run}
                             {--legacy-home : Mesure : rétablir l\'ancien facteur domicile appliqué après fusion (y compris au signal marché)}
-                            {--no-anchor : Mesure : désactiver l\'ancrage du total de buts sur la moyenne du championnat}';
+                            {--legacy-share : Mesure : rétablir l\'ancien recalage du total à partage domicile/extérieur constant}
+                            {--anchor : Mesure : activer l\'ancrage du total sans O/U sur la moyenne du championnat (saisons antérieures au match)}';
 
     protected $description = 'Backtest de calibration du modèle de production (marché seul) sur football-data — aucune mise, aucun ROI';
 
@@ -56,12 +57,14 @@ class BacktestRun extends Command
             ? array_map(fn ($d) => strtoupper(trim($d)), explode(',', $this->option('divisions')))
             : null;
 
-        // Corrections du modèle : les deux sont actives par défaut (production).
-        // Les options ne servent qu'à mesurer chaque correction séparément.
+        // Modèle de production par défaut. Les options ne servent qu'à mesurer un
+        // changement à la fois.
         $legacyHome = (bool) $this->option('legacy-home');
-        $anchor = !$this->option('no-anchor');
+        $legacyShare = (bool) $this->option('legacy-share');
+        $anchor = (bool) $this->option('anchor');
         config([
             'xg-model.legacy_home_advantage_after_fusion' => $legacyHome,
+            'xg-model.legacy_constant_share_rescaling' => $legacyShare,
             'xg-model.anchor_total_on_league_average' => $anchor,
         ]);
 
@@ -73,12 +76,16 @@ class BacktestRun extends Command
             'label' => $this->option('label'),
             'model' => [
                 'legacy_home_advantage_after_fusion' => $legacyHome,
+                'legacy_constant_share_rescaling' => $legacyShare,
                 'anchor_total_on_league_average' => $anchor,
+                'estimators_scoped_to_prior_seasons' => true,
             ],
         ];
 
         $this->info('Backtest calibration — saisons ' . implode(',', $seasons) . ' — divisions ' . ($divisions ? implode(',', $divisions) : 'toutes') . " — entrée {$input} (ouverture)");
-        $this->line('Modèle : facteur domicile ' . ($legacyHome ? 'ANCIEN (après fusion, marché inclus)' : 'sur les seuls signaux hors marché') . ' — total sans O/U ' . ($anchor ? 'ancré sur la moyenne du championnat' : 'NON ancré (grille libre)'));
+        $this->line('Modèle : facteur domicile ' . ($legacyHome ? 'ANCIEN (après fusion, marché inclus)' : 'sur les seuls signaux hors marché')
+            . ' — recalage O/U ' . ($legacyShare ? 'ANCIEN (partage constant)' : 'conjoint (partage cherché au total O/U)')
+            . ' — total sans O/U ' . ($anchor ? 'ancré (saisons antérieures au match)' : 'libre (grille)'));
 
         $bar = $this->output->createProgressBar();
         $bar->start();

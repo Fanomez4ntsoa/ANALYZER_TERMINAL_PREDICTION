@@ -6,6 +6,7 @@ use App\Models\BacktestFdPrediction;
 use App\Models\BacktestFdRun;
 use App\Models\FootballMatch;
 use App\Models\HistoricalMatch;
+use App\Services\Backtesting\SeasonScopedEstimator;
 use App\Services\Probability\PoissonModelService;
 use App\Services\Probability\XGModelService;
 use Illuminate\Support\Facades\Storage;
@@ -24,6 +25,10 @@ use Illuminate\Support\Facades\Storage;
  * Entrée du modèle : cotes d'OUVERTURE du bookmaker d'entrée. Les cotes de clôture ne sont
  * jamais fournies au modèle ; la clôture Pinnacle démarginalisée sert de référence.
  * Aucune mise, aucun ROI, aucune cote inventée : ligne exclue si la cote réelle manque.
+ *
+ * Règle générale (SeasonScopedEstimator) : avant chaque match, tout estimateur de
+ * paramètre sur données historiques est borné aux saisons strictement antérieures
+ * à celle du match ; tout accès non borné pendant le run lève une exception.
  */
 class CalibrationBacktestService
 {
@@ -36,10 +41,21 @@ class CalibrationBacktestService
 
     private const BIN_WIDTH = 0.05;
 
+    /** @var SeasonScopedEstimator[] */
+    private array $estimators;
+
+    /** @param iterable<SeasonScopedEstimator> $estimators */
     public function __construct(
         private XGModelService $xgModel,
         private PoissonModelService $poisson,
+        iterable $estimators = [],
     ) {
+        $this->estimators = is_array($estimators) ? $estimators : iterator_to_array($estimators, false);
+        foreach ($this->estimators as $e) {
+            if (!$e instanceof SeasonScopedEstimator) {
+                throw new \InvalidArgumentException(get_class($e) . ' doit implémenter SeasonScopedEstimator');
+            }
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -123,64 +139,79 @@ class CalibrationBacktestService
         $evaluated = 0;
         $aggregator = new CalibrationAggregator(self::BIN_WIDTH);
 
-        foreach ($matches as $match) {
-            $bySeason[$match->season] = ($bySeason[$match->season] ?? ['loaded' => 0, 'evaluated' => 0]);
-            $bySeason[$match->season]['loaded']++;
+        foreach ($this->estimators as $estimator) {
+            $estimator->requireScope(true);
+        }
 
-            if ($match->fthg === null || $match->ftag === null) {
-                $exclusions['missing_score']++;
-                continue;
+        try {
+            foreach ($matches as $match) {
+                foreach ($this->estimators as $estimator) {
+                    $estimator->scopeToSeasonsBefore((string) $match->season);
+                }
+
+                $bySeason[$match->season] = ($bySeason[$match->season] ?? ['loaded' => 0, 'evaluated' => 0]);
+                $bySeason[$match->season]['loaded']++;
+
+                if ($match->fthg === null || $match->ftag === null) {
+                    $exclusions['missing_score']++;
+                    continue;
+                }
+
+                $in1x2 = $this->triplet($match, $prefix);
+                if ($in1x2 === null) {
+                    $exclusions['missing_input_1x2']++;
+                    continue;
+                }
+                $inOu = $this->pair($match, $prefix);
+                if ($inOu === null) {
+                    $exclusions['missing_input_ou25']++;
+                }
+
+                $refClose1x2 = $this->fairTriplet($this->triplet($match, 'ps_close'));
+                $refCloseOu = $this->fairPair($this->pair($match, 'ps_close'));
+                if ($refClose1x2 === null) {
+                    $exclusions['missing_pinnacle_close_1x2']++;
+                }
+                if ($refCloseOu === null) {
+                    $exclusions['missing_pinnacle_close_ou25']++;
+                }
+
+                $inFair1x2 = $this->fairTriplet($in1x2);
+                $inFairOu = $this->fairPair($inOu);
+
+                $rows = [];
+
+                // ── Passe complète : 1X2 + O/U 2.5 en entrée → ajustement + dérivés ──
+                if ($inOu !== null) {
+                    $full = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, $inOu), true);
+                    $rows = array_merge(
+                        $rows,
+                        $this->adjustmentRows($match, $full, $inFair1x2, $inFairOu, $refClose1x2, $refCloseOu),
+                        $this->derivedRows($match, $full, $inFair1x2, $refClose1x2),
+                    );
+                }
+
+                // ── Passe de transfert : 1X2 seul en entrée → O/U 2.5 comparé au marché réel ──
+                $transfer = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, null), true);
+                $rows = array_merge($rows, $this->transferRows($match, $transfer, $inFairOu, $refCloseOu));
+
+                foreach ($rows as $row) {
+                    $aggregator->add($row);
+                }
+                if ($sink !== null) {
+                    $sink($rows);
+                }
+
+                $evaluated++;
+                $bySeason[$match->season]['evaluated']++;
+                if ($progress !== null) {
+                    $progress($evaluated);
+                }
             }
-
-            $in1x2 = $this->triplet($match, $prefix);
-            if ($in1x2 === null) {
-                $exclusions['missing_input_1x2']++;
-                continue;
-            }
-            $inOu = $this->pair($match, $prefix);
-            if ($inOu === null) {
-                $exclusions['missing_input_ou25']++;
-            }
-
-            $refClose1x2 = $this->fairTriplet($this->triplet($match, 'ps_close'));
-            $refCloseOu = $this->fairPair($this->pair($match, 'ps_close'));
-            if ($refClose1x2 === null) {
-                $exclusions['missing_pinnacle_close_1x2']++;
-            }
-            if ($refCloseOu === null) {
-                $exclusions['missing_pinnacle_close_ou25']++;
-            }
-
-            $inFair1x2 = $this->fairTriplet($in1x2);
-            $inFairOu = $this->fairPair($inOu);
-
-            $rows = [];
-
-            // ── Passe complète : 1X2 + O/U 2.5 en entrée → ajustement + dérivés ──
-            if ($inOu !== null) {
-                $full = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, $inOu), true);
-                $rows = array_merge(
-                    $rows,
-                    $this->adjustmentRows($match, $full, $inFair1x2, $inFairOu, $refClose1x2, $refCloseOu),
-                    $this->derivedRows($match, $full, $inFair1x2, $refClose1x2),
-                );
-            }
-
-            // ── Passe de transfert : 1X2 seul en entrée → O/U 2.5 comparé au marché réel ──
-            $transfer = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, null), true);
-            $rows = array_merge($rows, $this->transferRows($match, $transfer, $inFairOu, $refCloseOu));
-
-            foreach ($rows as $row) {
-                $aggregator->add($row);
-            }
-            if ($sink !== null) {
-                $sink($rows);
-            }
-
-            $evaluated++;
-            $bySeason[$match->season]['evaluated']++;
-            if ($progress !== null) {
-                $progress($evaluated);
+        } finally {
+            foreach ($this->estimators as $estimator) {
+                $estimator->scopeToSeasonsBefore(null);
+                $estimator->requireScope(false);
             }
         }
 

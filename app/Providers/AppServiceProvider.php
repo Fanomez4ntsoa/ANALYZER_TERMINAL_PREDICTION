@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Services\Backtesting\FootballData\CalibrationBacktestService;
+use App\Services\Backtesting\SeasonScopedEstimator;
 use App\Services\Probability\LeagueGoalAverages;
 use Illuminate\Support\ServiceProvider;
 
@@ -15,6 +17,13 @@ class AppServiceProvider extends ServiceProvider
     {
         // Moyennes de buts par ligue (saisons de travail) : une lecture par processus.
         $this->app->singleton(LeagueGoalAverages::class, fn () => new LeagueGoalAverages());
+
+        // Règle du backtest : tout estimateur de paramètre sur données historiques est
+        // tagué ici, et le moteur le borne aux saisons strictement antérieures au match.
+        $this->app->tag([LeagueGoalAverages::class], SeasonScopedEstimator::TAG);
+        $this->app->when(CalibrationBacktestService::class)
+            ->needs('$estimators')
+            ->giveTagged(SeasonScopedEstimator::TAG);
     }
 
     /**

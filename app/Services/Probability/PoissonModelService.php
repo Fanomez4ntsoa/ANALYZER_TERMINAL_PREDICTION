@@ -50,6 +50,23 @@ class PoissonModelService
      */
     public function predict1X2(float $homeLambda, float $awayLambda): array
     {
+        $p = $this->probabilities1X2($homeLambda, $awayLambda);
+
+        return [
+            'home' => round($p['home'] * 100, 1),
+            'draw' => round($p['draw'] * 100, 1),
+            'away' => round($p['away'] * 100, 1),
+        ];
+    }
+
+    /**
+     * Probabilités 1X2 non arrondies (0-1), normalisées sur la matrice tronquée.
+     * Sert aux ajustements fins sur les cotes ; predict1X2 en est l'arrondi.
+     *
+     * @return array ['home' => float, 'draw' => float, 'away' => float]
+     */
+    public function probabilities1X2(float $homeLambda, float $awayLambda): array
+    {
         $matrix = $this->scoreMatrix($homeLambda, $awayLambda);
 
         $home = 0;
@@ -65,17 +82,12 @@ class PoissonModelService
             }
         }
 
-        // Normaliser à 100%
         $total = $home + $draw + $away;
         if ($total <= 0) {
-            return ['home' => 33.3, 'draw' => 33.3, 'away' => 33.3];
+            return ['home' => 1 / 3, 'draw' => 1 / 3, 'away' => 1 / 3];
         }
 
-        return [
-            'home' => round(($home / $total) * 100, 1),
-            'draw' => round(($draw / $total) * 100, 1),
-            'away' => round(($away / $total) * 100, 1),
-        ];
+        return ['home' => $home / $total, 'draw' => $draw / $total, 'away' => $away / $total];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
