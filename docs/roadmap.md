@@ -123,18 +123,32 @@ Laissé ouvert :
 - BTTS Oui du Top 5 sous-estimé de 2 points : non expliqué, à surveiller
 - Résidu de l'Over en transfert dans les divisions à buts : observation non
   exploitée (`docs/decisions.md`)
-- Échantillon réservé : non touché, gardé pour le jalon de validation de l'étape 3
+- Échantillon réservé : non touché, gardé pour le jalon unique de fin d'étape 4
 
 Questions auxquelles cette étape doit répondre : le Poisson sur cotes est-il
 calibré, sur quels marchés, sur quels championnats, et bat-il la clôture ?
 
 ---
 
-## Étape 3 — Information absente des cotes d'ouverture ⬜ à faire
+## Étape 3 — Interface ⬜ à faire
+
+Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
+est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart
+entre les deux : ce format ne dépend ni des tests de l'étape 4 ni de la validation
+sur l'échantillon réservé.
+
+Maquette de référence validée : thème sombre phosphore, calibration en élément
+principal, simulation Monte-Carlo animée, tout en une page sans défilement.
+Prévoir un interrupteur d'animation dans l'interface plutôt qu'une obéissance
+stricte au réglage système.
+
+---
+
+## Étape 4 — Information absente des cotes d'ouverture ⬜ à faire
 
 Jusqu'ici on réparait le modèle. On cherche maintenant si une information absente
-des cotes d'ouverture améliore la prédiction. Deux tests, dans cet ordre. Rien n'est
-implémenté avant que le test précédent soit mesuré et documenté.
+des cotes d'ouverture améliore la prédiction. Deux tests indépendants, qui peuvent
+avancer en parallèle. Chacun est implémenté, mesuré et documenté pour lui-même.
 
 ### Règles communes aux deux tests
 
@@ -202,23 +216,11 @@ Ce qu'on mesure :
   Pinnacle dans football-data. Un désaccord peut venir d'un décalage de relevé
   plutôt que d'une divergence d'opinion.
 
-### Jalon de clôture — validation sur l'échantillon réservé
+### Jalon unique de fin d'étape 4 — validation sur l'échantillon réservé
 
 Quand plus rien ne bouge dans le modèle, un passage unique de `--sample=holdout`
 (2425-2526) valide l'ensemble des corrections d'un coup. Chaque passage sur
 l'échantillon réservé l'use : on ne le lance pas avant.
-
----
-
-## Étape 4 — Interface ⬜ à faire
-
-Après la validation sur l'échantillon réservé, puisque l'interface affiche ce que
-le modèle produit et que les étapes 2 et 3 peuvent changer le périmètre.
-
-Maquette de référence validée : thème sombre phosphore, calibration en élément
-principal, simulation Monte-Carlo animée, tout en une page sans défilement.
-Prévoir un interrupteur d'animation dans l'interface plutôt qu'une obéissance
-stricte au réglage système.
 
 ---
 
