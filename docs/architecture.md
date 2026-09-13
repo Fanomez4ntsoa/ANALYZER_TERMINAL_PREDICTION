@@ -82,7 +82,10 @@ marché dépasse les 40 % affichés.
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
 | `Market/CLVTrackerService` | Snapshots de cotes, écart de clôture |
-| `Backtesting/BacktestEngine` | **Faux, à réécrire en étape 2** |
+| `Backtesting/FootballData/CsvParser` | CSV football-data → lignes normalisées (liste blanche de colonnes) |
+| `Backtesting/FootballData/CalibrationBacktestService` | Backtest de calibration du modèle de production, mode marché seul |
+| `Backtesting/FootballData/CalibrationAggregator` | Brier, calibration par tranche, segmentation |
+| `Backtesting/BacktestEngine` | **Faux, remplacé par le backtest football-data ; à supprimer une fois le nouveau validé** |
 
 ## Débranché, code conservé
 
@@ -102,7 +105,7 @@ Sources manuelles A/B/C, Source E, `AnalyzerService`, `CalculatorService`,
 ## Tables
 
 **Actives** : `matches`, `advanced_data`, `predictions`, `odds_movements`,
-`referees`.
+`referees`, `historical_matches`, `backtest_fd_runs`, `backtest_fd_predictions`.
 
 **Conservées mais orphelines** : `recommendations`, `sources`,
 `match_validations`, `combos`, `ai_analysis`, `daily_combos`, `backtest_runs`,
@@ -111,6 +114,38 @@ irremplaçables. Ne pas supprimer.
 
 **Colonnes mortes sur `matches`** : `global_confidence`, `layer1_score`,
 `layer2_score`, `convergence`, `context`, `sources_data`.
+
+---
+
+## Le backtest de calibration (étape 2)
+
+```
+football-data:import --seasons=2324 --divisions=E0,D1
+  └─ zip https://www.football-data.co.uk/mmz4281/{saison}/data.zip
+       → storage/app/private/football-data/{saison}/
+       → CsvParser (config/football-data.php : liste blanche, jamais Max/Avg)
+       → table historical_matches
+
+backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps
+  └─ CalibrationBacktestService::run
+       ├─ pour chaque match : FootballMatch non persisté, cotes d'OUVERTURE seulement
+       ├─ XGModelService::predict($match, marketOnly: true)      passe complète (1X2 + O/U 2.5)
+       │    → famille adjustment (1X2, O/U 2.5) + famille derived (DC, BTTS, O/U 1.5, O/U 3.5)
+       ├─ XGModelService::predict($match, marketOnly: true)      passe transfert (1X2 seul)
+       │    → famille transfer (O/U 2.5 comparé au marché réel)
+       ├─ CalibrationAggregator                                   Brier, MSE vs Pinnacle clôture,
+       │                                                          tranches de 5 pts (n, moyenne, observé)
+       ├─ table backtest_fd_predictions                           une ligne par match × famille × marché × issue
+       └─ backtest_fd_runs + storage/app/private/backtest/run_{id}_{label}.json
+```
+
+La clôture Pinnacle démarginalisée est la référence et n'entre jamais dans le
+modèle. Aucune mise, aucun ROI. Une cote absente exclut la ligne et se compte
+par cause (`missing_score`, `missing_input_1x2`, `missing_input_ou25`,
+`missing_pinnacle_close_1x2`, `missing_pinnacle_close_ou25`).
+
+Coût : 0,08 s par `predict`, deux passes par match, soit environ 4 minutes pour
+1 750 matchs et 1 h 45 pour les cinq saisons complètes.
 
 ---
 
@@ -126,5 +161,8 @@ irremplaçables. Ne pas supprimer.
   `WeatherService`, `FetchMatchDataJob`, `routes/web.php`). `config:cache`
   casserait ces appels. Ne pas l'activer sans corriger d'abord.
 - Les compositions d'équipe sont rarement disponibles avant le coup d'envoi.
+- Dans `CalibrationBacktestService`, les issues `'1'` et `'2'` deviennent des
+  entiers quand elles servent de clé de tableau PHP : toujours les recaster en
+  chaîne avant comparaison stricte (bug rencontré et corrigé en validation).
 - `pdo_sqlite` est absent de la machine de développement : les tests Breeze
   échouent pour cette raison, sans rapport avec le code métier.

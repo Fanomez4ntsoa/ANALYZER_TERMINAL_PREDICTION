@@ -115,3 +115,63 @@ résultats et cotes par bookmaker identifié, dont Bet365 et la clôture Pinnacl
 Limite acceptée : ces fichiers ne contiennent que des cotes et des résultats. Le
 backtest ne mesurera donc que le signal marché du modèle, pas l'apport des trois
 autres signaux. Cette question-là ne sera tranchée qu'en enregistrement réel.
+
+---
+
+## 2026-09-13 — Le backtest mesure la calibration, jamais la rentabilité
+
+Aucune mise, aucun ROI, aucun yield, aucune bankroll. L'ancien moteur calculait
+un ROI à des cotes inventées (`100 / probabilité`), ce qui garantit un edge nul
+par construction et rend le chiffre indéchiffrable. Une cote qui manque exclut
+la ligne et se compte dans les exclusions ; elle ne se remplace jamais.
+
+---
+
+## 2026-09-13 — Le modèle testé est celui de production
+
+Pas de version simplifiée : `XGModelService::predict` reçoit un drapeau
+`marketOnly` qui n'active que le signal marché et renormalise les poids, le
+reste du pipeline étant inchangé. Ce que le backtest mesure est donc exactement
+ce que `/analysis` calcule quand les autres signaux manquent — avantage domicile
+compris, alors que le marché le contient déjà. La passe de validation le montre
+(+5,9 points sur la victoire à domicile). On mesure d'abord, on règle ensuite,
+et seulement sur l'échantillon de travail.
+
+---
+
+## 2026-09-13 — Trois familles de marchés, pas une seule calibration
+
+Le modèle ajuste ses λ sur les cotes 1X2 et O/U 2.5 : sa probabilité sur ces
+deux marchés est quasiment celle du bookmaker, et une bonne calibration n'y
+prouve rien. D'où trois familles :
+
+- **ajustement** (1X2, O/U 2.5) : contrôle de cohérence de l'inversion des cotes ;
+- **dérivés** : BTTS, O/U 1.5 et O/U 3.5 sont les seuls tests indépendants, parce
+  qu'ils dépendent de la forme de la loi jointe. La double chance est une somme
+  du 1X2 côté modèle comme côté référence : elle n'apporte rien de plus que le
+  contrôle 1X2, même si c'est le marché principal du projet ;
+- **transfert** : λ ajustés sur le seul 1X2, puis O/U 2.5 prédit et comparé à la
+  cote réelle de ce marché. C'est ce qui dit si le Poisson transfère
+  l'information d'un marché à l'autre.
+
+---
+
+## 2026-09-13 — Ouverture en entrée, clôture Pinnacle en référence
+
+Le modèle ne reçoit que les cotes d'ouverture, les seules réellement jouables au
+moment de la décision. La clôture Pinnacle démarginalisée, meilleur estimateur
+disponible de la vraie probabilité, sert de référence et n'entre jamais dans le
+modèle. Pinnacle ouverture est importée aussi, pour tester plus tard si le
+bookmaker d'entrée change quelque chose.
+
+Limite acceptée : football-data ne publie aucune cote BTTS, double chance,
+O/U 1.5 ou 3.5. Les marchés dérivés sont donc calibrés contre le résultat
+observé seulement, ce qui reste un test valide avec 38 000 matchs.
+
+---
+
+## 2026-09-13 — Saisons réservées
+
+2021/22 à 2023/24 forment l'échantillon de travail. 2024/25 et 2025/26 sont
+réservées : `backtest:run` refuse de les toucher sans `--sample=holdout`, et
+tout run sur elles porte un avertissement. Aucun paramètre ne se règle dessus.
