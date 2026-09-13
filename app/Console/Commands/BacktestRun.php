@@ -12,7 +12,9 @@ class BacktestRun extends Command
                             {--seasons= : Saisons explicites (AABB, virgules). Les saisons réservées exigent --sample=holdout}
                             {--divisions= : Divisions (ex. E0,D1,I1,SP1,F1) — défaut : toutes}
                             {--input=b365 : Bookmaker dont les cotes d\'OUVERTURE alimentent le modèle : b365 | ps}
-                            {--label= : Étiquette du run}';
+                            {--label= : Étiquette du run}
+                            {--legacy-home : Mesure : rétablir l\'ancien facteur domicile appliqué après fusion (y compris au signal marché)}
+                            {--no-anchor : Mesure : désactiver l\'ancrage du total de buts sur la moyenne du championnat}';
 
     protected $description = 'Backtest de calibration du modèle de production (marché seul) sur football-data — aucune mise, aucun ROI';
 
@@ -54,15 +56,29 @@ class BacktestRun extends Command
             ? array_map(fn ($d) => strtoupper(trim($d)), explode(',', $this->option('divisions')))
             : null;
 
+        // Corrections du modèle : les deux sont actives par défaut (production).
+        // Les options ne servent qu'à mesurer chaque correction séparément.
+        $legacyHome = (bool) $this->option('legacy-home');
+        $anchor = !$this->option('no-anchor');
+        config([
+            'xg-model.legacy_home_advantage_after_fusion' => $legacyHome,
+            'xg-model.anchor_total_on_league_average' => $anchor,
+        ]);
+
         $config = [
             'sample' => $sample,
             'seasons' => array_values($seasons),
             'divisions' => $divisions,
             'input_bookmaker' => $input,
             'label' => $this->option('label'),
+            'model' => [
+                'legacy_home_advantage_after_fusion' => $legacyHome,
+                'anchor_total_on_league_average' => $anchor,
+            ],
         ];
 
         $this->info('Backtest calibration — saisons ' . implode(',', $seasons) . ' — divisions ' . ($divisions ? implode(',', $divisions) : 'toutes') . " — entrée {$input} (ouverture)");
+        $this->line('Modèle : facteur domicile ' . ($legacyHome ? 'ANCIEN (après fusion, marché inclus)' : 'sur les seuls signaux hors marché') . ' — total sans O/U ' . ($anchor ? 'ancré sur la moyenne du championnat' : 'NON ancré (grille libre)'));
 
         $bar = $this->output->createProgressBar();
         $bar->start();

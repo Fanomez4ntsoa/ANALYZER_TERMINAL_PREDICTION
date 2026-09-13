@@ -64,6 +64,16 @@ return [
         'N1' => 88, 'B1' => 144, 'P1' => 94, 'T1' => 203, 'G1' => 197,
     ],
 
+    // Populations de lecture du backtest. Jamais d'agrégat sur les 22 divisions
+    // confondues : sur 7 800 matchs par saison, les cinq grands championnats n'en
+    // font que 1 750 et un agrégat global décrit surtout la quatrième division
+    // anglaise. « other » = toutes les divisions absentes des deux premières.
+    'populations' => [
+        'top5' => ['label' => 'Top 5', 'divisions' => ['E0', 'D1', 'I1', 'SP1', 'F1']],
+        'second' => ['label' => 'Deuxièmes divisions', 'divisions' => ['E1', 'D2', 'I2', 'SP2', 'F2']],
+        'other' => ['label' => 'Inférieures et autres', 'divisions' => null],
+    ],
+
     'labels' => [
         'E0' => 'Premier League', 'E1' => 'Championship', 'E2' => 'League One', 'E3' => 'League Two', 'EC' => 'National League',
         'SC0' => 'Scottish Premiership', 'SC1' => 'Scottish Championship', 'SC2' => 'Scottish League One', 'SC3' => 'Scottish League Two',

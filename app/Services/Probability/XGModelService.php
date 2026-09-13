@@ -11,7 +11,8 @@ use App\Models\FootballMatch;
  *   1. xG proxy (footystats_data) — données brutes du pipeline
  *   2. Comparaison API-Football (context_data.comparison) — 7 dimensions
  *   3. Probabilités implicites des cotes — reverse-engineering du marché
- *   4. Facteur domicile/extérieur — biais historique
+ *   4. Facteur domicile/extérieur — appliqué aux seuls signaux 1 et 2, le
+ *      signal marché contenant déjà l'avantage du terrain
  *
  * Les λ sont ensuite injectés dans PoissonModelService pour dériver
  * toutes les probabilités par marché.
@@ -58,10 +59,12 @@ class XGModelService
     private const XG_PROXY_FLOOR = 0.5;
 
     private PoissonModelService $poisson;
+    private LeagueGoalAverages $leagueGoals;
 
-    public function __construct(PoissonModelService $poisson)
+    public function __construct(PoissonModelService $poisson, LeagueGoalAverages $leagueGoals)
     {
         $this->poisson = $poisson;
+        $this->leagueGoals = $leagueGoals;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -86,11 +89,15 @@ class XGModelService
             ? $this->collectMarketSignalOnly($match)
             : $this->collectSignals($match, $advancedData);
 
-        // 2. Fusionner les λ avec pondération
+        // 2. Fusionner les λ avec pondération. L'avantage domicile est appliqué
+        //    dans la fusion, aux seuls signaux qui ne le contiennent pas.
         $lambdas = $this->fuseLambdas($signals);
 
-        // 3. Appliquer l'ajustement domicile/extérieur
-        $lambdas = $this->applyHomeAdvantage($lambdas);
+        // 3. Ancien comportement (mesure seulement) : facteur domicile après fusion,
+        //    donc aussi sur le signal marché qui contient déjà l'avantage du terrain.
+        if (config('xg-model.legacy_home_advantage_after_fusion')) {
+            $lambdas = $this->applyLegacyHomeAdvantage($lambdas);
+        }
 
         // 4. Clamp les λ dans des bornes raisonnables
         $lambdas['home'] = max(0.3, min(3.5, $lambdas['home']));
@@ -331,10 +338,23 @@ class XGModelService
             $bestAway = $mid * $awayShare;
         }
 
+        // Phase 2 bis : sans cotes O/U, le 1X2 seul ne contraint pas le total et la
+        // grille dérive vers le bas. Le total est ancré sur la moyenne de buts du
+        // championnat (saisons de travail), le partage λh/λa du 1X2 étant conservé.
+        $totalAnchor = null;
+        if ($impliedUnder === null && config('xg-model.anchor_total_on_league_average') && ($bestHome + $bestAway) > 0) {
+            $totalAnchor = $this->leagueGoals->totalFor($match->league_id)
+                ?? 2 * $this->getLeagueAvgXg($match->league_id);
+            $homeShare = $bestHome / ($bestHome + $bestAway);
+            $bestHome = $totalAnchor * $homeShare;
+            $bestAway = $totalAnchor * (1 - $homeShare);
+        }
+
         return [
             'home' => round($bestHome, 3),
             'away' => round($bestAway, 3),
             'fit_error' => round($bestError, 4),
+            'total_anchor' => $totalAnchor,
             'implied' => [
                 'home' => round($pHome * 100, 1),
                 'draw' => round($pDraw * 100, 1),
@@ -391,6 +411,8 @@ class XGModelService
         $awaySum = 0;
         $totalWeight = 0;
 
+        $legacy = (bool) config('xg-model.legacy_home_advantage_after_fusion');
+
         foreach (['xg_proxy', 'comparison', 'market'] as $key) {
             $signal = $signals[$key] ?? null;
 
@@ -398,9 +420,19 @@ class XGModelService
                 continue;
             }
 
+            // Le signal marché contient déjà l'avantage du terrain (les cotes le
+            // pricent). xg_proxy et comparison sont des forces neutres : c'est à
+            // eux seuls que s'applique le facteur domicile, à pleine valeur.
+            $home = $signal['home'];
+            $away = $signal['away'];
+            if ($key !== 'market' && !$legacy) {
+                $home *= self::HOME_ADVANTAGE;
+                $away *= self::AWAY_FACTOR;
+            }
+
             $weight = self::SIGNAL_WEIGHTS[$key];
-            $homeSum += $signal['home'] * $weight;
-            $awaySum += $signal['away'] * $weight;
+            $homeSum += $home * $weight;
+            $awaySum += $away * $weight;
             $totalWeight += $weight;
         }
 
@@ -427,11 +459,12 @@ class XGModelService
     }
 
     /**
-     * Appliquer l'avantage domicile.
-     * Le signal 'market' inclut déjà cet avantage implicitement (via les cotes),
-     * mais xg_proxy et comparison non. On applique un facteur partiel.
+     * ANCIEN comportement, conservé pour la mesure (config xg-model.legacy_home_advantage_after_fusion).
+     * Facteur partiel appliqué après fusion, donc aussi au signal marché qui contient
+     * déjà l'avantage du terrain : +4,6 à +5,6 points sur la victoire à domicile
+     * (run #2, dix divisions majeures).
      */
-    private function applyHomeAdvantage(array $lambdas): array
+    private function applyLegacyHomeAdvantage(array $lambdas): array
     {
         // Facteur réduit car le signal 'market' (35% du poids) l'intègre déjà
         $adjustedFactor = 1 + (self::HOME_ADVANTAGE - 1) * 0.4; // +10% au lieu de +25%

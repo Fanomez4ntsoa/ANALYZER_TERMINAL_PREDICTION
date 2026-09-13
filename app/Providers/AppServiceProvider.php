@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Services\Probability\LeagueGoalAverages;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -12,7 +13,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Moyennes de buts par ligue (saisons de travail) : une lecture par processus.
+        $this->app->singleton(LeagueGoalAverages::class, fn () => new LeagueGoalAverages());
     }
 
     /**
