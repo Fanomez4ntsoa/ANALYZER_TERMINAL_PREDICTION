@@ -83,6 +83,7 @@ marché dépasse les 40 % affichés.
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
 | `Market/CLVTrackerService` | Snapshots de cotes, écart de clôture |
 | `Backtesting/FootballData/CsvParser` | CSV football-data → lignes normalisées (liste blanche de colonnes) |
+| `Backtesting/FootballData/TeamNameAudit` | Graphies d'équipes qui ne diffèrent que par un caractère non-ASCII |
 | `Backtesting/FootballData/CalibrationBacktestService` | Backtest de calibration du modèle de production, mode marché seul |
 | `Backtesting/FootballData/CalibrationAggregator` | Brier, calibration par tranche, segmentation |
 | `Backtesting/BacktestEngine` | **Faux, remplacé par le backtest football-data ; à supprimer une fois le nouveau validé** |
@@ -120,11 +121,15 @@ irremplaçables. Ne pas supprimer.
 ## Le backtest de calibration (étape 2)
 
 ```
-football-data:import --seasons=2324 --divisions=E0,D1
+football-data:import --seasons=2324 --divisions=E0,D1 [--force-download]
   └─ zip https://www.football-data.co.uk/mmz4281/{saison}/data.zip
-       → storage/app/private/football-data/{saison}/
-       → CsvParser (config/football-data.php : liste blanche, jamais Max/Avg)
+       → storage/app/private/football-data/{saison}/data.zip (jamais retéléchargé s'il existe ;
+         des CSV déjà décompressés dans {saison}/csv/ ou {saison}/ suffisent)
+       → CsvParser (config/football-data.php : liste blanche, jamais Max/Avg ;
+         chaque ligne testée : UTF-8 gardé, sinon converti depuis Windows-1252)
        → table historical_matches
+       → TeamNameAudit : noms distincts par division, paires ne différant que par un
+         caractère non-ASCII signalées
 
 backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps
   └─ CalibrationBacktestService::run

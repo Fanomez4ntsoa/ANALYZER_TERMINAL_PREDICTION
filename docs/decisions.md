@@ -175,3 +175,25 @@ observé seulement, ce qui reste un test valide avec 38 000 matchs.
 2021/22 à 2023/24 forment l'échantillon de travail. 2024/25 et 2025/26 sont
 réservées : `backtest:run` refuse de les toucher sans `--sample=holdout`, et
 tout run sur elles porte un avertissement. Aucun paramètre ne se règle dessus.
+
+---
+
+## 2026-09-13 — Encodage des CSV football-data détecté ligne par ligne
+
+football-data.co.uk ne publie pas un encodage unique : `2122/EC.csv` est en
+Windows-1252 (King’s Lynn, octet `\x92`, rejeté par MariaDB) alors que
+`2425/D2.csv` et `2526/D2.csv` sont en UTF-8 (Preußen Münster). Une conversion
+globale depuis Windows-1252 aurait donné « PreuÃŸen MÃ¼nster », et retirer les
+octets invalides aurait donné « Kings Lynn ». `CsvParser` teste donc chaque
+ligne : UTF-8 valide conservée telle quelle, sinon convertie depuis
+Windows-1252. Aucun caractère n'est supprimé.
+
+L'import se termine par un audit (`TeamNameAudit`) : noms d'équipes distincts
+par division, toutes saisons confondues, et signalement de toute paire qui ne
+diffère que par un caractère non-ASCII, parce que deux graphies de la même
+équipe casseraient toute jointure ultérieure. Premier import complet : aucune
+paire, trois noms non-ASCII en tout (King’s Lynn, Preußen Münster).
+
+Le zip d'une saison présent dans `storage/app/private/football-data/{saison}/`
+n'est jamais retéléchargé (`--force-download` pour rafraîchir), et des CSV déjà
+décompressés dans `{saison}/csv/` ou `{saison}/` suffisent sans zip.

@@ -10,11 +10,19 @@ use Carbon\Carbon;
  * Seules les colonnes de la liste blanche config('football-data.columns') sont lues.
  * Une colonne absente donne null et est journalisée dans le rapport ; les colonnes
  * Max et Avg (multi-bookmakers) ne sont jamais lues.
+ *
+ * Encodage : football-data.co.uk mélange les encodages d'un fichier à l'autre
+ * (Windows-1252 pour les plus anciens, UTF-8 pour les plus récents). Chaque ligne
+ * est testée : si elle n'est pas de l'UTF-8 valide, elle est convertie depuis
+ * Windows-1252. Aucun caractère n'est supprimé : King’s Lynn, Münster ou Preußen
+ * arrivent intacts en base.
  */
 class CsvParser
 {
+    public const SOURCE_ENCODING = 'Windows-1252';
+
     /**
-     * @return array{rows: array<int, array>, missing_columns: string[], skipped_rows: int, total_rows: int}
+     * @return array{rows: array<int, array>, missing_columns: string[], skipped_rows: int, total_rows: int, converted_lines: int}
      */
     public function parse(string $path, string $season): array
     {
@@ -27,14 +35,16 @@ class CsvParser
             throw new \RuntimeException("Impossible d'ouvrir {$path}");
         }
 
-        $header = fgetcsv($handle);
-        if ($header === false) {
+        $converted = 0;
+
+        $headerLine = $this->readLine($handle, $converted);
+        if ($headerLine === null) {
             fclose($handle);
-            return ['rows' => [], 'missing_columns' => array_keys($map), 'skipped_rows' => 0, 'total_rows' => 0];
+            return ['rows' => [], 'missing_columns' => array_keys($map), 'skipped_rows' => 0, 'total_rows' => 0, 'converted_lines' => 0];
         }
 
         // BOM UTF-8 + espaces
-        $header = array_map(fn ($h) => trim(preg_replace('/^\xEF\xBB\xBF/', '', (string) $h)), $header);
+        $header = array_map(fn ($h) => trim((string) $h), str_getcsv(preg_replace('/^\xEF\xBB\xBF/', '', $headerLine), ',', '"', '\\'));
         $index = array_flip($header);
 
         $missing = array_values(array_filter(array_keys($map), fn ($col) => !isset($index[$col])));
@@ -49,7 +59,9 @@ class CsvParser
         $skipped = 0;
         $total = 0;
 
-        while (($line = fgetcsv($handle)) !== false) {
+        while (($lineText = $this->readLine($handle, $converted)) !== null) {
+            $line = str_getcsv($lineText, ',', '"', '\\');
+
             // Lignes vides en fin de fichier
             if (count($line) < 4 || trim((string) ($line[$index['Div']] ?? '')) === '') {
                 continue;
@@ -91,7 +103,36 @@ class CsvParser
             'missing_columns' => $missing,
             'skipped_rows' => $skipped,
             'total_rows' => $total,
+            'converted_lines' => $converted,
         ];
+    }
+
+    /**
+     * Lit une ligne physique et la ramène en UTF-8 valide.
+     * Une ligne déjà en UTF-8 est rendue telle quelle ; sinon elle est convertie
+     * depuis Windows-1252 et comptée dans $converted.
+     *
+     * @param resource $handle
+     */
+    private function readLine($handle, int &$converted): ?string
+    {
+        $line = fgets($handle);
+        if ($line === false) {
+            return null;
+        }
+        $line = rtrim($line, "\r\n");
+
+        return $this->toUtf8($line, $converted);
+    }
+
+    public function toUtf8(string $text, int &$converted): string
+    {
+        if (mb_check_encoding($text, 'UTF-8')) {
+            return $text;
+        }
+        $converted++;
+
+        return mb_convert_encoding($text, 'UTF-8', self::SOURCE_ENCODING);
     }
 
     private function parseDate(?string $value): ?Carbon

@@ -30,7 +30,15 @@ Fait le 13/09/2026 :
 
 - `football-data:import` : cinq saisons (2122 à 2526), 22 divisions par zip,
   table `historical_matches`. Bet365 et Pinnacle, ouverture et clôture, 1X2 et
-  O/U 2.5. Jamais Max/Avg.
+  O/U 2.5. Jamais Max/Avg. Encodage détecté ligne par ligne (Windows-1252 ou
+  UTF-8 selon le fichier), zip jamais retéléchargé sans `--force-download`,
+  CSV déjà décompressés acceptés, audit des graphies d'équipes en fin d'import.
+- Migrations `2026_09_13_000003` et `2026_09_13_000004` exécutées, import
+  complet réalisé : 38 780 matchs (7 822 / 7 830 / 7 800 / 7 681 / 7 647 par
+  saison de 2122 à 2526), aucune colonne de la liste blanche absente, 44 lignes
+  converties depuis Windows-1252 (toutes dans `2122/EC.csv`), aucune graphie
+  d'équipe en double. `2122/EC.csv` ne contient que 506 matchs sur 552 à la
+  source.
 - `XGModelService::predict(marketOnly: true)` : le modèle de production, signal
   marché seul, sans version simplifiée.
 - `CalibrationBacktestService` + `backtest:run` : trois familles (ajustement,
@@ -48,8 +56,7 @@ Fait le 13/09/2026 :
 
 Reste à faire :
 
-- Exécuter les migrations `2026_09_13_000003` et `2026_09_13_000004`, importer
-  les cinq saisons, lancer `backtest:run --sample=work` sur les 22 divisions
+- Lancer `backtest:run --sample=work` sur les 22 divisions
 - Second jeu d'entrées : `--input=ps` (Pinnacle ouverture)
 - Décider, sur l'échantillon de travail seulement, du sort de l'avantage domicile
   appliqué après le signal marché, et du calage du total de buts en transfert
