@@ -92,7 +92,7 @@ class EnrichContext extends Command
 
             $rows[] = [
                 substr($match->home_team, 0, 12) . ' v ' . substr($match->away_team, 0, 12),
-                $enriched['importance'],
+                $enriched['importance'] ?? '-',
                 ($fatigue['available'] ?? false) ? $fatigue['home']['fatigue_score'] . '/' . $fatigue['away']['fatigue_score'] : '-',
                 ($stakes['available'] ?? false) ? substr($stakes['home']['stake'] ?? '-', 0, 8) . '/' . substr($stakes['away']['stake'] ?? '-', 0, 8) : '-',
                 ($weather['condition'] ?? 'unknown') !== 'unknown' ? "{$weather['temperature']}C {$weather['condition']}" : '-',
@@ -176,6 +176,6 @@ class EnrichContext extends Command
         }
 
         $this->newLine();
-        $this->info("Importance resolue : {$enriched['importance']}");
+        $this->info('Importance resolue : ' . ($enriched['importance'] ?? 'indisponible'));
     }
 }

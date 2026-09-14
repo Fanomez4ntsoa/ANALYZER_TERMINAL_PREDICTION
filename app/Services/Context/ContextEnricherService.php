@@ -8,7 +8,10 @@ use App\Services\Api\WeatherService;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Enrichit le context_data avec 4 dimensions supplémentaires :
+ * Enrichit le context_data avec 4 dimensions supplémentaires. Règle : une
+ * dimension sans donnée suffisante se déclare `available: false` avec sa raison,
+ * jamais des zéros ou des valeurs par défaut présentés comme des mesures.
+ *
  *   1. Fatigue calendaire (matchs joués sur 7/14/21 jours)
  *   2. Enjeu précis (titre, relégation, qualification, rien à jouer)
  *   3. Météo (vent, pluie, température)
@@ -46,7 +49,7 @@ class ContextEnricherService
         // 4. Pression entraîneur
         $enriched['coachPressure'] = $this->analyzeCoachPressure($match, $fullMatchData);
 
-        // Mettre à jour l'importance si les enjeux l'exigent
+        // Importance déduite des seuls enjeux et pression disponibles, sinon null
         $enriched['importance'] = $this->resolveImportance($enriched);
 
         // Horodatage de la collecte : permet de distinguer une donnée collectée
@@ -57,7 +60,7 @@ class ContextEnricherService
             'dimensions' => array_keys(array_filter([
                 'fatigue' => $enriched['fatigue']['available'] ?? false,
                 'stakes' => $enriched['stakes']['available'] ?? false,
-                'weather' => ($enriched['weather']['condition'] ?? 'unknown') !== 'unknown',
+                'weather' => $enriched['weather']['available'] ?? false,
                 'coachPressure' => $enriched['coachPressure']['available'] ?? false,
             ])),
         ]);
@@ -83,6 +86,13 @@ class ContextEnricherService
         }
 
         $matchDate = $match->match_date;
+
+        // Les matchs récents sont comptés dans la base : sans import continu du
+        // calendrier, des zéros diraient « équipe fraîche » alors qu'ils disent
+        // « rien d'importé ».
+        if ($reason = $this->fatigueCoverageGap($match)) {
+            return ['available' => false, 'reason' => $reason];
+        }
 
         // Compter les matchs récents depuis la DB (matchs API déjà importés)
         $homeFatigue = $this->countRecentMatches($homeTeamId, $matchDate);
@@ -118,6 +128,7 @@ class ContextEnricherService
 
         return [
             'available' => true,
+            'scope' => 'ligues suivies et coupes européennes importées, hors coupes nationales',
             'home' => [
                 'matches_7d' => $homeFatigue['7d'],
                 'matches_14d' => $homeFatigue['14d'],
@@ -134,6 +145,40 @@ class ContextEnricherService
             ],
             'advantage' => $awayScore - $homeScore, // Positif = domicile plus frais
         ];
+    }
+
+    /**
+     * Raison pour laquelle la base ne couvre pas le calendrier des 21 jours
+     * précédant le match, ou null si la couverture est suffisante.
+     *
+     * Exigé : aucun filtre horaire à l'import (sinon les matchs hors créneau
+     * manquent) et des matchs importés du championnat dans chacune des trois
+     * semaines précédentes. Les coupes nationales ne sont jamais importées : la
+     * fatigue ne compte que les ligues suivies, ce que dit `scope`.
+     */
+    private function fatigueCoverageGap(FootballMatch $match): ?string
+    {
+        $start = (int) config('pipeline.match_start_hour');
+        $end = (int) config('pipeline.match_end_hour');
+        if ($start > 0 || $end < 23) {
+            return "Couverture insuffisante : filtre horaire {$start}h-{$end}h UTC à l'import, matchs hors créneau absents";
+        }
+
+        for ($week = 0; $week < 3; $week++) {
+            $to = $match->match_date->copy()->subDays(7 * $week);
+            $from = $to->copy()->subDays(7);
+            $imported = FootballMatch::where('data_source', 'api')
+                ->where('league_id', $match->league_id)
+                ->where('match_date', '>=', $from)
+                ->where('match_date', '<', $to)
+                ->exists();
+
+            if (!$imported) {
+                return "Couverture insuffisante : aucun match du championnat importé entre le {$from->format('d/m')} et le {$to->format('d/m')}";
+            }
+        }
+
+        return null;
     }
 
     private function countRecentMatches(int $teamId, $beforeDate): array
@@ -185,31 +230,30 @@ class ContextEnricherService
     {
         $standings = $fullMatchData['standings'] ?? null;
 
+        // Plus de repli sur fbref_data : il ne donne pas le nombre d'équipes, que
+        // l'ancien code fixait à 20 par défaut.
         if (!$standings) {
-            // Essayer depuis le fbref_data en DB
-            $fbref = $match->advancedData?->fbref_data ?? null;
-            if ($fbref) {
-                $homeStanding = $fbref['league']['home'] ?? null;
-                $awayStanding = $fbref['league']['away'] ?? null;
-            } else {
-                return ['available' => false, 'reason' => 'Pas de classement'];
-            }
-        } else {
-            $homeStanding = null;
-            $awayStanding = null;
-            foreach ($standings as $entry) {
-                $teamId = $entry['team']['id'] ?? null;
-                $data = [
-                    'rank' => $entry['rank'] ?? null,
-                    'points' => $entry['points'] ?? null,
-                    'played' => $entry['all']['played'] ?? null,
-                ];
-                if ($teamId === $match->home_team_id) $homeStanding = $data;
-                elseif ($teamId === $match->away_team_id) $awayStanding = $data;
-            }
+            return ['available' => false, 'reason' => "Classement non collecté : standings refusé par l'offre gratuite API-Football pour la saison en cours"];
         }
 
-        $totalTeams = is_array($standings) ? count($standings) : 20;
+        $homeStanding = null;
+        $awayStanding = null;
+        foreach ($standings as $entry) {
+            $teamId = $entry['team']['id'] ?? null;
+            $data = [
+                'rank' => $entry['rank'] ?? null,
+                'points' => $entry['points'] ?? null,
+                'played' => $entry['all']['played'] ?? null,
+            ];
+            if ($teamId === $match->home_team_id) $homeStanding = $data;
+            elseif ($teamId === $match->away_team_id) $awayStanding = $data;
+        }
+
+        if (!isset($homeStanding['rank'], $awayStanding['rank'])) {
+            return ['available' => false, 'reason' => 'Une équipe est absente du classement'];
+        }
+
+        $totalTeams = count($standings);
         $homeStake = $this->classifyStake($homeStanding, $totalTeams);
         $awayStake = $this->classifyStake($awayStanding, $totalTeams);
 
@@ -268,10 +312,14 @@ class ContextEnricherService
         $country = $this->guessCountry($match->competition);
 
         if (!$city || !$country) {
-            return $this->weather->analyzeImpact(null);
+            return $this->weather->analyzeImpact(null) + ['reason' => "Ville inconnue pour {$match->home_team} (table de correspondance codée en dur)"];
         }
 
         $raw = $this->weather->getWeatherForMatch($city, $country, $match->match_date->toIso8601String());
+
+        if ($raw === null) {
+            return $this->weather->analyzeImpact(null) + ['reason' => 'Prévision indisponible (match hors horizon de 5 jours, clé absente ou erreur API)'];
+        }
 
         return $this->weather->analyzeImpact($raw);
     }
@@ -371,11 +419,16 @@ class ContextEnricherService
         $form = $match->advancedData?->sofascore_data['recentForm'] ?? null;
 
         if (!$form) {
-            return ['available' => false, 'reason' => 'Pas de forme recente'];
+            return ['available' => false, 'reason' => "Forme récente non collectée : teams/statistics refusé par l'offre gratuite API-Football pour la saison en cours"];
         }
 
         $homeForm = $form['home'] ?? [];
         $awayForm = $form['away'] ?? [];
+
+        // Sans résultats pour une équipe, un score de 0 dirait « serein »
+        if (empty($homeForm) || empty($awayForm)) {
+            return ['available' => false, 'reason' => 'Forme récente vide pour au moins une équipe'];
+        }
 
         $homePressure = $this->calculatePressure($homeForm);
         $awayPressure = $this->calculatePressure($awayForm);
@@ -449,10 +502,16 @@ class ContextEnricherService
     /**
      * Résoudre le niveau d'importance final du match en combinant enjeux + pression.
      */
-    private function resolveImportance(array $enriched): string
+    private function resolveImportance(array $enriched): ?string
     {
         $stakes = $enriched['stakes'] ?? [];
         $pressure = $enriched['coachPressure'] ?? [];
+
+        // Sans enjeux ni pression, aucune importance : l'ancien « medium » par défaut,
+        // ou celui déduit du texte du conseil API-Football, était inventé.
+        if (!($stakes['available'] ?? false) && !($pressure['available'] ?? false)) {
+            return null;
+        }
 
         $homeStake = $stakes['home']['stake'] ?? 'unknown';
         $awayStake = $stakes['away']['stake'] ?? 'unknown';
@@ -486,6 +545,6 @@ class ContextEnricherService
             return 'low';
         }
 
-        return $enriched['importance'] ?? 'medium';
+        return ($stakes['available'] ?? false) ? 'medium' : null;
     }
 }
