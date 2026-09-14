@@ -14,7 +14,7 @@
         <h2 class="lab">{{ $title }}</h2>
         @isset($meta)
             <div class="sp"></div>
-            <div class="flex items-center gap-gap lab">{{ $meta }}</div>
+            <div class="flex flex-wrap items-center justify-end gap-gap lab">{{ $meta }}</div>
         @endisset
     </div>
     <div class="panel-bd">

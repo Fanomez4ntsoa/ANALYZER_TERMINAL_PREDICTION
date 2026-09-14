@@ -6,7 +6,8 @@
  * où il apparaît et s'il porte du texte, box-shadow, filter, dégradé radial),
  * et shadowBlur intercepté sur les canvas. Avertit en console si le budget de
  * lueur est dépassé, si un effet n'a pas de data-glow, si un data-glow ne rend
- * rien, ou si plus d'un bloc est en vidéo inverse.
+ * rien, si plus d'un bloc est en vidéo inverse, ou si une lettre grecque minuscule
+ * est mise en capitales (ρ devient Ρ et se lit P, λ devient Λ).
  */
 
 export const GLOW_BUDGET = 2;
@@ -67,6 +68,18 @@ export function glowSources(root = document) {
     return sources;
 }
 
+/** Éléments dont le texte propre contient une lettre grecque minuscule rendue en capitales. */
+export function uppercasedGreek(root = document) {
+    const found = [];
+    for (const el of root.querySelectorAll('body *')) {
+        const own = [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('');
+        if (/[\u03B1-\u03C9]/.test(own) && getComputedStyle(el).textTransform === 'uppercase') {
+            found.push(`${describe(el)} « ${own.trim().slice(0, 40)} »`);
+        }
+    }
+    return found;
+}
+
 export function audit() {
     const sources = glowSources();
     const problems = [];
@@ -86,6 +99,7 @@ export function audit() {
     }
     const inverse = document.querySelectorAll('.state-inverse').length;
     if (inverse > MAX_INVERSE) problems.push(`${inverse} blocs en vidéo inverse, maximum ${MAX_INVERSE}`);
+    for (const g of uppercasedGreek()) problems.push(`lettre grecque en capitales : ${g}`);
 
     return { sources, inverse, problems };
 }

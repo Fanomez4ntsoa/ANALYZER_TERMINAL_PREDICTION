@@ -120,7 +120,8 @@ html[data-motion='on'] .dot.is-on { animation: t-pulse 2.4s steps(2, end) infini
 .edge-neg { color: var(--neg); }
 
 /* ── Tableau ── valeurs en vert moyen ; vert vif sur la ligne survolée ou cochée */
-.t-table-wrap { overflow-x: auto; }
+/* position relative : un .sr-only absolu dans le tableau reste dans la zone qui défile */
+.t-table-wrap { overflow-x: auto; position: relative; }
 .t-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .t-table th { font-size: var(--fs-lab); letter-spacing: .15em; text-transform: uppercase; color: var(--p-dim); font-weight: 500; text-align: right; padding: 0 var(--cell-x) 6px; border-bottom: 1px solid var(--line-hi); white-space: nowrap; background: var(--panel); }
 .t-table td { padding: var(--row) var(--cell-x); border-bottom: 1px solid var(--line); text-align: right; font-size: var(--fs-cell); color: var(--p-mid); white-space: nowrap; }
@@ -211,5 +212,25 @@ html[data-motion='on'] .cursor { animation: t-blink 1.1s steps(2, end) infinite;
 .t-table tbody tr.is-repeat .match-cell > span { visibility: hidden; }
 .panel-link { color: var(--p-dim); text-decoration: none; }
 .panel-link:hover { color: var(--p-mid); }
+
+/* ── Formulaires ── */
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.input { font: inherit; font-size: var(--fs-cell); color: var(--p-mid); background: var(--bg); border: 1px solid var(--line-hi); padding: 3px 7px; min-width: 0; color-scheme: dark; }
+.input::placeholder { color: var(--p-dim); }
+.input:focus { outline: 1px solid var(--p-mid); outline-offset: 0; border-color: var(--p-mid); }
+select.input { appearance: none; padding-right: 20px; background-image: linear-gradient(45deg, transparent 50%, var(--p-dim) 50%), linear-gradient(135deg, var(--p-dim) 50%, transparent 50%); background-position: calc(100% - 10px) 50%, calc(100% - 6px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.filters { display: grid; gap: var(--bd); grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); align-items: end; }
+a.toggle { text-decoration: none; }
+.toggle:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── Pagination ── */
+.pager { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+.pager a, .pager span.pager-item { font-size: var(--fs-lab); letter-spacing: .12em; color: var(--p-dim); text-decoration: none; border: 1px solid var(--line-hi); padding: 2px 7px; }
+.pager a:hover { color: var(--p-mid); }
+.pager [aria-current='page'] { color: var(--p-mid); border-color: var(--p-mid); }
+
+/* ── Pages de contenu ── */
+.page-grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.match-title { font-size: var(--fs-title); font-weight: 700; color: var(--p-mid); letter-spacing: .04em; }
 
 @tailwind utilities;

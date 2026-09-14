@@ -79,7 +79,7 @@
     </main>
 
     <footer class="footbar">
-        <span class="lab">Poisson · mode marché seul · λ sur cotes Bet365</span>
+        <span class="lab">Poisson · mode marché seul · <span class="normal-case">λ</span> sur cotes Bet365</span>
         <span class="lab">Aucune décision automatique</span>
         <div class="sp"></div>
         <span class="lab">Prêt<span class="cursor" aria-hidden="true"></span></span>
