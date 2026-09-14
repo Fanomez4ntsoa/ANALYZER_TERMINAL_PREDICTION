@@ -10,10 +10,16 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PIPELINE AUTOMATIQUE — Scheduler (DÉSACTIVÉ)
+// PIPELINE AUTOMATIQUE — Scheduler
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Sera réactivé quand le système sera complet (Phase 6+).
-// Pour l'instant, utiliser les commandes manuelles ci-dessous.
+// Nécessite `* * * * * php artisan schedule:run` dans la crontab (ou
+// `php artisan schedule:work`). Journal : storage/logs/pipeline-*.log.
+
+// Une fois par jour : import, contexte, probabilités, snapshot de cotes.
+Schedule::command('pipeline:daily')
+    ->dailyAt(config('pipeline.schedule_time'))
+    ->timezone(config('pipeline.schedule_timezone'))
+    ->withoutOverlapping();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // COMMANDE MANUELLE — Lancer le pipeline à la demande

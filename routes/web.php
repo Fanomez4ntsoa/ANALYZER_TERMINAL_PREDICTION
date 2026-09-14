@@ -104,6 +104,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 'openweathermap_key' => !empty(config('services.openweathermap.key')),
                 'match_start_hour' => config('pipeline.match_start_hour'),
                 'match_end_hour' => config('pipeline.match_end_hour'),
+                'schedule_time' => config('pipeline.schedule_time') . ' ' . config('pipeline.schedule_timezone'),
                 'bookmaker_odds_api' => config('odds-api.bookmaker'),
                 'bookmaker_api_football' => config('api-football.preferred_bookmaker'),
             ],

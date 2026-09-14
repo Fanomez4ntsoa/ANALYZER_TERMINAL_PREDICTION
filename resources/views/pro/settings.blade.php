@@ -71,10 +71,14 @@
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="px-5 py-3 border-b border-slate-100">
             <h3 class="text-sm font-semibold text-slate-800">Pipeline</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Scheduler desactive — lancement manuel uniquement</p>
+            <p class="text-xs text-slate-500 mt-0.5">pipeline:daily chaque jour (cron schedule:run requis)</p>
         </div>
         <div class="p-5 space-y-4">
             <div class="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                    <span class="text-slate-500">Passage quotidien</span>
+                    <span class="block font-medium text-slate-800">{{ $config['schedule_time'] }}</span>
+                </div>
                 <div>
                     <span class="text-slate-500">Créneau des matchs (UTC)</span>
                     <span class="block font-medium text-slate-800">{{ $config['match_start_hour'] }}h – {{ $config['match_end_hour'] }}h</span>
@@ -91,6 +95,10 @@
                     <div class="bg-slate-50 rounded-lg px-3 py-2">
                         <code class="text-xs text-slate-700">php artisan context:enrich --date={{ now()->format('Y-m-d') }}</code>
                         <p class="text-xs text-slate-400 mt-0.5">Enrichir le contexte (meteo, enjeu, fatigue)</p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg px-3 py-2">
+                        <code class="text-xs text-slate-700">php artisan predictions:compute {{ now()->format('Y-m-d') }}</code>
+                        <p class="text-xs text-slate-400 mt-0.5">Calculer les probabilités des matchs à venir</p>
                     </div>
                     <div class="bg-slate-50 rounded-lg px-3 py-2">
                         <code class="text-xs text-slate-700">php artisan market:track snapshot</code>
