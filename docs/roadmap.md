@@ -222,7 +222,7 @@ celle de Bet365 en particulier.
 
 ---
 
-## Étape 3 — Interface 🔶 en cours (branche `feat/terminal-ui`)
+## Étape 3 — Interface ✅ 14/09/2026 (branche `feat/terminal-ui`, tag `etape-3-terminee`)
 
 Fait le 14/09/2026 :
 
@@ -246,10 +246,13 @@ Fait le 14/09/2026 :
 - Correctif : le bouton de calcul écrivait des prédictions sur un match commencé
   (aucune ligne touchée en base, vérifié).
 
-Reste : revue des pages par l'utilisateur, puis fusion dans `main` et tag
-`etape-3-terminee`. Pour l'étape 4 : sortir la DC de la famille « dérivés » du
-backtest ; décider du sort du calcul « sharp money » et de la route de suppression
-d'un match.
+- Score et alerte « sharp money » supprimés (variations brutes conservées pour
+  l'étape 4) ; route web de suppression d'un match supprimée.
+- Tests Feature non exécutables sur cette machine : `pdo_sqlite` absent (23 tests sur
+  24 échouent sur « could not find driver »). Le test par défaut, faux depuis
+  l'initialisation (`/` redirige vers la connexion), est corrigé.
+
+Reporté à l'étape 4 : sortir la DC de la famille « dérivés » du backtest.
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart

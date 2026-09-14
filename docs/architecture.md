@@ -309,10 +309,12 @@ mot de passe oublié) garde `layouts.app` / `layouts.guest` sur `app.css`.
 
 Supprimé le 14/09/2026 : `layouts.pro`, `layouts.dashboard`, `components/pro/*`,
 `components/sidebar`, `components/header`, `analysis/*`, `pro/*`, `welcome`,
-l'ancien tableau de bord. La route `DELETE /history/{match}` existe encore mais
-n'a plus de bouton (voir `docs/decisions.md`). Les alertes « sharp money »
-(`odds_movements.sharp_alert`, `sharp_score`) sont toujours calculées par
-`CLVTrackerService` mais plus affichées.
+l'ancien tableau de bord, la route `DELETE /history/{match}`, le score et l'alerte
+« sharp money ». `CLVTrackerService` enregistre les variations brutes de chaque relevé
+(`odds_movements.move_*_pct`, pourcentage signé contre le relevé précédent du même
+bookmaker, `snapshot_at`). Les colonnes `sharp_alert` et `sharp_score` restent en base,
+orphelines : avant le 14/09/2026 un score à pondérations écrites à la main, ensuite la
+valeur par défaut (false, 0). Ne jamais les lire.
 
 ```
 GET /dashboard?date=Y-m-d → TerminalController@index → terminal/index.blade.php

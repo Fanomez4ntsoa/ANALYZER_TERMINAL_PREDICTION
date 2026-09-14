@@ -185,7 +185,7 @@ Monte-Carlo et calibration en haut, sélections en bas sur deux colonnes. En des
 - **Marché** : deux mentions en tête, toujours visibles. Le CLV mesure les cotes
   Pinnacle, pas le prix Bet365 des prédictions ; l'O/U 2.5 y est partiel. Valeurs du
   CLV sans couleur (la couleur de signe est réservée à l'écart du modèle sur un marché
-  dérivé), lignes par date, jamais par CLV. Aucun score de mouvement ni alerte « sharp
+  dérivé), lignes par date, jamais par CLV. Relevés bruts. Aucun score de mouvement ni alerte « sharp
   money » : un score qui désigne quoi suivre est une décision (règle 4).
 - **Historique** : du plus récent au plus ancien ; filtres équipe, championnat,
   statut, dates. Matchs contaminés étiquetés. Pas de bouton de suppression.

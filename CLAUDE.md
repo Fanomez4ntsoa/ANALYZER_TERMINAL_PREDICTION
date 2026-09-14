@@ -82,4 +82,6 @@ Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après
   `etape-2-terminee` conserve leur code). Pipeline quotidien et clôture du CLV
   automatiques. Les 913 matchs marqués `post_kickoff_data` sont exclus de toute
   mesure.
+- Étape 3 terminée le 14/09/2026 : interface terminal (`docs/design-system.md`),
+  plus aucun CDN, score « sharp money » et route de suppression d'un match supprimés.
 - Aucune mesure fiable de performance en conditions réelles n'existe à ce jour.

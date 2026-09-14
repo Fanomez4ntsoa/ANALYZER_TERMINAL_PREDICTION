@@ -1034,3 +1034,32 @@ le résumé de calibration, sans recalculer les runs passés (la famille est une
   Corrigé, et l'audit de développement signale désormais toute minuscule grecque
   rendue en capitales (il a aussi trouvé les deux occurrences de la page de
   démonstration).
+
+---
+
+## 2026-09-14 — Score « sharp money » et route de suppression supprimés
+
+**Score et alerte supprimés, variations brutes gardées.** `CLVTrackerService` calculait
+un score de 0 à 100 à partir de pondérations écrites à la main (mouvement ≥ 5 % : 30
+points, ≥ 8 % : 20 de plus, asymétrie : 25, O/U : 15, ≥ 15 bookmakers : 10) et levait
+une alerte à 60 (l'ancienne page `/market` colorait en rouge au-delà de 80). C'est un
+verdict, et jamais mesuré : personne n'a vérifié qu'un score élevé prédisait quoi que
+ce soit. Dernier reste de l'ancien système. Supprimés : `detectSharpScore`, l'alerte,
+leur affichage dans `market:track`. Gardé : chaque relevé et ses variations signées
+contre le précédent (`move_home_pct`, `move_draw_pct`, `move_away_pct`,
+`move_over_pct`, `snapshot_at`), matière première du test de mouvement de ligne de
+l'étape 4 (161 relevés dont 55 avec variation au 14/09/2026). Si ce test montre un
+signal, un indicateur mesuré sera construit à ce moment-là.
+
+Les colonnes `sharp_alert` et `sharp_score` ne sont pas supprimées (aucune suppression
+de colonne) : elles restent orphelines et ne doivent jamais être lues.
+
+**Route `DELETE /history/{match}` supprimée**, avec `deleteMatch`. Elle détruisait un
+match, ses prédictions et sa clôture en un clic. L'intérêt du système est
+d'accumuler un historique fiable ; retirer une donnée erronée passera, le jour venu,
+par une commande explicite avec confirmation.
+
+**Tests Feature** : `pdo_sqlite` manque toujours sur cette machine, 23 tests sur 24
+échouent sur « could not find driver ». Le 24ᵉ était faux depuis l'initialisation du
+projet (il attendait un 200 sur `/`, qui redirige vers la connexion) : corrigé, il
+passe. Fusion de l'étape 3 faite sans les autres.
