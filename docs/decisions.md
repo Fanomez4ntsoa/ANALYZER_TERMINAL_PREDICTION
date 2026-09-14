@@ -1088,3 +1088,61 @@ Laravel 12 sur SQLite. `php artisan test` : 82 tests, tous verts.
 
 Règle qui en découle : une migration n'écrit jamais de SQL propre à un moteur. Les
 données se modifient par le constructeur de requêtes.
+
+---
+
+## 2026-09-14 — Relevés du CLV : fin du cache, échec visible, quota réel
+
+**Diagnostic** (zéro relevé à 11:40 et 12:09, cinq ce matin sur les mêmes matchs) :
+
+- Cause : **Pinnacle absent de toute l'API The Odds API**, pas un problème chez nous.
+  Appel direct à 12:1x UTC, `bookmakers=pinnacle` : 0 événement sur 13 (Serie A), 21
+  (Premier League), 20 (Liga), 9 (Bundesliga), 17 (NFL), y compris les matchs du 20/09.
+  Présent dans la réponse de 06:19, absent de celle de 11:40. Pas un retrait avant le
+  coup d'envoi ; probablement une interruption technique. Aucune décision prise.
+- Ni le cache ni le rapprochement : à 11:40 la requête était fraîche et les cinq
+  événements trouvés, sans Pinnacle.
+- **Défaut découvert : le cache contaminait `odds_movements`.** Les relevés de 06:57
+  et 07:32 reprenaient la réponse de 06:19 (cotes et nombre de bookmakers
+  identiques, aucune requête partie) : horodatage faux de 38 et 73 minutes, et une
+  variation nulle fictive à chaque relance. C'est la matière première du test de
+  mouvement de ligne de l'étape 4, contaminée en direct comme le backfill avait
+  contaminé les 913 matchs.
+- Échec silencieux : deux passages « réussis » avec zéro relevé, interface à jour.
+- Journal : « événement trouvé sans Pinnacle » ne partait que dans `laravel.log`.
+- Compteur local de quota en retard de 7 crédits (20 contre 27) : il additionnait les
+  coûts de ce serveur et ignorait les appels faits ailleurs avec la même clé.
+- Le planificateur ne tourne pas (ni crontab ni `schedule:work`) : aucune clôture
+  ne peut être relevée tant qu'il n'est pas lancé.
+
+**Corrections, dans l'ordre de priorité fixé par l'utilisateur :**
+
+1. Relevés sans cache (prédiction et clôture). Nouvelles colonnes
+   `odds_movements.quoted_at` (heure de la cote : `last_update` le plus ancien des
+   marchés 1X2 et totals du bookmaker) et `reliable`. Un relevé dont la cote a plus
+   de `pipeline.odds_snapshot.max_quote_age_minutes` (10) est refusé. Seuil choisi
+   sur 1 003 cotes fraîches de la réponse de 11:40 : médiane 0,4 min, p90 1,7 min,
+   maximum 5,7 min ; un relevé recyclé en avait 38 à 73. Les variations se calculent
+   contre le dernier relevé fiable, la clôture ne vient que d'un relevé fiable.
+   **Les relevés existants restent en base avec `reliable` faux : non fiables, ils ne
+   servent pas au test de mouvement.** Les cotes de prédiction des cinq matchs du
+   14/09 (`matches.odds_at_pred_*`) sont des cotes Pinnacle réelles de 06:19, mais
+   `predicted_at` indique 06:57.
+   Coût : chaque relevé coûte 2 crédits par championnat, même relancé dans les deux
+   heures. C'est le prix d'une observation.
+2. `market:track snapshot`, `closing` et `close` sortent en échec quand un match
+   attendu n'a pas de relevé (ou de clôture) : passage incomplet dans `pipeline_runs`
+   et dans l'interface.
+3. Journal du canal `pipeline` : une raison par match (`event_not_found` avec le
+   nombre d'événements de la réponse, `bookmaker_absent` avec le nombre de bookmakers
+   présents, `stale_quote` avec l'âge de la cote, `no_response`, `quota_exhausted`).
+   Plus aucune ligne dans `laravel.log` pour ce cas.
+4. Quota The Odds API lu dans les en-têtes de chaque réponse (`x-requests-used`,
+   `x-requests-remaining`), compteur local supprimé ; `syncQuota()` le relit sur
+   `/sports`, gratuit. Resynchronisé le 14/09 : 27 utilisés, 473 restants.
+5. Pinnacle : rien de décidé. Appel de contrôle le 15/09 au matin (1 crédit). S'il est
+   durablement parti, le choix d'un autre bookmaker de référence sera documenté avec
+   sa conséquence : le CLV ne serait plus mesuré contre l'étalon du backtest.
+
+Tests : 8 tests Feature sur les relevés (Http simulé, SQLite), suite complète 90 tests
+verts. Coût du diagnostic : 5 crédits.

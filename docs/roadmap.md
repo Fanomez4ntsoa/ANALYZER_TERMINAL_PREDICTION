@@ -254,6 +254,11 @@ Fait le 14/09/2026 :
 
 Reporté à l'étape 4 : sortir la DC de la famille « dérivés » du backtest.
 
+Correctif du 14/09/2026 (branche `fix/clv-snapshots-fiables`) : relevés du CLV sans
+cache, datés et contrôlés ; échec visible quand un relevé attendu manque ; quota
+The Odds API lu sur l'API. Pinnacle absent de The Odds API depuis le 14/09 entre
+06:19 et 11:40 UTC : un appel de contrôle (1 crédit) le 15/09 au matin.
+
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart
 entre les deux : ce format ne dépend ni des tests de l'étape 4 ni de la validation
@@ -301,6 +306,11 @@ information que l'ouverture ne contient pas ?
 > **cible à prédire** à partir d'informations disponibles avant le coup d'envoi,
 > **jamais une entrée à consommer**. Aucune donnée de clôture n'entre dans le modèle
 > de production, conformément à la règle 5 de CLAUDE.md.
+
+> **Relevés de production utilisables** : seulement `odds_movements.reliable = true`,
+> c'est-à-dire postérieurs au 14/09/2026 (correction du cache). Les relevés antérieurs
+> recyclaient des réponses en cache sous un horodatage récent et ajoutaient des
+> variations nulles fictives.
 
 Ce qu'on mesure, sur un même bookmaker de bout en bout pour ne pas mêler effet de
 source et effet de temps :
