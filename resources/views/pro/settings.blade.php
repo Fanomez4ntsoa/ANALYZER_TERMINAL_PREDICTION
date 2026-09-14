@@ -18,7 +18,8 @@
                 $apis = [
                     ['name' => 'API-Football', 'key' => $config['api_football_key'], 'detail' => 'Stats, H2H, blessures, predictions'],
                     ['name' => 'The Odds API', 'key' => $config['odds_api_key'], 'detail' => 'Cotes (bookmaker unique) + CLV'],
-                    ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],                ];
+                    ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],
+                ];
             @endphp
 
             @foreach($apis as $api)
@@ -75,12 +76,8 @@
         <div class="p-5 space-y-4">
             <div class="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                    <span class="text-slate-500">Heure passage 1</span>
-                    <span class="block font-medium text-slate-800">{{ $config['pipeline_time'] }}</span>
-                </div>
-                <div>
-                    <span class="text-slate-500">Heure passage 2</span>
-                    <span class="block font-medium text-slate-800">{{ $config['pipeline_update'] }}</span>
+                    <span class="text-slate-500">Créneau des matchs (UTC)</span>
+                    <span class="block font-medium text-slate-800">{{ $config['match_start_hour'] }}h – {{ $config['match_end_hour'] }}h</span>
                 </div>
             </div>
 

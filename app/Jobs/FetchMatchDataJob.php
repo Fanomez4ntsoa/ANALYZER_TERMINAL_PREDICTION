@@ -80,8 +80,8 @@ class FetchMatchDataJob implements ShouldQueue
 
         // 3. Filtrer par créneau horaire (sauf si --all)
         if (!$this->allHours) {
-            $startHour = (int) env('PIPELINE_MATCH_START_HOUR', 0);
-            $endHour = (int) env('PIPELINE_MATCH_END_HOUR', 23);
+            $startHour = (int) config('pipeline.match_start_hour');
+            $endHour = (int) config('pipeline.match_end_hour');
 
             if ($startHour > 0 || $endHour < 23) {
                 $beforeFilter = count($trackedFixtures);

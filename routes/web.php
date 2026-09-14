@@ -101,8 +101,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'config' => [
                 'api_football_key' => !empty(config('api-football.key')),
                 'odds_api_key' => !empty(config('odds-api.key')),
-                'openweathermap_key' => !empty(env('OPENWEATHERMAP_KEY')),                'pipeline_time' => env('PIPELINE_SCHEDULE_TIME', '14:00'),
-                'pipeline_update' => env('PIPELINE_SCHEDULE_UPDATE', '17:00'),
+                'openweathermap_key' => !empty(config('services.openweathermap.key')),
+                'match_start_hour' => config('pipeline.match_start_hour'),
+                'match_end_hour' => config('pipeline.match_end_hour'),
                 'bookmaker_odds_api' => config('odds-api.bookmaker'),
                 'bookmaker_api_football' => config('api-football.preferred_bookmaker'),
             ],

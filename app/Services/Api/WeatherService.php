@@ -22,8 +22,8 @@ class WeatherService
 
     public function __construct()
     {
-        $this->baseUrl = config('app.openweathermap_base_url', 'https://api.openweathermap.org/data/2.5');
-        $this->apiKey = env('OPENWEATHERMAP_KEY', '');
+        $this->baseUrl = config('services.openweathermap.base_url');
+        $this->apiKey = (string) config('services.openweathermap.key');
     }
 
     /**

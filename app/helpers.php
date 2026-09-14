@@ -3,12 +3,12 @@
 if (!function_exists('displayDate')) {
     /**
      * Convertir une date UTC vers la timezone d'affichage.
-     * La DB stocke en UTC. L'affichage est en DISPLAY_TIMEZONE (.env).
+     * La DB stocke en UTC. L'affichage est en config('app.display_timezone').
      */
     function displayDate($date, string $format = 'd/m/Y H:i'): string
     {
         if (!$date) return '-';
-        $tz = env('DISPLAY_TIMEZONE', 'Indian/Antananarivo');
+        $tz = config('app.display_timezone');
         return \Carbon\Carbon::parse($date)->setTimezone($tz)->format($format);
     }
 }
