@@ -177,6 +177,39 @@ Reste à faire par l'utilisateur : lancer la migration
     d'équipes codée en dur.
   - Comparaison et blessures : 2 matchs sur 11, pour cause de limite de débit.
 
+### Suites du diagnostic (14/09/2026)
+
+- Corrigé : erreur d'API comptée comme échec ; cotes par date, toutes pages, en
+  premier et seules, avec garde-fou de budget ; appels refusés par l'offre, `/fixtures?id=`
+  et compositions retirés ; facultatif (prédictions, blessures) abandonné sous une
+  réserve de budget.
+- CLV contre Pinnacle sur The Odds API, bookmaker enregistré par snapshot. CLV
+  Over 2.5 partiel : Pinnacle ne publie la ligne 2.5 en `totals` que sur 18
+  événements sur 81.
+- Contexte : chaque dimension sans donnée se déclare indisponible. **Enjeux et
+  pression entraîneur bloqués par l'offre gratuite** (`standings` et
+  `teams/statistics` refusés pour la saison en cours) : pas un bug, rien à corriger
+  tant que l'offre ne change pas. Fatigue indisponible tant que l'import filtre par
+  créneau horaire.
+- Volume d'appels et offre API-Football : décision à prendre plus tard, voir
+  `docs/architecture.md`, section « Limites de l'offre gratuite ».
+
+### Bookmaker de repli — non codé, en attente d'une absence observée
+
+Bet365 était présent sur les 11 matchs du 14/09/2026 : on ne code pas pour un
+problème non observé. Le journal le signale désormais (« bookmaker absent sur N
+match(s) après lecture de toutes les pages »). Le jour où il le fera :
+
+- une liste ordonnée de bookmakers dans la config (par exemple Bet365, puis Pinnacle,
+  présent sur les 11 matchs de ce jour-là) ;
+- tous les marchés d'un match viennent du premier bookmaker présent, jamais un
+  mélange entre marchés, jamais un maximum ni une moyenne ;
+- son nom va dans `matches.odds_bookmaker`, donc dans `predictions.bookmaker` ;
+- le journal compte chaque jour les matchs où le premier choix manquait.
+
+La règle à préserver est celle d'une cote d'un bookmaker unique et identifié, pas
+celle de Bet365 en particulier.
+
 ---
 
 ## Étape 3 — Interface ⬜ à faire
@@ -264,6 +297,16 @@ Ce qu'on mesure :
 - **À vérifier avant le run** : l'heure de relevé des colonnes d'ouverture Bet365 et
   Pinnacle dans football-data. Un désaccord peut venir d'un décalage de relevé
   plutôt que d'une divergence d'opinion.
+
+### Candidat pour un futur test des xG — noté le 14/09/2026, rien d'engagé
+
+La bibliothèque Python EasySoccerData donne accès aux xG réels via son module FBref,
+disponible uniquement dans sa version de développement. Candidat pour tester si les
+xG apportent une information absente des cotes d'ouverture, **à condition de
+construire un historique hors ligne** : ce sont des points d'accès non documentés,
+donc inadaptés à une production quotidienne. Les mêmes règles s'appliquent
+(prédiction écrite avant le run, saisons antérieures uniquement, xG d'un match
+jamais utilisés avant son coup d'envoi).
 
 ### Jalon unique de fin d'étape 4 — validation sur l'échantillon réservé
 
