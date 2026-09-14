@@ -608,3 +608,99 @@ Sur les trois saisons, 2122 comprise, le 1X2 donne −0,00004 / −0,00009 / −
   mesurable que hors Top 5. Ce n'est pas un avantage : la règle 6 de CLAUDE.md
   impose une cote de bookmaker unique et jouable, et le choix de la source de
   production reste un choix de jouabilité, pas de calibration.
+
+---
+
+## 2026-09-14 — Agents IA, combinés et ancien backtest : supprimés, plus débranchés
+
+Les 5 agents IA, `ClaudeClient`, `ai:batch`, `ai:test`, `ComboSelectorService`,
+`ComboBuilderService` et `GenerateDailyCombosJob` étaient débranchés depuis
+l'étape 1. Leur code lit des champs supprimés à cette étape (scores, niveaux,
+verdicts, sources) : pour revenir, il faudrait le réécrire entièrement, pas le
+rebrancher. Le garder débranché n'apportait qu'une fausse impression de
+réversibilité. `results:collect` part avec eux : il ne faisait que compter les
+décisions BET / LEAN des agents.
+
+L'ancien `BacktestEngine`, son contrôleur et la page `/backtest` calculaient un
+taux de réussite et un ROI à des cotes inventées, remplacés par le backtest
+football-data. Le dashboard n'affiche plus leurs chiffres.
+
+Le tag `etape-2-terminee` conserve tout ce code. Les tables restent (`ai_analysis`,
+`daily_combos`, `combos`, `backtest_runs`, `backtest_predictions`).
+
+---
+
+## 2026-09-14 — Signal `xg_proxy` et dimension arbitre retirés
+
+`xg_proxy` était un pourcentage de victoire API-Football multiplié par 0,03 : un
+nombre sans unité cohérente présenté comme des buts attendus. La colonne
+`footystats_data` et ses données restent, plus rien ne l'écrit.
+
+La dimension arbitre de `ContextEnricherService` créait à la volée des arbitres
+aux statistiques par défaut (4 jaunes, 0,25 penalty par match) : la table
+`referees` n'a jamais contenu d'information réelle.
+
+Le retrait de `xg_proxy` change les poids de la fusion en mode complet. Sans
+objet : la production passe en mode marché seul à l'étape 3, seule configuration
+mesurée par le backtest.
+
+---
+
+## 2026-09-14 — Matchs contaminés marqués définitivement
+
+Colonne `matches.post_kickoff_data` : une donnée du match a été écrite après son
+coup d'envoi. Ces matchs sont exclus de toute mesure (scope `measurable()`).
+
+Critère retenu par l'utilisateur, le plus large des trois mesurés : match créé
+après son coup d'envoi **ou** `advanced_data` réécrites après. Sur 1 140 matchs :
+
+| Critère | Matchs |
+|---|---|
+| Importés par le backfill du 08/04/2026 | 794 |
+| Créés après le coup d'envoi (backfill + rattrapage J-1) | 816 |
+| Créés ou données avancées réécrites après le coup d'envoi | **913** |
+
+Le chiffre de 960 cité jusqu'ici pour le backfill était faux : 794. Les 97 matchs
+supplémentaires ont été importés avant le coup d'envoi, puis réécrits par des
+relances du pipeline les 26/04 et 01/05/2026 : c'était le fonctionnement normal
+du pipeline, pas un accident du backfill.
+
+Cause corrigée : le pipeline n'écrit plus rien sur un match commencé, hormis son
+score. Le flag n'est donc plus posé qu'à la création d'un match dont le coup
+d'envoi est passé, et n'est jamais retiré.
+
+---
+
+## 2026-09-14 — Toute exception avalée par le pipeline est journalisée
+
+`FormationProfiles`, supprimée à l'étape 1, était encore appelée dès qu'une
+composition était publiée. L'exception était avalée par le try/catch de
+`FetchMatchDataJob`, qui couvrait aussi la récupération des cotes : pour ces
+matchs, les cotes n'étaient jamais relevées, sans rien de visible. Aucun autre
+appel à l'une des 41 classes supprimées dans l'historique.
+
+Règle : un try/catch du pipeline qui continue après une exception l'écrit en
+avertissement dans le canal `pipeline` (classe, message, emplacement), et chaque
+sous-étape a son propre try/catch pour qu'un échec n'en masque pas un autre. Un
+échec silencieux qui dure une semaine ne doit plus être possible.
+
+---
+
+## 2026-09-14 — Pipeline automatique et clôture relevée par le système
+
+Planificateur réactivé : `pipeline:daily` à 10:00 UTC (import, contexte,
+probabilités, snapshot), avant le créneau 12h-21h UTC pour qu'aucun match du jour
+n'ait commencé au moment du calcul. Chaque étape est journalisée ; si l'import
+échoue, les suivantes ne tournent pas.
+
+La clôture n'est plus une commande manuelle. Toutes les 5 minutes, un snapshot
+sans cache est pris pour les matchs qui commencent dans les 10 minutes ; la cote
+de clôture est le dernier snapshot de cette fenêtre, sinon elle reste vide.
+L'ancien marquage prenait, faute de snapshot, les cotes API-Football du match :
+une autre source, relevée des heures plus tôt. Et le cache de 2 h rendait tout
+snapshot potentiellement périmé.
+
+Quota The Odds API : clôturer tous les championnats suivis coûterait environ 600
+crédits par mois (≈300 créneaux championnat × heure, 2 crédits l'appel, estimé
+sur avril-mai 2026) pour un quota de 500. Clôture limitée au Top 5 (≈260 crédits),
+configurable, avec arrêt sous une réserve de 50 crédits. Choix de l'utilisateur.
