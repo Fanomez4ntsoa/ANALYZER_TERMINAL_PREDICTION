@@ -149,6 +149,34 @@ Reste à faire par l'utilisateur : lancer la migration
 `2026_09_14_000001_add_post_kickoff_data_to_matches_table`, ajouter la ligne cron
 `schedule:run`, passer `PIPELINE_SCHEDULE_TIME` à 10:00 dans `.env`.
 
+### Constats du premier passage réel (14/09/2026) — fusion suspendue
+
+- **Cotes : 9 matchs sur 11 sans cote, cause = limite de débit API-Football**
+  (offre gratuite : 10 requêtes/minute, 100/jour). Environ 9 appels par match, dont
+  4 refusés d'office par l'offre (`headtohead` avec `last`, `teams/statistics` et
+  `standings` sur la saison 2026). À partir du 3e match, HTTP 429 ; `request()`
+  renvoie null et le pipeline compte « sans cotes », 0 échec. Bet365 est présent
+  sur les 11 matchs à l'appel direct, une seule page par `/odds?fixture=`.
+  `/odds?date=` pagine (13 pages de 10 ce jour-là).
+- **CLV : 0 snapshot.** `odds_api_event_id` est renseigné sur 10 matchs sur 11,
+  mais Bet365 n'existe pas dans The Odds API : absent des 95 événements en région
+  `eu`, et des régions `uk` et `us` (`au` non testée). Chaîne CLV inopérante tant
+  que le bookmaker de référence y est Bet365.
+- **Contexte collecté vide (à traiter plus tard, ne nourrit pas le modèle) :**
+  - Fatigue 0/0 partout : comptée sur les seuls matchs présents en base (ligues
+    suivies, créneau 12h-21h UTC), or rien n'a été importé entre le 05/05 et le
+    14/09/2026. Même avec un import continu, coupes et matchs hors créneau
+    manquent : la mesure reflète la couverture du pipeline, pas le calendrier
+    réel. Et elle se déclare `available: true` avec des zéros.
+  - Enjeux vides : classement (`standings`) refusé par l'offre gratuite pour
+    2026, donc pas de `fbref_data`. En début de saison, le rang ne dit de toute
+    façon presque rien.
+  - Pression entraîneur vide : forme récente issue de `teams/statistics`,
+    refusé pour 2026.
+  - Météo : 6 matchs sur 11 inconnus, la ville est devinée par une table de noms
+    d'équipes codée en dur.
+  - Comparaison et blessures : 2 matchs sur 11, pour cause de limite de débit.
+
 ---
 
 ## Étape 3 — Interface ⬜ à faire
