@@ -12,8 +12,9 @@ use Symfony\Component\Console\Output\BufferedOutput;
  *
  * Quatre étapes dans l'ordre, chacune journalisée dans le canal `pipeline`
  * (storage/logs/pipeline-AAAA-MM-JJ.log) : début, durée, code de sortie, sortie.
- * Si l'import échoue, les étapes suivantes ne tournent pas : elles
- * travailleraient sur des données absentes ou périmées.
+ * Si l'import lève une exception (rien d'importé), les étapes suivantes ne
+ * tournent pas. S'il se termine incomplet (code non nul : cotes partielles),
+ * l'étape est en échec mais les suivantes tournent sur ce qui a été relevé.
  */
 class PipelineDaily extends Command
 {
@@ -69,7 +70,7 @@ class PipelineDaily extends Command
             $log->error("Étape {$command} : échec", $context);
             $this->error("{$command} : échec (code {$exitCode})" . ($error ? " — {$error}" : ''));
 
-            if ($blocking) {
+            if ($blocking && $error !== null) {
                 $log->error("pipeline:daily interrompu : {$command} a échoué, étapes suivantes non lancées");
                 return self::FAILURE;
             }

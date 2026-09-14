@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Api\ApiFootballException;
 use App\Services\Api\ApiFootballService;
 use Illuminate\Console\Command;
 
@@ -10,13 +11,23 @@ class TestApiFootball extends Command
     protected $signature = 'api-football:test
                             {--fixtures : Tester les matchs à venir (Ligue 1)}
                             {--status : Vérifier le quota API}
-                            {--fixture-id= : Récupérer les données complètes d\'un match}
+                            {--fixture-id= : Récupérer les données facultatives d\'un match (prédictions, blessures)}
                             {--date= : Récupérer les matchs d\'une date (YYYY-MM-DD)}
                             {--search-team= : Rechercher une équipe par nom}';
 
     protected $description = 'Tester la connexion à API-Football et vérifier les endpoints';
 
     public function handle(ApiFootballService $api): int
+    {
+        try {
+            return $this->dispatchTest($api);
+        } catch (ApiFootballException $e) {
+            $this->error($e->getMessage());
+            return self::FAILURE;
+        }
+    }
+
+    private function dispatchTest(ApiFootballService $api): int
     {
         // Par défaut : vérifier le statut
         if (!$this->option('fixtures')
@@ -61,7 +72,7 @@ class TestApiFootball extends Command
             return self::FAILURE;
         }
 
-        $account = $status[0] ?? $status;
+        $account = $status;
 
         $this->info('Connexion OK !');
         $this->table(
@@ -109,29 +120,13 @@ class TestApiFootball extends Command
 
     private function testFullMatch(ApiFootballService $api, int $fixtureId): int
     {
-        $this->info("Récupération des données complètes pour le match #{$fixtureId}...");
+        $this->info("Données facultatives du match #{$fixtureId} (2 requêtes)...");
 
-        $data = $api->getFullMatchData($fixtureId);
+        $data = $api->getOptionalMatchData($fixtureId);
 
-        if (!$data) {
-            $this->error("Match #{$fixtureId} introuvable.");
-            return self::FAILURE;
-        }
-
-        $fixture = $data['fixture'];
-        $this->info("Match : {$fixture['teams']['home']['name']} vs {$fixture['teams']['away']['name']}");
-        $this->info("Date  : {$fixture['fixture']['date']}");
-        $this->info("Ligue : {$fixture['league']['name']}");
-
-        $this->newLine();
         $this->table(['Donnée', 'Disponible'], [
-            ['H2H', $data['h2h'] ? count($data['h2h']) . ' matchs' : 'Non'],
-            ['Stats domicile', $data['homeStats'] ? 'Oui' : 'Non'],
-            ['Stats extérieur', $data['awayStats'] ? 'Oui' : 'Non'],
-            ['Blessures', $data['injuries'] ? count($data['injuries']) . ' joueurs' : 'Non'],
+            ['Blessures', count($data['injuries']) . ' joueur(s)'],
             ['Prédictions', $data['predictions'] ? 'Oui' : 'Non'],
-            ['Compositions', $data['lineups'] ? 'Oui' : 'Non'],
-            ['Classement', $data['standings'] ? 'Oui' : 'Non'],
         ]);
 
         if ($data['predictions']) {
@@ -139,7 +134,6 @@ class TestApiFootball extends Command
             $this->newLine();
             $this->info('Prédictions API-Football :');
             $this->line("  Conseil : " . ($pred['predictions']['advice'] ?? '-'));
-            $this->line("  Gagnant : " . ($pred['predictions']['winner']['name'] ?? '-'));
 
             if (isset($pred['predictions']['percent'])) {
                 $pct = $pred['predictions']['percent'];

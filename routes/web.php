@@ -95,9 +95,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         $oddsApi = app(\App\Services\Api\OddsApiService::class);
         $apiFootball = app(\App\Services\Api\ApiFootballService::class);
 
+        try {
+            $apiFootballStatus = $apiFootball->getAccountStatus();
+        } catch (\App\Services\Api\ApiFootballException $e) {
+            \Illuminate\Support\Facades\Log::warning('Paramètres: statut API-Football indisponible', ['error' => $e->getMessage()]);
+            $apiFootballStatus = null;
+        }
+
         return view('pro.settings', [
             'oddsQuota' => $oddsApi->getMonthlyUsage(),
-            'apiFootballStatus' => $apiFootball->getAccountStatus(),
+            'apiFootballStatus' => $apiFootballStatus,
             'config' => [
                 'api_football_key' => !empty(config('api-football.key')),
                 'odds_api_key' => !empty(config('odds-api.key')),

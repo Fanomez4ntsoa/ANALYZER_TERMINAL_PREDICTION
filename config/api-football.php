@@ -54,13 +54,9 @@ return [
     // Cache TTL en minutes par type de donnée
     'cache_ttl' => [
         'fixtures'   => 60,      // 1h — matchs à venir
-        'h2h'        => 1440,    // 24h — confrontations directes
-        'statistics'  => 360,    // 6h — stats équipe
         'injuries'   => 120,     // 2h — blessures
         'predictions' => 360,   // 6h — prédictions API-Football
-        'lineups'    => 60,      // 1h — compositions
-        'standings'  => 720,     // 12h — classements
-        'odds'       => 120,     // 2h — cotes (stables avant kickoff)
+        // Les cotes par date ne sont pas mises en cache : pages lues d'un seul tenant
     ],
 
     // Bookmaker unique pour /odds (id API-Football). 8 = Bet365.
@@ -69,8 +65,15 @@ return [
     'preferred_bookmaker' => env('API_FOOTBALL_PREFERRED_BOOKMAKER', 8),
 
     // Limites API (plan gratuit : 100 req/jour)
+    // Offre gratuite : 10 requêtes/minute (appels espacés en conséquence), 100/jour.
     'rate_limit' => [
-        'requests_per_minute' => 10,
+        'requests_per_minute' => (int) env('API_FOOTBALL_REQUESTS_PER_MINUTE', 10),
+    ],
+
+    'budget' => [
+        // Requêtes du jour gardées en réserve : sous ce seuil, les données
+        // facultatives (prédictions, blessures) ne sont plus collectées.
+        'optional_reserve' => (int) env('API_FOOTBALL_OPTIONAL_RESERVE', 10),
     ],
 
 ];

@@ -19,6 +19,7 @@ class FootballMatch extends Model
         'api_football_id',
         'odds_api_event_id',
         'odds_fetched_at',
+        'odds_bookmaker',
         'home_team',
         'home_team_id',
         'away_team',

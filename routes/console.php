@@ -48,5 +48,15 @@ Artisan::command('pipeline:run-sync {date?} {--all : Ignorer le filtre horaire}'
 
     FetchMatchDataJob::dispatchSync($date, null, true, $all);
 
-    $this->info("Pipeline terminé. Vérifiez la base de données.");
+    $summary = FetchMatchDataJob::$lastSummary ?? [];
+    $this->line(json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+    // Cotes ou scores manquants pour cause d'échec ou de budget : code de sortie non nul
+    if (!($summary['indispensable_complete'] ?? false)) {
+        $this->error("Pipeline INCOMPLET : cotes ou scores manquants (voir storage/logs/pipeline-*.log).");
+        return 1;
+    }
+
+    $this->info("Pipeline terminé, cotes complètes.");
+    return 0;
 })->purpose('Lancer le pipeline en mode synchrone (sans queue)');
