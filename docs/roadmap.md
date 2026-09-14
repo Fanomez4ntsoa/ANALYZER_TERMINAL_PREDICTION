@@ -222,7 +222,22 @@ celle de Bet365 en particulier.
 
 ---
 
-## Étape 3 — Interface ⬜ à faire
+## Étape 3 — Interface 🔶 en cours (branche `feat/terminal-ui`)
+
+Fait le 14/09/2026 :
+
+- Prérequis : production en marché seul, `pipeline_runs`, calibration du run de
+  référence.
+- Système de design (`docs/design-system.md`), deux revues sur la page de
+  démonstration : vidéo inverse unique, vert vif rationné, compteur de lueurs sur
+  l'effet rendu, principe 3 (écart mécanique des marchés d'ajustement).
+- Socle : jetons CSS, polices locales, entrée Vite du terminal, layout avec
+  fraîcheur du pipeline et états système, composants Blade
+  (`docs/architecture.md`).
+
+Reste : pages Sélections et combiné, calibration, Monte-Carlo, `/analysis`,
+`/history`, `/settings`, `/market` (CLV Pinnacle), puis retrait des CDN de
+`layouts.pro`.
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart

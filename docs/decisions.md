@@ -881,3 +881,52 @@ affiché : l'animation Monte-Carlo lit ces paramètres, jamais un recalcul.
 Écart constaté au passage, Inter-Udinese du 14/09/2026 : 76,1 % sur la victoire à
 domicile en marché seul, 74,8 % en fusion complète. Les prédictions déjà en base sont
 recalculées après la migration.
+
+---
+
+## 2026-09-14 — Système de design, deuxième revue
+
+Quatre corrections de l'utilisateur sur la page de démonstration :
+
+- **Vidéo inverse unique.** Quatre blocs visibles écrasaient la page ; un
+  avertissement permanent n'avertit plus. Un seul bloc par page, l'anomalie la plus
+  grave ; les autres états en ligne, vert sombre, bordure d'emphase. Dans le socle,
+  seul un état **critique** passe en vidéo inverse : l'écart de configuration du run
+  de référence est permanent et ne doit pas occuper ce bloc tous les jours.
+- **Vert vif rationné.** Toute la colonne Modèle était en vert vif : cinquante lignes
+  vivantes n'ont plus de hiérarchie. Valeurs des tableaux en vert moyen, vert vif sur
+  la ligne survolée ou cochée et les valeurs uniques des panneaux.
+- **Variante B** (en-têtes 10 px, vert sombre) retenue, comparaison supprimée.
+- **Compteur de lueurs mesuré.** L'ancien comptait les `[data-glow]` et affichait 2/2
+  pour 3 effets rendus : un `data-glow` sans effet (`text-shadow` sur le conteneur
+  d'un canvas), le `shadowBlur` du canvas non vu, un halo radial d'ambiance non vu.
+  Le halo est supprimé. L'impression de barres lumineuses dans l'histogramme vient des
+  lignes de balayage sur un aplat : aucune lueur mesurable sur ces barres.
+
+Et un principe ajouté : **un écart mécaniquement nul ne doit jamais être présenté
+comme une information.** En marché seul, 1X2, DC et O/U 2.5 sont des marchés
+d'ajustement ; BTTS (et O/U 1.5, O/U 3.5 s'ils sont affichés) sont dérivés. C'est la
+distinction du backtest entre contrôle de cohérence et test indépendant.
+
+Constat à cette occasion : l'écart du 1X2 n'est pas nul. À total fixé par l'O/U 2.5,
+un seul partage des λ ne reproduit pas les trois issues ; sur les 33 lignes 1X2 du
+14/09/2026, résidu moyen 0,58 pt, maximum 2,74 pts (DC identique), contre 0,03 pt en
+moyenne sur l'O/U 2.5. Ce résidu est un défaut d'ajustement, pas une information : il
+s'affiche sans couleur, comme le zéro.
+
+## 2026-09-14 — Socle de l'interface
+
+- **Tailwind du terminal séparé** (`tailwind.terminal.config.js`, `@config`) : palette,
+  tailles et espacements remplacés par les jetons, ombres et flous désactivés. Une
+  couleur hors système ne génère rien. Breeze et `layouts.pro` gardent leur config
+  jusqu'à leur migration, pour ne rien casser en cours de route.
+- **Polices copiées dans `resources/fonts`** plutôt qu'une dépendance npm : onze woff2
+  (184 Ko, licence OFL jointe), sous-ensembles latin, latin-ext et grec pour λ et ρ.
+  Le sous-ensemble latin couvre U+2212.
+- **Composants CSS hors `@layer`** : Tailwind purge les classes de couche absentes des
+  vues scannées ; une classe du système ne doit pas disparaître parce qu'aucune page
+  ne l'utilise encore.
+- **Règles d'affichage en PHP testé**, pas dans les vues : `MarketNature` (couleur de
+  l'écart, exception pour un marché non classé), `Fmt` (jamais « −0,0 », valeur
+  absente = vide), `SystemState::arrange`, `PipelineFreshness::evaluate`
+  (délai de grâce 30 min après 10:00 UTC, passage en cours jugé interrompu après 2 h).

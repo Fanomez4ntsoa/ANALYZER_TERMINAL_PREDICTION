@@ -288,6 +288,34 @@ offre API-Football supérieure, à raison d'environ 3 requêtes par match
 supplémentaire. Le périmètre du CLV (`PIPELINE_CLOSING_LEAGUES`) suit celui des cotes
 par défaut.
 
+## Interface du terminal (étape 3, socle)
+
+Règles visuelles : `docs/design-system.md`. Aucune page ne l'utilise encore ; les
+pages actuelles restent sur `layouts.pro` (Tailwind, Alpine et Chart.js par CDN) et
+Breeze sur `app.css`.
+
+```
+vite.config.js                         entrées terminal.css + terminal.js, à côté de Breeze
+tailwind.terminal.config.js            palette, tailles, espacements REMPLACÉS par les jetons ;
+                                       ombres, anneaux, flous, arrondis désactivés
+resources/css/terminal.css             base, composants (hors @layer : jamais purgés), utilitaires
+  ├─ terminal/tokens.css               variables CSS, source unique des valeurs
+  └─ terminal/fonts.css                @font-face woff2 locaux (resources/fonts, OFL), latin, latin-ext, grec
+resources/js/terminal.js               Alpine, interrupteur de mouvement, horloge UTC
+  └─ terminal/design-audit.js          en dev : lueurs mesurées sur l'effet rendu, vidéo inverse unique
+app/View/Components/TerminalLayout.php <x-terminal-layout title= :states=> → layouts/terminal.blade.php
+  ├─ Support/Terminal/PipelineFreshness  fraîcheur lue dans pipeline_runs (logique pure testée)
+  └─ Support/Terminal/SystemState        gravité ; arrange() : un seul critique en vidéo inverse
+app/Support/Terminal/Fmt.php           format français (virgule, U+2212), valeur absente = chaîne vide
+app/Support/Terminal/MarketNature.php  ajustement (1X2, DC, O/U 2.5) / dérivé (BTTS) ; couleur de l'écart
+resources/views/components/terminal/   panel, row, kv, figure, readout, tag, nature, edge, scope,
+                                       state, measure, note, dot, clock, motion-toggle
+```
+
+Un marché absent de `MarketNature` lève une exception : il doit être classé avant
+d'être affiché. Pages futures : `resources/views/terminal/`, déjà dans le glob
+Tailwind.
+
 ## Pièges connus
 
 - 913 matchs contiennent des données collectées **après** le coup d'envoi (791
