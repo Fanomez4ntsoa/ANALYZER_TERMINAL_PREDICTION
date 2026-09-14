@@ -281,9 +281,14 @@ class ApiFootballService
     }
 
     /**
-     * Requêtes du jour : consommées, limite, restantes. Lu sur /status.
+     * Requêtes du jour : consommées, limite, restantes.
      *
-     * @return array{current: int, limit: int, remaining: int}
+     * Les compteurs de l'API sont en retard : le 14/09/2026, juste après un passage
+     * de 34 requêtes, /status en comptait 18 et l'en-tête de réponse 25. On retient
+     * donc le plus pessimiste de /status et du compteur local de ce serveur (jour
+     * UTC, remis à zéro à minuit UTC comme le quota).
+     *
+     * @return array{current: int, limit: int, remaining: int, status_current: int, local_current: int}
      */
     public function getDailyUsage(): array
     {
@@ -293,20 +298,45 @@ class ApiFootballService
             throw new ApiFootballException(ApiFootballException::API, 'quota journalier absent de /status', '/status');
         }
 
+        self::$dailyLimit = (int) $requests['limit_day'];
+        $current = max((int) $requests['current'], $this->localDailyCount());
+
         return [
-            'current' => (int) $requests['current'],
-            'limit' => (int) $requests['limit_day'],
-            'remaining' => max(0, (int) $requests['limit_day'] - (int) $requests['current']),
+            'current' => $current,
+            'limit' => self::$dailyLimit,
+            'remaining' => max(0, self::$dailyLimit - $current),
+            'status_current' => (int) $requests['current'],
+            'local_current' => $this->localDailyCount(),
         ];
     }
 
     /**
-     * Requêtes restantes du jour d'après le dernier appel réel (en-tête
-     * x-ratelimit-requests-remaining), null si aucun appel dans ce processus.
+     * Requêtes restantes du jour, estimation pessimiste : minimum de l'en-tête du
+     * dernier appel et de la limite moins le compteur local. Null si ni appel ni
+     * /status dans ce processus.
      */
     public function lastKnownDailyRemaining(): ?int
     {
-        return self::$dailyRemaining;
+        $candidates = [];
+        if (self::$dailyRemaining !== null) {
+            $candidates[] = self::$dailyRemaining;
+        }
+        if (self::$dailyLimit !== null) {
+            $candidates[] = max(0, self::$dailyLimit - $this->localDailyCount());
+        }
+
+        return $candidates ? min($candidates) : null;
+    }
+
+    /** Requêtes décomptées faites depuis ce serveur aujourd'hui (jour UTC). */
+    private function localDailyCount(): int
+    {
+        return (int) Cache::get($this->localCountKey(), 0);
+    }
+
+    private function localCountKey(): string
+    {
+        return 'api_football_requests_' . now('UTC')->format('Y-m-d');
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -317,6 +347,8 @@ class ApiFootballService
     private static float $lastRequestAt = 0.0;
 
     private static ?int $dailyRemaining = null;
+
+    private static ?int $dailyLimit = null;
 
     /**
      * Requête directe à l'API (sans cache). Renvoie la réponse complète
@@ -346,6 +378,13 @@ class ApiFootballService
             throw new ApiFootballException(ApiFootballException::NETWORK, $e->getMessage(), $endpoint, $e);
         } finally {
             self::$lastRequestAt = microtime(true);
+        }
+
+        // Compteur local du jour UTC (/status n'est pas décompté du quota)
+        if ($endpoint !== '/status') {
+            $key = $this->localCountKey();
+            Cache::add($key, 0, now('UTC')->endOfDay()->addHour());
+            Cache::increment($key);
         }
 
         $remaining = $response->header('x-ratelimit-requests-remaining');
