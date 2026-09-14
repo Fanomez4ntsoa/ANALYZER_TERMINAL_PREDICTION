@@ -73,6 +73,22 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Journal du pipeline automatique : étapes de pipeline:daily et exceptions
+        // interceptées par un try/catch. Écrit aussi dans le canal par défaut.
+        'pipeline' => [
+            'driver' => 'stack',
+            'channels' => ['pipeline_file', env('LOG_CHANNEL', 'stack')],
+            'ignore_exceptions' => false,
+        ],
+
+        'pipeline_file' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/pipeline.log'),
+            'level' => 'info',
+            'days' => 60,
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

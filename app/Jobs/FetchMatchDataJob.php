@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Services\Api\ApiFootballService;
 use App\Services\DataPipeline\MatchEnricherService;
+use App\Services\DataPipeline\PipelineLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -112,47 +113,68 @@ class FetchMatchDataJob implements ShouldQueue
         // 3. Créer/mettre à jour chaque match en DB + enrichir avec données avancées
         $createdMatches = [];
         $leaguesWithMatches = [];
+        // Échecs par sous-étape : chaque sous-étape a son try/catch, pour qu'un
+        // échec des données avancées n'empêche plus la récupération des cotes.
+        $failures = ['upsert' => 0, 'advanced_data' => 0, 'odds' => 0];
+        $withoutOdds = 0;
 
         foreach ($trackedFixtures as $fixtureData) {
+            $fixtureId = $fixtureData['fixture']['id'] ?? null;
+
             try {
                 // Créer le match en DB
                 $match = $enricher->upsertFromApiFootball($fixtureData);
+            } catch (\Exception $e) {
+                $failures['upsert']++;
+                PipelineLog::caught('FetchMatchDataJob upsert', $e, ['fixture_id' => $fixtureId]);
+                continue;
+            }
 
-                if (!$match) {
-                    continue;
-                }
+            if (!$match) {
+                continue;
+            }
 
-                $createdMatches[] = $match;
-                $leagueId = $fixtureData['league']['id'];
-                $leaguesWithMatches[$leagueId] = true;
+            $createdMatches[] = $match;
+            $leaguesWithMatches[$fixtureData['league']['id']] = true;
 
-                // Enrichir avec données avancées (H2H, blessures, etc.)
-                $fixtureId = $fixtureData['fixture']['id'];
+            // Enrichir avec données avancées (H2H, blessures, etc.)
+            try {
                 $fullData = $apiFootball->getFullMatchData($fixtureId);
 
                 if ($fullData) {
                     $enricher->enrichWithAdvancedData($match, $fullData);
                 }
+            } catch (\Exception $e) {
+                $failures['advanced_data']++;
+                PipelineLog::caught('FetchMatchDataJob données avancées', $e, ['match_id' => $match->id, 'fixture_id' => $fixtureId]);
+            }
 
-                // Cotes API-Football (source PRINCIPALE) — 1 call = toutes lignes O/U + BTTS + DC
+            // Cotes API-Football (source PRINCIPALE) — 1 call = toutes lignes O/U + BTTS + DC
+            try {
                 $parsedOdds = $apiFootball->getFixtureOdds($fixtureId);
                 if ($parsedOdds) {
                     $enricher->enrichWithApiFootballOdds($match, $parsedOdds);
+                } else {
+                    $withoutOdds++;
                 }
-
             } catch (\Exception $e) {
-                Log::error("Pipeline: erreur enrichissement fixture", [
-                    'fixture_id' => $fixtureData['fixture']['id'] ?? 'unknown',
-                    'error' => $e->getMessage(),
-                ]);
+                $failures['odds']++;
+                PipelineLog::caught('FetchMatchDataJob cotes', $e, ['match_id' => $match->id, 'fixture_id' => $fixtureId]);
             }
         }
 
-        Log::info("Pipeline: FetchMatchDataJob terminé", [
+        $summary = [
             'date' => $date,
-            'matches_created' => count($createdMatches),
+            'matches' => count($createdMatches),
+            'without_odds' => $withoutOdds,
+            'failures' => $failures,
             'leagues' => array_keys($leaguesWithMatches),
-        ]);
+        ];
+        if (array_sum($failures) > 0) {
+            Log::channel('pipeline')->warning("Pipeline: FetchMatchDataJob terminé avec " . array_sum($failures) . " échec(s)", $summary);
+        } else {
+            Log::channel('pipeline')->info("Pipeline: FetchMatchDataJob terminé", $summary);
+        }
 
         // 4. Chaîner vers FetchOddsJob avec les ligues qui ont des matchs
         $this->dispatchOddsJob(array_keys($leaguesWithMatches), $date);

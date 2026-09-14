@@ -284,6 +284,7 @@ class MatchAnalysisController extends Controller
             $match->delete(); // Cascade delete via foreign keys
             return back()->with('success', 'Match supprimé !');
         } catch (\Exception $e) {
+            Log::warning("Suppression du match #{$match->id} echouee", ['error' => $e->getMessage()]);
             return back()->with('error', 'Erreur lors de la suppression');
         }
     }
@@ -302,7 +303,9 @@ class MatchAnalysisController extends Controller
         $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
         try {
             $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            Log::warning('Dashboard: lecture du quota Odds API echouee', ['error' => $e->getMessage()]);
+        }
 
         return view('dashboard', [
             'totalMatches'      => $totalMatches,

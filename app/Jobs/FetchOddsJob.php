@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\FootballMatch;
 use App\Services\Api\OddsApiService;
 use App\Services\DataPipeline\MatchEnricherService;
+use App\Services\DataPipeline\PipelineLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -111,18 +112,13 @@ class FetchOddsJob implements ShouldQueue
                         }
 
                     } catch (\Exception $e) {
-                        Log::error("Pipeline: erreur enrichissement cotes pour match #{$match->id}", [
-                            'match' => $match->full_name,
-                            'error' => $e->getMessage(),
-                        ]);
+                        PipelineLog::caught('FetchOddsJob liaison événement', $e, ['match_id' => $match->id, 'match' => $match->full_name]);
                         $failedCount++;
                     }
                 }
 
             } catch (\Exception $e) {
-                Log::error("Pipeline: erreur récupération cotes ligue #{$leagueId}", [
-                    'error' => $e->getMessage(),
-                ]);
+                PipelineLog::caught('FetchOddsJob ligue', $e, ['league_id' => $leagueId]);
             }
         }
 
