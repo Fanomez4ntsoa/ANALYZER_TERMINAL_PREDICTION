@@ -5,6 +5,7 @@
 --}}
 @php
     use App\Support\Terminal\Fmt;
+    use App\Support\Terminal\MarketLabel;
     use App\Support\Terminal\MarketNature;
     use App\Support\Terminal\SelectionsBoard;
 
@@ -30,7 +31,7 @@
 
 <x-terminal-layout :title="$isToday ? 'Aujourd\'hui' : 'Journée du ' . $date->format('d/m/Y')" :states="$states" fit>
 <div class="home-stage"
-     x-data="terminalHome({{ Js::from(['simulations' => (object) $simulations, 'defaultMatch' => $defaultMatch]) }})">
+     x-data="terminalHome({{ Js::from(['simulations' => (object) $simulations, 'defaultMatch' => $defaultMatch, 'marketOrder' => array_keys(MarketLabel::ORDER)]) }})">
 
     {{-- ── Score de Brier : mesure historique du marché choisi dans la calibration ── --}}
     <x-terminal.panel title="Score de Brier" class="area-brier">
@@ -41,7 +42,7 @@
             @foreach ($calibrationMarkets as $key => $m)
                 <div class="flex flex-col gap-bd" x-show="market === '{{ $key }}'" @if ($key !== 'winner') x-cloak @endif>
                     <div class="flex items-center gap-gap">
-                        <x-terminal.tag>{{ App\Support\Terminal\MarketLabel::market($key) }}</x-terminal.tag>
+                        <x-terminal.tag>{{ MarketLabel::market($key) }}</x-terminal.tag>
                         <x-terminal.nature :market="$key" />
                     </div>
                     <x-terminal.figure :value="Fmt::number($m['brier_model'], 3)" />
@@ -97,7 +98,7 @@
             @if ($calibrationMarkets->isNotEmpty())
                 <div class="seg" role="group" aria-label="Marché de la calibration">
                     @foreach ($calibrationMarkets as $key => $m)
-                        <button type="button" id="cal-{{ $key }}" @click="market = '{{ $key }}'" :aria-pressed="market === '{{ $key }}' ? 'true' : 'false'" aria-pressed="{{ $key === 'winner' ? 'true' : 'false' }}">{{ App\Support\Terminal\MarketLabel::market($key) }}</button>
+                        <button type="button" id="cal-{{ $key }}" @click="market = '{{ $key }}'" :aria-pressed="market === '{{ $key }}' ? 'true' : 'false'" aria-pressed="{{ $key === 'winner' ? 'true' : 'false' }}">{{ MarketLabel::market($key) }}</button>
                     @endforeach
                 </div>
             @endif
@@ -115,10 +116,21 @@
         @endif
     </x-terminal.panel>
 
-    {{-- ── Sélections ── --}}
+    {{-- ── Sélections ── tri de navigation seulement : heure, championnat, marché. Jamais l'écart. --}}
     <x-terminal.panel :title="'Sélections du ' . $date->locale('fr')->translatedFormat('j F')" live class="area-sel">
         <x-slot:meta>
-            <span class="num">{{ $counts['matches'] }} matchs · {{ $counts['lines'] }} lignes · triées par heure du match</span>
+            <span class="num">{{ $counts['matches'] }} matchs · {{ $counts['lines'] }} lignes</span>
+            <div class="seg" role="group" aria-label="Trier par">
+                @foreach (['time' => 'Heure', 'competition' => 'Championnat', 'market' => 'Marché'] as $key => $label)
+                    <button type="button" id="sort-{{ $key }}" @click="sortBy = '{{ $key }}'" :aria-pressed="sortBy === '{{ $key }}' ? 'true' : 'false'" aria-pressed="{{ $key === 'time' ? 'true' : 'false' }}">{{ $label }}</button>
+                @endforeach
+            </div>
+            <div class="seg" role="group" aria-label="Filtrer par marché">
+                <button type="button" id="filter-all" @click="marketFilter = 'all'" :aria-pressed="marketFilter === 'all' ? 'true' : 'false'" aria-pressed="true">Tous</button>
+                @foreach (array_keys(MarketLabel::ORDER) as $key)
+                    <button type="button" id="filter-{{ $key }}" @click="marketFilter = '{{ $key }}'" :aria-pressed="marketFilter === '{{ $key }}' ? 'true' : 'false'" aria-pressed="false">{{ MarketLabel::market($key) }}</button>
+                @endforeach
+            </div>
             <span class="team-sep">│</span>
             <a class="panel-link" href="{{ route('dashboard', ['date' => $date->subDay()->toDateString()]) }}">‹ {{ $date->subDay()->format('d/m') }}</a>
             <a class="panel-link" href="{{ route('dashboard', ['date' => $date->addDay()->toDateString()]) }}">{{ $date->addDay()->format('d/m') }} ›</a>
@@ -139,11 +151,12 @@
                         <th title="Modèle moins probabilité démarginalisée, en points">Écart pts</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody x-ref="selBody">
+                @php $index = 0; @endphp
                 @forelse ($groups as $g)
                     @php $hasSim = isset($simulations[$g['match_id']]); @endphp
                     @if ($g['status'] !== SelectionsBoard::PRICED)
-                        <tr class="group-start is-out">
+                        <tr class="group-start is-out" data-row data-index="{{ $index++ }}" data-match="{{ $g['match_id'] }}" data-competition="{{ $g['competition'] }}" data-market="">
                             <td class="l"><input type="checkbox" class="pick" id="pick-m{{ $g['match_id'] }}" disabled aria-label="{{ $g['home'] }} · {{ $g['away'] }} : aucune ligne sélectionnable"></td>
                             <td class="l num">{{ $g['kickoff'] }}</td>
                             <td class="l">{{ $g['home'] }} <span class="team-sep">·</span> {{ $g['away'] }}</td>
@@ -158,7 +171,9 @@
                         @continue
                     @endif
                     @foreach ($g['rows'] as $i => $row)
-                        <tr @class(['group-start' => $i === 0, 'is-out' => $g['kicked_off']]) :class="{ 'is-picked': isPicked({{ $row['id'] }}) }">
+                        <tr @class(['group-start' => $i === 0, 'is-repeat' => $i > 0, 'is-out' => $g['kicked_off']])
+                            data-row data-index="{{ $index++ }}" data-match="{{ $g['match_id'] }}" data-competition="{{ $g['competition'] }}" data-market="{{ $row['market'] }}"
+                            :class="{ 'is-picked': isPicked({{ $row['id'] }}) }">
                             <td class="l">
                                 @if ($row['pickable'])
                                     <input type="checkbox" class="pick" id="pick-{{ $row['id'] }}"
@@ -174,9 +189,10 @@
                                            aria-label="{{ $row['tag'] }} : {{ $g['kicked_off'] ? 'match commencé' : 'cote absente' }}">
                                 @endif
                             </td>
-                            @if ($i === 0)
-                                <td class="l t-dim num">{{ $g['kickoff'] }}</td>
-                                <td class="l">
+                            {{-- Heure et rencontre sur chaque ligne ; masquées quand la ligne précédente est du même match --}}
+                            <td class="l t-dim num match-cell"><span>{{ $g['kickoff'] }}</span></td>
+                            <td class="l match-cell">
+                                <span>
                                     @if ($hasSim)
                                         <button type="button" class="match-btn" @click="mcMatch = {{ $g['match_id'] }}" :aria-pressed="mcMatch === {{ $g['match_id'] }} ? 'true' : 'false'" title="Simuler ce match">{{ $g['home'] }} <span class="team-sep">·</span> {{ $g['away'] }}</button>
                                     @else
@@ -185,11 +201,8 @@
                                     <span class="nature">{{ $g['competition'] }}</span>
                                     @if ($g['kicked_off'])<span class="scope">Commencé</span>@endif
                                     <span class="tag" x-show="mcMatch === {{ $g['match_id'] }}" x-cloak>MC</span>
-                                </td>
-                            @else
-                                <td class="l"></td>
-                                <td class="l"></td>
-                            @endif
+                                </span>
+                            </td>
                             <td class="l"><x-terminal.tag>{{ $row['tag'] }}</x-terminal.tag></td>
                             <td class="l"><x-terminal.nature :market="$row['market']" /></td>
                             <td class="t-hi">{{ Fmt::percent($row['probability']) }}</td>
@@ -204,6 +217,9 @@
                 </tbody>
             </table>
         </div>
+        <x-terminal.note class="max-w-none" x-show="hiddenUnpriced > 0" x-cloak>
+            <span x-text="hiddenUnpriced"></span> match(s) sans ligne calculée masqué(s) par le filtre de marché.
+        </x-terminal.note>
         <x-terminal.nature-note class="max-w-none" />
     </x-terminal.panel>
 

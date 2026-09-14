@@ -207,6 +207,8 @@ html[data-motion='on'] .cursor { animation: t-blink 1.1s steps(2, end) infinite;
 .match-btn { font: inherit; color: inherit; background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left; }
 .match-btn:hover { text-decoration: underline; text-decoration-color: var(--p-dim); text-underline-offset: 3px; }
 .t-table tbody tr.group-start td { border-top: 1px solid var(--line-hi); }
+/* Même match que la ligne précédente : heure et rencontre gardent leur place, invisibles */
+.t-table tbody tr.is-repeat .match-cell > span { visibility: hidden; }
 .panel-link { color: var(--p-dim); text-decoration: none; }
 .panel-link:hover { color: var(--p-mid); }
 

@@ -2,6 +2,10 @@
  * Page principale : état partagé entre le tableau des sélections, le combiné,
  * le Monte-Carlo et la calibration (composant Alpine « terminalHome »).
  *
+ * Tri : heure (défaut), championnat, marché ; filtre par marché. Critères de
+ * navigation seulement : aucun tri par écart, probabilité ou cote, jamais
+ * (docs/design-system.md, principe 1). En ajouter un est une régression.
+ *
  * Combiné : produit des probabilités et produit des cotes, rien d'autre.
  * Une ligne par match au plus (le produit suppose des événements indépendants,
  * deux issues d'un même match ne le sont pas), trois lignes au plus.
@@ -11,7 +15,9 @@ import { count, fr, percent } from './format';
 
 export const MAX_PICKS = 3;
 
-export function terminalHome({ simulations, defaultMatch }) {
+const SORT_KEYS = ['time', 'competition', 'market'];
+
+export function terminalHome({ simulations, defaultMatch, marketOrder = [] }) {
     return {
         market: 'winner',
         mcMatch: defaultMatch,
@@ -21,8 +27,14 @@ export function terminalHome({ simulations, defaultMatch }) {
         mcHome: '—',
         mcAtRest: false,
         picks: [],
+        sortBy: 'time',
+        marketFilter: 'all',
+        hiddenUnpriced: 0,
 
         init() {
+            this.$watch('sortBy', () => this.arrange());
+            this.$watch('marketFilter', () => this.arrange());
+
             const canvas = this.$refs.mcCanvas;
             if (!canvas) return;
             this.mc = new MonteCarlo(canvas, {
@@ -36,6 +48,46 @@ export function terminalHome({ simulations, defaultMatch }) {
             });
             this.mc.setMatch(simulations[this.mcMatch] ?? null);
             this.$watch('mcMatch', (id) => this.mc.setMatch(simulations[id] ?? null));
+        },
+
+        /** Réordonne les lignes existantes (liaisons Alpine conservées) et masque les répétitions. */
+        arrange() {
+            const body = this.$refs.selBody;
+            if (!body || !SORT_KEYS.includes(this.sortBy)) return;
+            const rows = [...body.querySelectorAll('tr[data-row]')];
+            const rank = (market) => (market === '' ? marketOrder.length : marketOrder.indexOf(market));
+            const key = {
+                time: (r) => [Number(r.dataset.index)],
+                competition: (r) => [r.dataset.competition, Number(r.dataset.index)],
+                market: (r) => [rank(r.dataset.market), Number(r.dataset.index)],
+            }[this.sortBy];
+            const compare = (a, b) => {
+                const ka = key(a);
+                const kb = key(b);
+                for (let i = 0; i < ka.length; i++) {
+                    const c = typeof ka[i] === 'string' ? ka[i].localeCompare(kb[i], 'fr') : ka[i] - kb[i];
+                    if (c !== 0) return c;
+                }
+                return 0;
+            };
+
+            rows.sort(compare).forEach((r) => body.appendChild(r));
+
+            let previous = null;
+            let hidden = 0;
+            for (const r of rows) {
+                const visible = this.marketFilter === 'all' || r.dataset.market === this.marketFilter;
+                r.hidden = !visible;
+                if (!visible) {
+                    if (r.dataset.market === '') hidden++;
+                    continue;
+                }
+                const start = r.dataset.match !== previous;
+                r.classList.toggle('group-start', start);
+                r.classList.toggle('is-repeat', !start);
+                previous = r.dataset.match;
+            }
+            this.hiddenUnpriced = hidden;
         },
 
         get sim() {
