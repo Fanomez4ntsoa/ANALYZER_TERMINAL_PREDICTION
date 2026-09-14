@@ -657,10 +657,11 @@ après son coup d'envoi **ou** `advanced_data` réécrites après. Sur 1 140 mat
 | Critère | Matchs |
 |---|---|
 | Importés par le backfill du 08/04/2026 | 794 |
-| Créés après le coup d'envoi (backfill + rattrapage J-1) | 816 |
+| Créés après le coup d'envoi (791 du backfill, 25 d'autres jours) | 816 |
 | Créés ou données avancées réécrites après le coup d'envoi | **913** |
 
-Le chiffre de 960 cité jusqu'ici pour le backfill était faux : 794. Les 97 matchs
+Le chiffre de 960 cité jusqu'ici pour le backfill était faux : 794, dont 3 importés
+avant leur coup d'envoi et jamais réécrits, donc non marqués. Les 97 matchs
 supplémentaires ont été importés avant le coup d'envoi, puis réécrits par des
 relances du pipeline les 26/04 et 01/05/2026 : c'était le fonctionnement normal
 du pipeline, pas un accident du backfill.

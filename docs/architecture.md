@@ -1,15 +1,22 @@
 # Architecture
 
-État après l'étape 1 (13/09/2026). Décrit ce qui existe réellement, pas ce qui
-est prévu.
+État au 14/09/2026, après le nettoyage qui suit l'étape 2. Décrit ce qui existe
+réellement, pas ce qui est prévu.
 
 ---
 
 ## Le chemin d'une prédiction
 
 ```
+Planificateur (routes/console.php, cron `schedule:run` requis)
+  ├─ pipeline:daily, chaque jour à config pipeline.schedule_time (10:00 UTC)
+  │    pipeline:run-sync → context:enrich → predictions:compute → market:track snapshot
+  │    chaque étape journalisée dans storage/logs/pipeline-*.log ; import en échec = arrêt
+  └─ toutes les 5 min : market:track closing, puis market:track close
+
 pipeline:run-sync {date}
   └─ FetchMatchDataJob
+       │  match commencé, reporté ou terminé : score seul, rien d'autre n'est écrit
        ├─ ApiFootballService::getFixturesByDate      fixtures du jour
        ├─ MatchEnricherService::upsertFromApiFootball → table matches
        ├─ ApiFootballService::getFullMatchData        H2H, stats, blessures,
@@ -19,8 +26,10 @@ pipeline:run-sync {date}
        └─ MatchEnricherService::enrichWithApiFootballOdds → colonnes odds_* de matches
 
 /analysis → bouton Analyser → MatchAnalysisController::analyzeExistingMatch
-  ├─ ContextEnricherService::enrich                  fatigue, enjeux, météo
-  │                                                  (stocké, ne nourrit pas le modèle)
+  (ou predictions:compute {date} : matchs à venir, non contaminés, avec cotes 1X2)
+  ├─ ContextEnricherService::enrich                  fatigue, enjeux, météo, pression
+  │                                                  (stocké, ne nourrit pas le modèle ;
+  │                                                  jamais après le coup d'envoi)
   ├─ XGModelService::predict                         estimation des λ
   │    └─ PoissonModelService::fullAnalysis          matrice de scores
   └─ PredictionService                               → table predictions
@@ -34,17 +43,16 @@ BTTS Non.
 ## Le modèle
 
 `XGModelService` estime deux paramètres, λ domicile et λ extérieur, en fusionnant
-quatre signaux :
+trois signaux :
 
 | Signal | Poids | Source |
 |---|---|---|
 | Marché | 0.40 | Recherche sur grille inversant les cotes 1X2, puis calage sur Over/Under 2.5 |
 | Comparaison | 0.30 | Bloc `comparison` des prédictions API-Football |
-| Pseudo-xG | 0.20 | `footystats_data`, dérivé du pourcentage de victoire API-Football |
 | Blessures | multiplicatif | Nombre de joueurs absents, plancher 0.7 |
 
-L'avantage domicile (×1.20 / ×0.88) s'applique aux seuls signaux comparaison et
-pseudo-xG, avant la fusion : les cotes le contiennent déjà. En mode marché seul il
+L'avantage domicile (×1.20 / ×0.88) s'applique au seul signal comparaison, avant
+la fusion : les cotes le contiennent déjà. En mode marché seul il
 ne s'applique pas. Puis bornage des λ.
 
 `PoissonModelService` construit une matrice 7×7 de scores en supposant les deux
@@ -95,45 +103,64 @@ marché dépasse les 40 % affichés.
 | `Probability/DixonColesRho` | ρ de Dixon-Coles par population, maximum de vraisemblance sur les scores (saisons antérieures) |
 | `Probability/LeagueGoalAverages` | Buts par match par championnat, saisons de travail (ancre du total sans O/U) |
 | `PredictionService` | Persistance des probabilités |
-| `DataPipeline/MatchEnricherService` | Normalisation API-Football → base |
+| `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
+| `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
 | `Api/ApiFootballService` | Fixtures, stats, cotes |
 | `Api/OddsApiService` | Snapshots pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
-| `Market/CLVTrackerService` | Snapshots de cotes, écart de clôture |
+| `Market/CLVTrackerService` | Snapshots de cotes, snapshot de clôture sans cache, écart de clôture |
 | `Backtesting/FootballData/CsvParser` | CSV football-data → lignes normalisées (liste blanche de colonnes) |
 | `Backtesting/FootballData/TeamNameAudit` | Graphies d'équipes qui ne diffèrent que par un caractère non-ASCII |
 | `Backtesting/FootballData/CalibrationBacktestService` | Backtest de calibration du modèle de production, mode marché seul |
 | `Backtesting/FootballData/CalibrationAggregator` | Brier, calibration par tranche, segmentation |
-| `Backtesting/BacktestEngine` | **Faux, remplacé par le backtest football-data ; à supprimer une fois le nouveau validé** |
-
-## Débranché, code conservé
-
-Les 5 agents IA et `ClaudeClient`, `ai:batch`, `ai:test`,
-`ComboSelectorService`, `ComboBuilderService`, `GenerateDailyCombosJob`.
-Ils sortent proprement si on les invoque. Rien ne les appelle.
 
 ## Supprimé
 
-Sources manuelles A/B/C, Source E, `AnalyzerService`, `CalculatorService`,
+Étape 1 : sources manuelles A/B/C, Source E, `AnalyzerService`, `CalculatorService`,
 `ValueAnalyzer`, `RulesService`, tout le Layer 2, `ParserService`,
 `DataImportService`, `config/reliability.php`, `config/analyzer.php`,
 `routes/api.php`, le formulaire de saisie manuelle.
+
+14/09/2026 (code conservé par le tag `etape-2-terminee`) : les 5 agents IA et
+`ClaudeClient`, `ai:batch`, `ai:test`, `results:collect`, `ComboSelectorService`,
+`ComboBuilderService`, `GenerateDailyCombosJob`, page `/combos`, `BacktestEngine`,
+`BacktestController`, page `/backtest`, signal `xg_proxy`, dimension arbitre du
+contexte, modèles `AIAnalysis`, `DailyCombo`, `BacktestRun`, `BacktestPrediction`,
+`Referee`.
+
+## Planificateur et clôture
+
+`config/pipeline.php` : heure et fuseau de `pipeline:daily`, créneau horaire des
+matchs, clôture (`window_minutes` 10, `leagues` Top 5, `quota_reserve` 50).
+
+- `market:track closing` : matchs non contaminés dont le coup d'envoi tombe dans
+  la fenêtre, déjà dotés d'un premier snapshot, sans snapshot dans la fenêtre. Un
+  appel The Odds API sans cache par championnat (h2h + totals, 2 crédits).
+- `market:track close` : cote de clôture = dernier snapshot pris avant le coup
+  d'envoi et dans la fenêtre. Sinon clôture vide, signalée dans le journal. Aucun
+  repli sur les cotes `odds_*` de `matches` (API-Football).
 
 ---
 
 ## Tables
 
 **Actives** : `matches`, `advanced_data`, `predictions`, `odds_movements`,
-`referees`, `historical_matches`, `backtest_fd_runs`, `backtest_fd_predictions`.
+`historical_matches`, `backtest_fd_runs`, `backtest_fd_predictions`.
 
 **Conservées mais orphelines** : `recommendations`, `sources`,
 `match_validations`, `combos`, `ai_analysis`, `daily_combos`, `backtest_runs`,
-`backtest_predictions`. Elles contiennent des données historiques
+`backtest_predictions`, `referees`. Elles contiennent des données historiques
 irremplaçables. Ne pas supprimer.
 
 **Colonnes mortes sur `matches`** : `global_confidence`, `layer1_score`,
-`layer2_score`, `convergence`, `context`, `sources_data`.
+`layer2_score`, `convergence`, `context`, `sources_data`. Sur `advanced_data` :
+`footystats_data` (plus écrite).
+
+**`matches.post_kickoff_data`** : une donnée du match a été écrite après son coup
+d'envoi. Exclu de toute mesure : toute requête de mesure sur `matches` passe par
+le scope `measurable()`. Posé à la création d'un match dont le coup d'envoi est
+passé, jamais retiré.
 
 ---
 
@@ -185,15 +212,16 @@ Coût : 0,08 s par `predict`, deux passes par match, soit environ 4 minutes pour
 
 ## Pièges connus
 
-- Les 960 matchs importés par `pipeline:backfill` en 2026 contiennent des données
-  collectées **après** le coup d'envoi : classement du moment de l'import,
-  compositions réelles, statistiques à jour. Toute évaluation de features faite
-  sur eux est invalide. Seuls les scores finaux sont fiables.
+- 913 matchs contiennent des données collectées **après** le coup d'envoi (791
+  créés par le backfill du 08/04/2026, 25 créés après coup d'autres jours, 97
+  réécrits par des relances du pipeline), marqués `post_kickoff_data`. Toute évaluation de features faite sur
+  eux est invalide. Seuls les scores finaux sont fiables.
 - Les cotes de ces mêmes matchs sont des maximums multi-bookmakers, étiquetés
   `legacy_max`. Inexploitables pour mesurer un écart.
-- `env()` est appelé hors config à plusieurs endroits (`app/helpers.php`,
-  `WeatherService`, `FetchMatchDataJob`, `routes/web.php`). `config:cache`
-  casserait ces appels. Ne pas l'activer sans corriger d'abord.
+- `env()` n'est appelé que dans `config/` : `config:cache` fonctionne (vérifié le
+  14/09/2026). Ne pas en réintroduire ailleurs.
+- Le quota The Odds API (500 crédits/mois) ne couvre pas la clôture de tous les
+  championnats suivis : voir `pipeline.closing.leagues`.
 - Les compositions d'équipe sont rarement disponibles avant le coup d'envoi.
 - Dans `CalibrationBacktestService`, les issues `'1'` et `'2'` deviennent des
   entiers quand elles servent de clé de tableau PHP : toujours les recaster en
