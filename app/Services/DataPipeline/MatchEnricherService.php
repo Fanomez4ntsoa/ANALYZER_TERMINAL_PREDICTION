@@ -195,10 +195,9 @@ class MatchEnricherService
             );
         }
 
-        // Prédictions API-Football → données de contexte + xG estimé
+        // Prédictions API-Football → données de contexte
         if (!empty($fullMatchData['predictions'])) {
             $advancedData['context_data'] = $this->normalizeContextFromPredictions($fullMatchData['predictions']);
-            $advancedData['footystats_data'] = $this->normalizeXGFromPredictions($fullMatchData['predictions']);
         }
 
         // Lineups → données tactiques
@@ -331,33 +330,6 @@ class MatchEnricherService
             'reason' => $advice,
             'apiFootballAdvice' => $advice,
             'comparison' => $comparison,
-        ];
-    }
-
-    /**
-     * Normaliser les xG estimés depuis les prédictions API-Football.
-     */
-    private function normalizeXGFromPredictions(array $predictions): array
-    {
-        $percent = $predictions['predictions']['percent'] ?? [];
-        $homePercent = (float) str_replace('%', '', $percent['home'] ?? '33');
-        $awayPercent = (float) str_replace('%', '', $percent['away'] ?? '33');
-
-        // Convertir les pourcentages en xG estimé (approximation)
-        $homeXG = round($homePercent * 0.03, 2);
-        $awayXG = round($awayPercent * 0.03, 2);
-
-        return [
-            'expectedGoals' => [
-                'home' => [
-                    'xGFor' => $homeXG,
-                    'xGAgainst' => $awayXG,
-                ],
-                'away' => [
-                    'xGFor' => $awayXG,
-                    'xGAgainst' => $homeXG,
-                ],
-            ],
         ];
     }
 

@@ -109,16 +109,6 @@ class AdvancedData extends Model
     // ACCESSEURS - FootyStats
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    public function getHomeXgAttribute(): ?array
-    {
-        return $this->footystats_data['expectedGoals']['home'] ?? null;
-    }
-
-    public function getAwayXgAttribute(): ?array
-    {
-        return $this->footystats_data['expectedGoals']['away'] ?? null;
-    }
-
     public function getHomeStreaksAttribute(): ?array
     {
         return $this->footystats_data['series']['home'] ?? null;
