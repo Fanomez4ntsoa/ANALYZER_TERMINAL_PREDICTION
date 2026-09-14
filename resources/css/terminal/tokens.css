@@ -11,13 +11,13 @@
   --line: #14281d;
   --line-hi: #1e3d2b;
 
-  /* Quatre niveaux de vert, plus le flash et le rouge */
+  /* Quatre niveaux de vert, le vert clair et le rose des signes */
   --p-dead: #2e5240;  /* chrome non textuel */
   --p-dim: #4e7d63;   /* étiquettes, en-têtes, graduations, 10 px minimum */
   --p-mid: #86c9a3;   /* texte, valeurs des tableaux, mesures historiques */
   --p-live: #1cff87;  /* ligne survolée ou cochée, valeur unique d'un panneau */
-  --p-hot: #b8ffd8;   /* flash de la matrice Monte-Carlo, rien d'autre */
-  --red: #ff2f4d;     /* écart négatif d'un marché dérivé, rien d'autre */
+  --p-hot: #b8ffd8;   /* flash du Monte-Carlo ; écart positif d'un marché dérivé */
+  --neg: #ffbab6;     /* écart négatif d'un marché dérivé, même poids que --p-hot */
 
   /* Survol et ligne cochée : voile du vert vif */
   --row-hi: rgba(28, 255, 135, 0.035);

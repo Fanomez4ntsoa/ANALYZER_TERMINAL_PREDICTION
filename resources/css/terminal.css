@@ -115,9 +115,9 @@ html[data-motion='on'] .dot.is-on { animation: t-pulse 2.4s steps(2, end) infini
 .nature { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--p-dim); }
 .measure { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; border: 1px solid var(--line-hi); padding: 5px 8px; font-size: 11px; color: var(--p-mid); }
 
-/* ── Écart ── signe seulement, marchés dérivés seulement (MarketNature) */
-.edge-pos { color: var(--p-live); }
-.edge-neg { color: var(--red); }
+/* ── Écart ── signe seulement, marchés dérivés seulement (MarketNature), poids égal */
+.edge-pos { color: var(--p-hot); }
+.edge-neg { color: var(--neg); }
 
 /* ── Tableau ── valeurs en vert moyen ; vert vif sur la ligne survolée ou cochée */
 .t-table-wrap { overflow-x: auto; }

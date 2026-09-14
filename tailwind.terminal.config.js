@@ -45,7 +45,7 @@ export default {
             'p-mid': v('p-mid'),
             'p-live': v('p-live'),
             'p-hot': v('p-hot'),
-            red: v('red'),
+            neg: v('neg'),
         },
         fontFamily: {
             mono: v('mono'),

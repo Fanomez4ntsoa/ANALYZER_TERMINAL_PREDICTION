@@ -25,16 +25,22 @@ Ils valent au-delà des couleurs.
 
 Et leurs corollaires :
 
-- Le vert et le rouge indiquent le signe de l'écart, rien d'autre. Un écart arrondi à
-  0,0 n'a pas de couleur.
+- Le vert clair et le rose indiquent le signe de l'écart, rien d'autre, avec le même
+  poids visuel (voir « Signe de l'écart »). Un écart arrondi à 0,0 n'a pas de couleur.
 - **Marchés d'ajustement** (1X2, DC, O/U 2.5) et **marchés dérivés** (BTTS, O/U 1.5,
   O/U 3.5) sont distingués dans chaque tableau par une colonne « Nature »
   (`Ajust.` / `Dérivé`) et une note de bas de tableau. L'écart d'un marché
-  d'ajustement ne prend jamais de couleur : il est nul sur l'O/U 2.5 et vaut un
-  résidu d'ajustement sur le 1X2 et la DC (le partage des λ, cherché à total fixé par
-  l'O/U, ne reproduit pas exactement les trois issues ; 0,58 pt en moyenne, 2,74 pts
-  au maximum sur les 33 lignes du 14/09/2026). Il s'affiche tel quel, sans mise en
-  forme compensatoire. Seul l'écart d'un marché dérivé porte le vert ou le rouge.
+  d'ajustement ne prend jamais de couleur. Seul l'écart d'un marché dérivé porte un
+  signe coloré.
+- **Un écart sur un marché d'ajustement ne signale pas une opportunité : il mesure
+  l'écart entre le modèle et une contrainte de marché qu'il n'a pas pu satisfaire.**
+  Nul sur l'O/U 2.5, qui fixe le total. Sur le 1X2 et la DC, un seul paramètre de
+  partage ne peut pas reproduire exactement les trois issues une fois le total calé :
+  le résidu mesure ce que deux lois de Poisson corrélées ne savent pas représenter.
+  C'est le défaut structurel traqué par le backtest, vu au niveau d'un match (0,58 pt
+  en moyenne, 2,74 pts au maximum sur les 33 lignes 1X2 du 14/09/2026). Il s'affiche
+  tel quel, sans couleur ni mise en forme compensatoire, et la note du tableau le dit
+  (composant `x-terminal.nature-note`).
 - Une cote absente laisse la cellule vide : aucune estimation.
 - Un match hors périmètre des cotes est affiché et étiqueté, jamais omis.
 - Le calculateur de combiné affiche le produit des probabilités et le produit des
@@ -54,9 +60,9 @@ Et leurs corollaires :
 | `--p-dead` (éteint) | `#2e5240` | **Chrome non textuel** : pastilles inactives, barres d'effectif, séparateurs décoratifs | 2,2:1 |
 | `--p-dim` (sombre) | `#4e7d63` | Étiquettes, en-têtes de tableau, graduations, à 10 px minimum | 4,1:1 |
 | `--p-mid` (moyen) | `#86c9a3` | Texte courant, valeurs des tableaux, mesures historiques | 10,2:1 |
-| `--p-live` (vif) | `#1cff87` | Ligne survolée ou cochée, valeur unique d'un panneau, écart positif d'un marché dérivé | 14,6:1 |
-| `--p-hot` | `#b8ffd8` | Flash de la matrice Monte-Carlo, rien d'autre | |
-| `--red` | `#ff2f4d` | Écart négatif, rien d'autre | 5,4:1 |
+| `--p-live` (vif) | `#1cff87` | Ligne survolée ou cochée, valeur unique d'un panneau | 14,6:1 |
+| `--p-hot` (clair) | `#b8ffd8` | Flash de la matrice Monte-Carlo ; écart positif d'un marché dérivé | 17,1:1 |
+| `--neg` (rose) | `#ffbab6` | Écart négatif d'un marché dérivé, rien d'autre | 12,1:1 |
 
 Aucun texte indispensable en vert éteint. Le vert sombre reste sous le seuil WCAG de
 4,5:1 à toute taille inférieure à 18 px : on compense par la taille (10 px au lieu de
@@ -72,8 +78,23 @@ disparaît.
 - **Vert vif** : la ligne survolée ou cochée (ses valeurs passent en vert vif), et les
   valeurs uniques d'un panneau (horloge, produit du combiné, compteurs du
   Monte-Carlo, CLV).
-- Exception conservée, en attente de confirmation : l'écart positif d'un marché
-  dérivé garde le vert vif, pour que le signe reste symétrique du rouge.
+- L'écart n'est jamais en vert vif, même positif : voir ci-dessous.
+
+### Signe de l'écart
+
+Les deux signes ont le même poids visuel. Un négatif rouge vif face à un positif
+indistinct ferait ressortir un côté : ce n'est pas neutre.
+
+- Positif : `--p-hot`. Négatif : `--neg`. Neutre (0,0, marché d'ajustement) : vert
+  moyen. Les deux signes sont plus clairs que le neutre, et se distinguent entre eux
+  par la teinte.
+- Choix fait à l'écran le 14/09/2026 entre quatre paires. `--p-hot` contre l'ancien
+  rouge `#ff2f4d` (L* 95 contre 56, chroma 32 contre 84) : le rouge écrase le positif.
+  Aucun rouge ne peut égaler `--p-hot` en luminosité et en chroma à la fois (hors
+  gamut sRGB) ; `#ffbab6` (L* 82, chroma 27) est le plus proche qui reste lisiblement
+  rose. Plus pâle (`#ffc8c4`, `#ffd2d0`), il se confond avec `--p-hot`.
+- `--p-hot` sert aussi au flash du Monte-Carlo : aucun risque de confusion, le flash
+  est une matrice animée, l'écart un chiffre de tableau.
 
 ### État système
 
@@ -142,7 +163,8 @@ repos, la matrice affiche les probabilités exactes.
 
 1. Brier et courbe de calibration en vert moyen sans lueur (mesures historiques).
 2. Pastilles d'en-tête éteintes et fixes, sauf donnée réellement vivante.
-3. Titre en vert moyen gras, glyphe en vert sombre ; `--p-hot` réservé au flash.
+3. Titre en vert moyen gras, glyphe en vert sombre ; `--p-hot` réservé au flash (puis à
+   l'écart positif, troisième revue).
 4. Histogramme d'effectifs uniforme, sans barres surlignées.
 5. Tri par défaut par heure, suppression de la barre proportionnelle à l'écart.
 6. Suppression du bandeau défilant des sélections.
@@ -162,5 +184,11 @@ Deuxième revue (14/09/2026) :
    le halo radial d'ambiance.
 10. Distinction marchés d'ajustement / marchés dérivés (principe 3).
 
+Troisième revue (14/09/2026) :
+
+11. Signe de l'écart à poids égal : `--p-hot` et `--neg`, `--red` supprimé.
+12. L'écart d'un marché d'ajustement mesure une contrainte de marché non satisfaite,
+    jamais une opportunité.
+
 Page de démonstration : artifact « Système de design Terminal Prédiction », publié le
-14/09/2026, version 2.
+14/09/2026, version 3.
