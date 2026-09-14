@@ -1146,3 +1146,42 @@ données se modifient par le constructeur de requêtes.
 
 Tests : 8 tests Feature sur les relevés (Http simulé, SQLite), suite complète 90 tests
 verts. Coût du diagnostic : 5 crédits.
+
+---
+
+## 2026-09-14 — Relevés du 14/09 antérieurs à la correction : horodatage décalé
+
+**Les relevés `odds_movements` du 14 septembre 2026 pris avant la correction du cache
+ont un horodatage faux.** Leur `snapshot_at` est l'heure d'enregistrement, pas l'heure
+de la cote : les cotes venaient de réponses The Odds API mises en cache plus tôt.
+
+Vérifié en base et dans `storage/logs/laravel.log` (application et journal en UTC) :
+
+| Match | Réponse reçue (cote au plus tard) | `matches.predicted_at` | Relevés enregistrés |
+|---|---|---|---|
+| #1141 Como · Parma | 06:19:19 (Serie A) | 06:57:26 | 06:57:26, 07:32:49 |
+| #1142 Torino · AS Roma | 06:19:19 (Serie A) | 06:57:26 | 06:57:26, 07:32:49 |
+| #1146 Inter · Udinese | 06:19:19 (Serie A) | 06:57:26 | 06:57:26, 07:32:49 |
+| #1148 Leeds · Newcastle | 06:19:28 (Premier League) | 06:57:26 | 06:57:26, 07:32:49 |
+| #1149 Villarreal · Real Betis | 06:19:29 (Liga) | 06:57:26 | 06:57:26, 07:32:49 |
+
+- Aucune requête The Odds API entre 06:19:29 et 11:40:42 : les passages de 06:57 et
+  07:32 ont lu le cache. Cotes et nombre de bookmakers sont identiques d'un relevé à
+  l'autre (24 bookmakers pour la Serie A, 25 pour Leeds, 20 pour Villarreal).
+- Décalage de `predicted_at` et du premier relevé : environ 38 minutes (38 min 07 s
+  pour la Serie A, 37 min 58 s pour Leeds, 37 min 57 s pour Villarreal). Second
+  relevé : environ 73 minutes, et sa variation nulle est fictive.
+- L'heure donnée est celle de la réponse de l'API. Le `last_update` propre à Pinnacle
+  n'était pas enregistré à l'époque : la cote date de cette réponse au plus tard,
+  probablement de une à deux minutes plus tôt (médiane 0,4 min, p90 1,7 min mesurés
+  sur une réponse fraîche).
+
+**Ces cinq lignes de `matches` sont datées faussement, mais les cotes sont de vraies
+cotes Pinnacle** (`odds_at_pred_home/draw/away` : 1,230/6,340/13,610 ; 6,320/4,300/1,550 ;
+1,240/6,480/12,290 ; 2,320/3,530/3,140 ; 2,000/3,880/3,620). Elles restent utilisables
+comme cote de prédiction du CLV à condition de retenir 06:19 comme heure, pas
+`predicted_at`. Les dix relevés correspondants ont `reliable` faux et ne servent pas au
+test de mouvement de ligne. Aucune donnée n'est modifiée.
+
+Cette entrée précise celle qui précède : « cotes Pinnacle réelles de 06:19 » y désigne
+l'heure de la réponse de l'API, pas une heure de cote mesurée.
