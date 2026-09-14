@@ -970,6 +970,34 @@ lisiblement rose, les teintes plus pâles se confondent avec `--p-hot`. Retenu :
 - **Monte-Carlo sur la matrice exacte du modèle** (0 à 6 buts, λ et ρ enregistrés).
   L'Over enregistré compte la masse au-delà de 6 buts, les tirages non : l'écart
   simulé / enregistré n'est pas que du bruit, c'est dit en infobulle.
-- **Tri par écart au clic non livré.** Le design le permet, mais trier des écarts de
-  marchés d'ajustement classerait des résidus mécaniques : à trancher avant de
-  l'ajouter (dérivés seulement, ou pas du tout).
+- **Tri par écart au clic non livré.** Tranché ensuite : jamais (entrée suivante).
+
+---
+
+## 2026-09-14 — Aucun tri par écart, même sur les marchés dérivés
+
+Le document de design autorisait le tri par écart au clic. Retiré. Le restreindre aux
+marchés dérivés ne respecte pas le principe 1 : il classerait toujours du meilleur au
+pire, sur un sous-ensemble. Tris gardés : heure (défaut), championnat, marché, qui
+sont des critères de navigation ; filtre par marché. **Toute apparition de l'écart
+comme critère de classement est une régression.**
+
+## 2026-09-14 — La Double Chance n'est pas un test indépendant
+
+Constat de la page principale : sur le run #8, le Brier de la DC est identique à celui
+du 1X2 au millième près (0,19173, Pinnacle clôture 0,19103). C'est mécanique : chaque
+probabilité DC est le complément d'une issue du 1X2 (1X = 1 − P(2)), donc
+`(1 − p − (1 − y))² = (p − y)²` ligne à ligne, et la courbe de calibration est le
+miroir de celle du 1X2.
+
+**Lecture corrigée des tableaux du backtest** : `CalibrationBacktestService` et
+`ReferenceCalibration` rangent la DC dans la famille « dérivés ». Elle n'en est pas
+une au sens du test indépendant : c'est une recombinaison du 1X2, qui répète le
+contrôle de cohérence. **Les seuls vrais tests indépendants sont BTTS, O/U 1.5 et
+O/U 3.5.** Les conclusions de l'étape 2 ne changent pas (elles reposaient sur ces
+trois marchés), mais toute ligne « dérivés » qui agrège la DC doit être relue en la
+retirant.
+
+À faire à l'étape 4 : sortir la DC de la famille « dérivés » dans le backtest et dans
+le résumé de calibration, sans recalculer les runs passés (la famille est une
+étiquette, les prédictions stockées restent valides).

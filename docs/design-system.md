@@ -11,9 +11,18 @@ espacement hors de ces jetons.
 Ils valent au-delà des couleurs.
 
 1. **Aucun tri, aucune mise en forme et aucun ordre d'affichage ne doit hiérarchiser
-   les sélections par qualité.** Tri par défaut : heure du match. Pas de barre
-   proportionnelle à l'écart, pas de mise en avant, pas de bandeau défilant. Le tri
-   par écart reste possible au clic, jamais par défaut.
+   les sélections par qualité.** Pas de barre proportionnelle à l'écart, pas de mise
+   en avant, pas de bandeau défilant. **Aucun tri par écart, ni par défaut, ni au clic,
+   ni sur un sous-ensemble** (les seuls marchés dérivés, par exemple) : il classerait
+   toujours du meilleur au pire. Même règle pour la probabilité du modèle et la cote.
+   - Tris autorisés, critères de navigation et non de jugement : **heure du match**
+     (par défaut), **championnat**, **marché**. À l'intérieur d'un groupe, l'ordre
+     reste heure puis catalogue des marchés.
+   - Filtre autorisé : **par marché**, pour ne voir que ce qu'on cherche. Jamais de
+     filtre sur un seuil d'écart, de probabilité ou de cote.
+   - **L'écart utilisé comme critère de classement, où que ce soit (tableau, liste,
+     export, requête qui alimente un affichage), est une régression** : à signaler
+     et corriger, pas à discuter.
 2. **Le vert vif et la lueur signalent une donnée vivante, jamais une mesure
    historique.** Un Brier, une courbe de calibration ou tout résultat de backtest
    s'affichent en vert moyen, sans lueur, sans pastille active.
@@ -209,6 +218,8 @@ Troisième revue (14/09/2026) :
 11. Signe de l'écart à poids égal : `--p-hot` et `--neg`, `--red` supprimé.
 12. L'écart d'un marché d'ajustement mesure une contrainte de marché non satisfaite,
     jamais une opportunité.
+13. Tri par écart retiré du document, même au clic, même sur les dérivés. Tris par
+    heure, championnat et marché ; filtre par marché.
 
 Page de démonstration : artifact « Système de design Terminal Prédiction », publié le
 14/09/2026, version 3.
