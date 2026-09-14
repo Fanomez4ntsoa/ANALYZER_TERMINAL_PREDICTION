@@ -69,7 +69,7 @@ class MatchAnalysisController extends Controller
         try {
             $match->load('advancedData');
 
-            // Enrichir le contexte (fatigue, enjeu, météo, arbitre, pression) si pas encore fait.
+            // Enrichir le contexte (fatigue, enjeu, météo, pression) si pas encore fait.
             // Ne nourrit pas le modèle xG : constitue un historique de features
             // collectées avant le coup d'envoi (voir context_data.collected_at).
             $contextData = $match->advancedData?->context_data ?? [];

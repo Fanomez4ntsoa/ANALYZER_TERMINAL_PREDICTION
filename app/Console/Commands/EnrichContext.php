@@ -14,7 +14,7 @@ class EnrichContext extends Command
                             {--match-id= : Match spécifique}
                             {--show : Afficher le contexte enrichi sans sauvegarder}';
 
-    protected $description = 'Enrichir le contexte situationnel des matchs (fatigue, enjeu, meteo, arbitre, pression)';
+    protected $description = 'Enrichir le contexte situationnel des matchs (fatigue, enjeu, meteo, pression)';
 
     public function handle(ContextEnricherService $enricher): int
     {
@@ -76,7 +76,6 @@ class EnrichContext extends Command
             $fatigue = $enriched['fatigue'] ?? [];
             $stakes = $enriched['stakes'] ?? [];
             $weather = $enriched['weather'] ?? [];
-            $referee = $enriched['referee'] ?? [];
             $pressure = $enriched['coachPressure'] ?? [];
 
             $rows[] = [
@@ -85,13 +84,12 @@ class EnrichContext extends Command
                 ($fatigue['available'] ?? false) ? $fatigue['home']['fatigue_score'] . '/' . $fatigue['away']['fatigue_score'] : '-',
                 ($stakes['available'] ?? false) ? substr($stakes['home']['stake'] ?? '-', 0, 8) . '/' . substr($stakes['away']['stake'] ?? '-', 0, 8) : '-',
                 ($weather['condition'] ?? 'unknown') !== 'unknown' ? "{$weather['temperature']}C {$weather['condition']}" : '-',
-                ($referee['available'] ?? false) ? "{$referee['style']}" : '-',
                 ($pressure['available'] ?? false) ? ($pressure['home']['score'] ?? 0) . '/' . ($pressure['away']['score'] ?? 0) : '-',
             ];
         }
 
         $this->table(
-            ['Match', 'Enjeu', 'Fatigue H/A', 'Stakes H/A', 'Meteo', 'Arbitre', 'Pression H/A'],
+            ['Match', 'Enjeu', 'Fatigue H/A', 'Stakes H/A', 'Meteo', 'Pression H/A'],
             $rows
         );
 
@@ -155,12 +153,6 @@ class EnrichContext extends Command
                 $this->warn("  Impact: {$weather['description']}");
                 $this->line("  Over modifier: {$weather['over_modifier']}% | BTTS modifier: {$weather['btts_modifier']}%");
             }
-        }
-
-        // Arbitre
-        $referee = $enriched['referee'] ?? [];
-        if ($referee['available'] ?? false) {
-            $this->info("Arbitre : {$referee['name']} ({$referee['style']}, {$referee['yellow_per_game']} jaunes/match, {$referee['penalties_per_game']} pen/match)");
         }
 
         // Pression

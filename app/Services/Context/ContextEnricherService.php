@@ -3,18 +3,16 @@
 namespace App\Services\Context;
 
 use App\Models\FootballMatch;
-use App\Models\Referee;
 use App\Services\Api\ApiFootballService;
 use App\Services\Api\WeatherService;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Enrichit le context_data avec 5 dimensions supplémentaires :
+ * Enrichit le context_data avec 4 dimensions supplémentaires :
  *   1. Fatigue calendaire (matchs joués sur 7/14/21 jours)
  *   2. Enjeu précis (titre, relégation, qualification, rien à jouer)
  *   3. Météo (vent, pluie, température)
- *   4. Historique arbitre (cartons, penalties, style)
- *   5. Pression entraîneur (série de défaites)
+ *   4. Pression entraîneur (série de défaites)
  */
 class ContextEnricherService
 {
@@ -45,10 +43,7 @@ class ContextEnricherService
         // 3. Météo
         $enriched['weather'] = $this->analyzeWeather($match);
 
-        // 4. Historique arbitre
-        $enriched['referee'] = $this->analyzeReferee($match, $fullMatchData);
-
-        // 5. Pression entraîneur
+        // 4. Pression entraîneur
         $enriched['coachPressure'] = $this->analyzeCoachPressure($match, $fullMatchData);
 
         // Mettre à jour l'importance si les enjeux l'exigent
@@ -63,7 +58,6 @@ class ContextEnricherService
                 'fatigue' => $enriched['fatigue']['available'] ?? false,
                 'stakes' => $enriched['stakes']['available'] ?? false,
                 'weather' => ($enriched['weather']['condition'] ?? 'unknown') !== 'unknown',
-                'referee' => $enriched['referee']['available'] ?? false,
                 'coachPressure' => $enriched['coachPressure']['available'] ?? false,
             ])),
         ]);
@@ -365,69 +359,7 @@ class ContextEnricherService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 4. HISTORIQUE ARBITRE
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private function analyzeReferee(FootballMatch $match, ?array $fullMatchData): array
-    {
-        // Chercher l'arbitre dans la fixture API-Football
-        $refereeName = null;
-
-        $fixture = $fullMatchData['fixture'] ?? null;
-        if ($fixture) {
-            $refereeName = $fixture['fixture']['referee'] ?? null;
-        }
-
-        if (!$refereeName) {
-            return ['available' => false, 'reason' => 'Arbitre non assigne'];
-        }
-
-        // Nettoyer le nom (API-Football retourne "J. Smith, England")
-        $refereeName = explode(',', $refereeName)[0];
-        $refereeName = trim($refereeName);
-
-        // Chercher ou créer dans la DB
-        $referee = Referee::where('name', 'like', "%{$refereeName}%")->first();
-
-        if (!$referee) {
-            // Créer avec des stats par défaut (sera enrichi via commande dédiée)
-            $referee = Referee::create([
-                'name' => $refereeName,
-                'games_officiated' => 0,
-                'yellow_per_game' => 4.0, // Moyenne européenne
-                'red_per_game' => 0.15,
-                'penalties_per_game' => 0.25,
-                'fouls_per_game' => 24.0,
-                'style' => 'moderate',
-            ]);
-        }
-
-        return [
-            'available' => true,
-            'name' => $referee->name,
-            'style' => $referee->style,
-            'yellow_per_game' => (float) $referee->yellow_per_game,
-            'red_per_game' => (float) $referee->red_per_game,
-            'penalties_per_game' => (float) $referee->penalties_per_game,
-            'games_officiated' => $referee->games_officiated,
-            'impact' => $this->refereeImpact($referee),
-        ];
-    }
-
-    private function refereeImpact(Referee $referee): array
-    {
-        $cards = (float) $referee->yellow_per_game;
-        $pens = (float) $referee->penalties_per_game;
-
-        return [
-            'cards_modifier' => $cards > 5 ? 'high' : ($cards < 3 ? 'low' : 'normal'),
-            'penalty_modifier' => $pens > 0.35 ? 'high' : ($pens < 0.15 ? 'low' : 'normal'),
-            'over_modifier' => $pens > 0.35 ? 3 : 0, // +3% Over si arbitre donne beaucoup de pens
-        ];
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 5. PRESSION ENTRAÎNEUR
+    // 4. PRESSION ENTRAÎNEUR
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
