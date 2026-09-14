@@ -143,4 +143,71 @@ html[data-motion='on'] .cursor { animation: t-blink 1.1s steps(2, end) infinite;
 @keyframes t-pulse { 0%, 60% { opacity: 1; } 61%, 100% { opacity: .25; } }
 @keyframes t-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
+/* ── Page tenue dans l'écran (layout fit) ── sur grand écran seulement */
+.t-main { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+@media (min-width: 1100px) {
+  body.is-fit { height: 100vh; padding-block: var(--page); overflow: hidden; }
+  body.is-fit .t-wrap { height: 100%; }
+  body.is-fit .t-main { flex: 1 1 auto; }
+}
+
+/* ── Page principale ── grille de la maquette v3 */
+.home-stage { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); }
+.home-stage > * { min-height: 0; }
+.home-side { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+@media (min-width: 1100px) {
+  /* flex-basis 0 et min-height 0 : sans eux, la grille prend la hauteur de son contenu */
+  .home-stage { flex: 1 1 0; min-height: 0; grid-template-columns: 240px minmax(0, 1.2fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1.15fr); }
+  .area-brier { grid-column: 1; grid-row: 1; }
+  .area-mc { grid-column: 2; grid-row: 1; }
+  .area-cal { grid-column: 3; grid-row: 1; }
+  .area-sel { grid-column: 2 / span 2; grid-row: 2; }
+  .area-side { grid-column: 1; grid-row: 2; }
+  .home-stage .panel { min-height: 0; overflow: hidden; }
+  .home-stage .panel-bd { flex: 1 1 auto; min-height: 0; }
+  .area-sel .t-table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .area-sel .t-table th { position: sticky; top: 0; z-index: 1; }
+  .home-side .panel.is-grow { flex: 1 1 0; }
+  .home-stage .mc-grid { min-height: 0; }
+  .area-cal .plot-wrap { flex: 1 1 0; }
+  .area-cal .plot { height: 100%; }
+  .home-side .panel-bd { overflow: auto; }
+  .area-brier .panel-bd { overflow: auto; }
+}
+
+/* Sélecteur segmenté (marché de la calibration) */
+.seg { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line-hi); }
+.seg button { font: inherit; font-size: var(--fs-lab); letter-spacing: .12em; text-transform: uppercase; background: transparent; color: var(--p-dim); border: 0; border-right: 1px solid var(--line-hi); padding: 2px 7px; cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed='true'] { color: var(--p-mid); background: var(--panel-2); }
+.seg button:hover { color: var(--p-mid); }
+
+/* Graphique SVG : couleurs par jetons */
+.plot { width: 100%; height: auto; display: block; }
+.plot .gridline { stroke: var(--line); stroke-width: 1; }
+.plot .axis { stroke: var(--line-hi); stroke-width: 1; }
+.plot .ref { stroke: var(--p-dead); stroke-width: 1; stroke-dasharray: 3 4; fill: none; }
+.plot .curve { stroke: var(--p-mid); stroke-width: 1.4; fill: none; }
+.plot .pt { fill: var(--p-mid); }
+.plot .nbar { fill: var(--p-dead); }
+.plot .tick { font-family: var(--mono); font-size: 10px; fill: var(--p-dim); letter-spacing: .08em; }
+
+/* Monte-Carlo */
+.mc { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: var(--bd); flex: 1 1 auto; min-height: 0; }
+.mc-grid { position: relative; min-height: 220px; }
+.mc-side { overflow: hidden; }
+.plot-wrap { min-height: 0; }
+.pick-line { display: flex; flex-direction: column; gap: 1px; padding: var(--row) 0; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--p-mid); }
+.pick-line .num { color: var(--p-dim); }
+.mc-grid canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.mc-side { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+@media (max-width: 560px) { .mc { grid-template-columns: minmax(0, 1fr); } }
+
+/* Rencontre cliquable : choisit le match du Monte-Carlo */
+.match-btn { font: inherit; color: inherit; background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.match-btn:hover { text-decoration: underline; text-decoration-color: var(--p-dim); text-underline-offset: 3px; }
+.t-table tbody tr.group-start td { border-top: 1px solid var(--line-hi); }
+.panel-link { color: var(--p-dim); text-decoration: none; }
+.panel-link:hover { color: var(--p-mid); }
+
 @tailwind utilities;

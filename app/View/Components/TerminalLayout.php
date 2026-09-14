@@ -23,11 +23,13 @@ class TerminalLayout extends Component
 
     /**
      * @param  SystemState[]  $states
+     * @param  bool  $fit  page tenue dans la hauteur de l'écran sur grand écran
      */
     public function __construct(
         PipelineFreshness $pipeline,
         public string $title = 'Terminal',
         array $states = [],
+        public bool $fit = false,
     ) {
         $this->freshness = $pipeline->current();
         ['inverse' => $this->inverse, 'lines' => $this->lines] = SystemState::arrange([...$this->freshness['states'], ...$states]);

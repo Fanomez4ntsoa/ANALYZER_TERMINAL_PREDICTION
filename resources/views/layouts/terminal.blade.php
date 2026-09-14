@@ -21,7 +21,7 @@
     @vite(['resources/css/terminal.css', 'resources/js/terminal.js'])
     {{ $head ?? '' }}
 </head>
-<body>
+<body @class(['is-fit' => $fit])>
 <div class="t-wrap">
 
     <header class="topbar">
@@ -33,13 +33,14 @@
 
         <nav class="nav" aria-label="Navigation principale">
             @foreach ([
-                'analysis.index' => 'Sélections',
+                'dashboard' => 'Aujourd\'hui',
+                'analysis.index' => 'Matchs',
                 'history.index' => 'Historique',
                 'market.index' => 'Marché',
                 'settings.index' => 'Réglages',
             ] as $route => $label)
                 @if (Route::has($route))
-                    <a href="{{ route($route) }}" @if (request()->routeIs(Str::before($route, '.') . '.*')) aria-current="page" @endif>{{ $label }}</a>
+                    <a href="{{ route($route) }}" @if (request()->routeIs($route, Str::before($route, '.') . '.*')) aria-current="page" @endif>{{ $label }}</a>
                 @endif
             @endforeach
         </nav>
@@ -73,7 +74,7 @@
         <x-terminal.state :state="$line" />
     @endforeach
 
-    <main class="flex flex-col gap-gap">
+    <main class="t-main">
         {{ $slot }}
     </main>
 
