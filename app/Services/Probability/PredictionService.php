@@ -49,12 +49,16 @@ class PredictionService
         $computedAt = now();
 
         // Frontière de provenance des cotes :
-        //  - odds_fetched_at renseigné → relevé API-Football sur le bookmaker configuré
-        //    (depuis le commit c6f76e2 du 2026-09-13) ;
+        //  - odds_fetched_at renseigné → relevé API-Football d'un bookmaker unique,
+        //    identifié par odds_bookmaker (depuis le commit c6f76e2 du 2026-09-13) ;
         //  - odds_fetched_at null → cotes héritées = maximum multi-bookmakers,
         //    étiquetées `legacy_max` pour que le backtest puisse les exclure.
+        // Jamais la config The Odds API : c'est le bookmaker du CLV (Pinnacle).
         $oddsTakenAt = $match->odds_fetched_at;
-        $bookmaker = $oddsTakenAt !== null ? config('odds-api.bookmaker') : 'legacy_max';
+        if ($oddsTakenAt !== null && empty($match->odds_bookmaker)) {
+            throw new \RuntimeException("Match #{$match->id} : cotes relevées sans bookmaker identifié (odds_bookmaker vide)");
+        }
+        $bookmaker = $oddsTakenAt !== null ? $match->odds_bookmaker : 'legacy_max';
 
         // Probabilités du modèle en décimal 0..1
         $model = [

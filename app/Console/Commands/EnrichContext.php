@@ -14,7 +14,7 @@ class EnrichContext extends Command
                             {--match-id= : Match spécifique}
                             {--show : Afficher le contexte enrichi sans sauvegarder}';
 
-    protected $description = 'Enrichir le contexte situationnel des matchs (fatigue, enjeu, meteo, arbitre, pression)';
+    protected $description = 'Enrichir le contexte situationnel des matchs (fatigue, enjeu, meteo, pression)';
 
     public function handle(ContextEnricherService $enricher): int
     {
@@ -34,6 +34,11 @@ class EnrichContext extends Command
         }
 
         $this->info("{$match->full_name} ({$match->competition})");
+
+        if ($match->hasKickedOff() && !$this->option('show')) {
+            $this->error("Coup d'envoi passé : contexte non enregistré (donnée post coup d'envoi). Utilisez --show pour afficher sans enregistrer.");
+            return self::FAILURE;
+        }
 
         $enriched = $enricher->enrich($match);
 
@@ -57,8 +62,15 @@ class EnrichContext extends Command
             ->with('advancedData')
             ->get();
 
+        // Coup d'envoi passé : aucun contexte enregistré (donnée post coup d'envoi)
+        $kickedOff = $matches->filter(fn (FootballMatch $m) => $m->hasKickedOff());
+        if ($kickedOff->isNotEmpty() && !$this->option('show')) {
+            $this->warn("{$kickedOff->count()} match(s) déjà commencé(s), ignoré(s).");
+            $matches = $matches->reject(fn (FootballMatch $m) => $m->hasKickedOff());
+        }
+
         if ($matches->isEmpty()) {
-            $this->warn("Aucun match pour le {$date}.");
+            $this->warn("Aucun match à enrichir pour le {$date}.");
             return self::SUCCESS;
         }
 
@@ -76,22 +88,20 @@ class EnrichContext extends Command
             $fatigue = $enriched['fatigue'] ?? [];
             $stakes = $enriched['stakes'] ?? [];
             $weather = $enriched['weather'] ?? [];
-            $referee = $enriched['referee'] ?? [];
             $pressure = $enriched['coachPressure'] ?? [];
 
             $rows[] = [
                 substr($match->home_team, 0, 12) . ' v ' . substr($match->away_team, 0, 12),
-                $enriched['importance'],
+                $enriched['importance'] ?? '-',
                 ($fatigue['available'] ?? false) ? $fatigue['home']['fatigue_score'] . '/' . $fatigue['away']['fatigue_score'] : '-',
                 ($stakes['available'] ?? false) ? substr($stakes['home']['stake'] ?? '-', 0, 8) . '/' . substr($stakes['away']['stake'] ?? '-', 0, 8) : '-',
                 ($weather['condition'] ?? 'unknown') !== 'unknown' ? "{$weather['temperature']}C {$weather['condition']}" : '-',
-                ($referee['available'] ?? false) ? "{$referee['style']}" : '-',
                 ($pressure['available'] ?? false) ? ($pressure['home']['score'] ?? 0) . '/' . ($pressure['away']['score'] ?? 0) : '-',
             ];
         }
 
         $this->table(
-            ['Match', 'Enjeu', 'Fatigue H/A', 'Stakes H/A', 'Meteo', 'Arbitre', 'Pression H/A'],
+            ['Match', 'Enjeu', 'Fatigue H/A', 'Stakes H/A', 'Meteo', 'Pression H/A'],
             $rows
         );
 
@@ -157,12 +167,6 @@ class EnrichContext extends Command
             }
         }
 
-        // Arbitre
-        $referee = $enriched['referee'] ?? [];
-        if ($referee['available'] ?? false) {
-            $this->info("Arbitre : {$referee['name']} ({$referee['style']}, {$referee['yellow_per_game']} jaunes/match, {$referee['penalties_per_game']} pen/match)");
-        }
-
         // Pression
         $pressure = $enriched['coachPressure'] ?? [];
         if ($pressure['available'] ?? false) {
@@ -172,6 +176,6 @@ class EnrichContext extends Command
         }
 
         $this->newLine();
-        $this->info("Importance resolue : {$enriched['importance']}");
+        $this->info('Importance resolue : ' . ($enriched['importance'] ?? 'indisponible'));
     }
 }

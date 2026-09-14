@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\FetchMatchDataJob;
 use App\Models\FootballMatch;
+use App\Services\DataPipeline\PipelineLog;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -67,6 +68,7 @@ class PipelineBackfill extends Command
                 $bar->setMessage("{$date} : {$countAfter} matchs" . ($imported > 0 ? " (+{$imported})" : ''));
 
             } catch (\Exception $e) {
+                PipelineLog::caught('pipeline:backfill', $e, ['date' => $date]);
                 $errors[] = "{$date}: {$e->getMessage()}";
                 $bar->setMessage("{$date} : ERREUR");
             }

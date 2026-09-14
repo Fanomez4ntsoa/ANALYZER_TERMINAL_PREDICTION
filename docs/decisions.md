@@ -608,3 +608,250 @@ Sur les trois saisons, 2122 comprise, le 1X2 donne −0,00004 / −0,00009 / −
   mesurable que hors Top 5. Ce n'est pas un avantage : la règle 6 de CLAUDE.md
   impose une cote de bookmaker unique et jouable, et le choix de la source de
   production reste un choix de jouabilité, pas de calibration.
+
+---
+
+## 2026-09-14 — Agents IA, combinés et ancien backtest : supprimés, plus débranchés
+
+Les 5 agents IA, `ClaudeClient`, `ai:batch`, `ai:test`, `ComboSelectorService`,
+`ComboBuilderService` et `GenerateDailyCombosJob` étaient débranchés depuis
+l'étape 1. Leur code lit des champs supprimés à cette étape (scores, niveaux,
+verdicts, sources) : pour revenir, il faudrait le réécrire entièrement, pas le
+rebrancher. Le garder débranché n'apportait qu'une fausse impression de
+réversibilité. `results:collect` part avec eux : il ne faisait que compter les
+décisions BET / LEAN des agents.
+
+L'ancien `BacktestEngine`, son contrôleur et la page `/backtest` calculaient un
+taux de réussite et un ROI à des cotes inventées, remplacés par le backtest
+football-data. Le dashboard n'affiche plus leurs chiffres.
+
+Le tag `etape-2-terminee` conserve tout ce code. Les tables restent (`ai_analysis`,
+`daily_combos`, `combos`, `backtest_runs`, `backtest_predictions`).
+
+---
+
+## 2026-09-14 — Signal `xg_proxy` et dimension arbitre retirés
+
+`xg_proxy` était un pourcentage de victoire API-Football multiplié par 0,03 : un
+nombre sans unité cohérente présenté comme des buts attendus. La colonne
+`footystats_data` et ses données restent, plus rien ne l'écrit.
+
+La dimension arbitre de `ContextEnricherService` créait à la volée des arbitres
+aux statistiques par défaut (4 jaunes, 0,25 penalty par match) : la table
+`referees` n'a jamais contenu d'information réelle.
+
+Le retrait de `xg_proxy` change les poids de la fusion en mode complet. Sans
+objet : la production passe en mode marché seul à l'étape 3, seule configuration
+mesurée par le backtest.
+
+---
+
+## 2026-09-14 — Matchs contaminés marqués définitivement
+
+Colonne `matches.post_kickoff_data` : une donnée du match a été écrite après son
+coup d'envoi. Ces matchs sont exclus de toute mesure (scope `measurable()`).
+
+Critère retenu par l'utilisateur, le plus large des trois mesurés : match créé
+après son coup d'envoi **ou** `advanced_data` réécrites après. Sur 1 140 matchs :
+
+| Critère | Matchs |
+|---|---|
+| Importés par le backfill du 08/04/2026 | 794 |
+| Créés après le coup d'envoi (791 du backfill, 25 d'autres jours) | 816 |
+| Créés ou données avancées réécrites après le coup d'envoi | **913** |
+
+Le chiffre de 960 cité jusqu'ici pour le backfill était faux : 794, dont 3 importés
+avant leur coup d'envoi et jamais réécrits, donc non marqués. Les 97 matchs
+supplémentaires ont été importés avant le coup d'envoi, puis réécrits par des
+relances du pipeline les 26/04 et 01/05/2026 : c'était le fonctionnement normal
+du pipeline, pas un accident du backfill.
+
+Cause corrigée : le pipeline n'écrit plus rien sur un match commencé, hormis son
+score. Le flag n'est donc plus posé qu'à la création d'un match dont le coup
+d'envoi est passé, et n'est jamais retiré.
+
+---
+
+## 2026-09-14 — Toute exception avalée par le pipeline est journalisée
+
+`FormationProfiles`, supprimée à l'étape 1, était encore appelée dès qu'une
+composition était publiée. L'exception était avalée par le try/catch de
+`FetchMatchDataJob`, qui couvrait aussi la récupération des cotes : pour ces
+matchs, les cotes n'étaient jamais relevées, sans rien de visible. Aucun autre
+appel à l'une des 41 classes supprimées dans l'historique.
+
+Règle : un try/catch du pipeline qui continue après une exception l'écrit en
+avertissement dans le canal `pipeline` (classe, message, emplacement), et chaque
+sous-étape a son propre try/catch pour qu'un échec n'en masque pas un autre. Un
+échec silencieux qui dure une semaine ne doit plus être possible.
+
+---
+
+## 2026-09-14 — Pipeline automatique et clôture relevée par le système
+
+Planificateur réactivé : `pipeline:daily` à 10:00 UTC (import, contexte,
+probabilités, snapshot), avant le créneau 12h-21h UTC pour qu'aucun match du jour
+n'ait commencé au moment du calcul. Chaque étape est journalisée ; si l'import
+échoue, les suivantes ne tournent pas.
+
+La clôture n'est plus une commande manuelle. Toutes les 5 minutes, un snapshot
+sans cache est pris pour les matchs qui commencent dans les 10 minutes ; la cote
+de clôture est le dernier snapshot de cette fenêtre, sinon elle reste vide.
+L'ancien marquage prenait, faute de snapshot, les cotes API-Football du match :
+une autre source, relevée des heures plus tôt. Et le cache de 2 h rendait tout
+snapshot potentiellement périmé.
+
+Quota The Odds API : clôturer tous les championnats suivis coûterait environ 600
+crédits par mois (≈300 créneaux championnat × heure, 2 crédits l'appel, estimé
+sur avril-mai 2026) pour un quota de 500. Clôture limitée au Top 5 (≈260 crédits),
+configurable, avec arrêt sous une réserve de 50 crédits. Choix de l'utilisateur.
+
+---
+
+## 2026-09-14 — Une erreur d'API est un échec, jamais une absence de donnée
+
+Premier passage réel : 9 matchs sur 11 sans cote. Bet365 était présent sur les
+onze. Cause : la limite de l'offre gratuite API-Football (10 requêtes/minute). Le
+code renvoyait `null` sur un HTTP 429, et le pipeline l'a compté comme « sans
+cotes », avec 0 échec. La règle du jour même sur les échecs silencieux était
+violée par le code qui venait de l'introduire : elle ne couvrait que les
+exceptions.
+
+Toute erreur API-Football lève désormais une exception typée (débit, quota
+journalier, refus de l'offre, HTTP, réseau). « Sans cotes » ne veut plus dire
+qu'une chose : toutes les pages ont été lues et le bookmaker ne cote pas le match.
+Des cotes manquantes pour cause d'échec ou de budget rendent le passage incomplet
+et son code de sortie non nul.
+
+---
+
+## 2026-09-14 — Les cotes d'abord et seules ; le facultatif cède toujours
+
+La production tourne en marché seul : seules les cotes entrent dans un calcul. Les
+prédictions API-Football et les blessures sont collectées pour un test futur.
+
+Ordre imposé : cotes, puis scores de la veille, puis facultatif tant que le budget
+du jour reste au-dessus d'une réserve. Une donnée facultative n'empêche jamais une
+donnée indispensable ; si le budget se tend, on abandonne le facultatif, jamais
+les cotes.
+
+Cotes par `/odds?date=` avec lecture de toutes les pages. Si le budget ne permet
+pas de toutes les lire, avertissement explicite avant de continuer, puis liste des
+matchs non couverts : jamais de collecte à moitié en silence.
+
+Retirés du passage quotidien : `headtohead` (paramètre `last`), `teams/statistics`
+et `standings` pour la saison en cours, refusés par l'offre gratuite ; le
+rechargement par `/fixtures?id=`, redondant ; les compositions, jamais publiées à
+l'heure du passage.
+
+---
+
+## 2026-09-14 — Le CLV se mesure contre Pinnacle
+
+**Le CLV mesure le mouvement de la cote Pinnacle entre la prédiction et la clôture.
+Il ne mesure pas le mouvement du prix Bet365 utilisé pour les prédictions.** Ce sont
+deux bookmakers distincts, chacun unique et identifié : Bet365 via API-Football pour
+les prédictions (`predictions.bookmaker`), Pinnacle via The Odds API pour le CLV
+(`odds_movements.bookmaker`). Cette distinction ne doit jamais se perdre dans une
+lecture des chiffres.
+
+Constat : Bet365 n'existe pas sur The Odds API (absent des 95 événements de la région
+`eu`, et des régions `uk` et `us`). Avec Bet365 comme référence, aucun snapshot
+n'était possible.
+
+Ce n'est pas un compromis. Le CLV sert à savoir si on avait raison contre le marché,
+et Pinnacle est l'étalon du marché : c'est contre sa clôture que le modèle a été
+mesuré pendant tout le backtest. Décision de l'utilisateur.
+
+Cote de prédiction et cote de clôture viennent toujours du même bookmaker, sinon le
+match n'est pas clôturé. Limite constatée : Pinnacle ne publie en `totals` que sa
+ligne principale, 2.5 sur 18 événements sur 81 ; le CLV Over 2.5 ne portera que sur
+une minorité de matchs, le CLV 1X2 sur tous.
+
+`predictions.bookmaker` vient maintenant de la cote réellement relevée
+(`matches.odds_bookmaker`), et non plus d'une config partagée qui aurait étiqueté
+des cotes Bet365 comme Pinnacle.
+
+---
+
+## 2026-09-14 — Le contexte dit quand il ne sait pas
+
+Une dimension sans donnée suffisante se déclare indisponible, avec sa raison. Un
+zéro ou une valeur par défaut présentés comme une mesure sont plus graves qu'une
+absence : ils s'accumulent comme des données et fausseraient tout test futur.
+
+- Fatigue : indisponible tant que la base ne couvre pas le calendrier (filtre
+  horaire à l'import, ou semaine sans match importé du championnat). Elle se
+  déclarait disponible avec 0/0.
+- Enjeux et pression entraîneur : **bloqués par l'offre gratuite**, qui refuse
+  `standings` et `teams/statistics` pour la saison en cours. Ce n'est pas un bug,
+  on ne cherche pas à les faire marcher.
+- Météo : plus de 20 °C, 50 % d'humidité ou « Clear » par défaut ; prévision rejetée
+  si elle tombe à plus de 3 h du match.
+- Importance : null sans enjeux ni pression. Elle valait « medium » par défaut, et
+  « high » dès que le conseil API-Football contenait le mot « draw ».
+
+---
+
+## 2026-09-14 — Cotes par date abandonnées : l'offre gratuite plafonne `page` à 3
+
+La décision du jour même de passer à `/odds?date=` avec lecture de toutes les pages est
+remplacée. Relance du 14/09/2026 : 13 pages ce jour-là, refus `plan` dès la page 4
+(« Free plans are limited to a maximum value of 3 for the Page parameter »). Limite
+non documentée par l'API. Aucun des 11 matchs suivis ne figurait dans les 30 premiers :
+0 cote. Le garde-fou a signalé le passage incomplet ; rien n'a été silencieux.
+
+Les cotes se relèvent match par match (`/odds?fixture=`, une page, 1 requête). Choix de
+l'utilisateur. Deux ajustements :
+
+- Quand les cotes sont incomplètes, le facultatif n'est pas collecté : le budget reste
+  disponible pour une relance. Au premier passage, 22 requêtes de facultatif avaient été
+  dépensées alors qu'aucune cote n'était relevée.
+- Le budget est estimé au plus pessimiste de trois compteurs, ceux de l'API étant en
+  retard (18 et 25 affichés pour 34 requêtes réelles).
+
+Relance vérifiée : 11 matchs sur 11 cotés Bet365, 110 lignes de prédictions étiquetées
+`bet365`, 34 requêtes consommées. Projection et options de périmètre dans
+`docs/architecture.md`, section « Limites de l'offre gratuite ».
+
+---
+
+## 2026-09-14 — Cotes relevées sur le Top 5 ; matchs et scores sur les 21 ligues
+
+Le relevé des cotes, et avec lui les données facultatives, est restreint au Top 5 :
+Premier League (E0, id 39), Bundesliga (D1, 78), Serie A (I1, 135), La Liga (SP1, 140),
+Ligue 1 (F1, 61). Configurable par `API_FOOTBALL_ODDS_LEAGUES`. Décision de
+l'utilisateur.
+
+L'import des matchs et des scores reste sur les 21 ligues suivies : il coûte une
+requête par jour quelle que soit leur nombre, et l'historique des résultats continue
+de s'accumuler gratuitement sur tout le périmètre. Le journal indique chaque jour
+combien de matchs à venir sont hors périmètre des cotes, par championnat.
+
+Calcul qui la justifie (offre gratuite : 100 requêtes par jour, coût mesuré le
+14/09/2026 à environ 3 requêtes par match coté plus 2 fixes) :
+
+| Journée | Matchs cotés | Cotes + matchs + scores | Avec facultatif | Marge sur 100 |
+|---|---|---|---|---|
+| 21 ligues, samedi 02/05/2026 observé | 66 | 68 | 68 + 22 (11 matchs, réserve atteinte) | ~0 à 10, aucune relance possible |
+| Top 5, jour le plus chargé observé | 21 | 23 | 65 | ~35, une relance des cotes (21) possible |
+
+Avec 21 ligues, un samedi consomme le quota à lui seul et un passage raté ne peut pas
+être relancé. Avec le Top 5, les cotes coûtent 23 requêtes au lieu de 68, le facultatif
+est complet, et la marge couvre une relance.
+
+C'est aussi le périmètre sur lequel l'utilisateur parie, et la population « Top 5 »
+dont le backtest a mesuré la calibration.
+
+**Élargir redevient possible avec une offre API-Football supérieure** : il suffit
+d'ajouter des ids à `API_FOOTBALL_ODDS_LEAGUES`, à raison d'environ 3 requêtes par
+match supplémentaire.
+
+---
+
+## 2026-09-14 — CLV Over 2.5 partiel, accepté en l'état
+
+Pinnacle ne publie en `totals` que sa ligne principale, qui n'était 2.5 que sur 18
+événements sur 81 (environ un quart). Le CLV Over/Under 2.5 ne portera que sur ces
+matchs. On ne cherche pas à le contourner (lignes alternatives par événement, plus
+coûteuses en crédits) : le CLV 1X2 est complet, c'est suffisant pour commencer.

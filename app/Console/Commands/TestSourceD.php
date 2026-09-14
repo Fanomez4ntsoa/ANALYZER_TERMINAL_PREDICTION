@@ -147,6 +147,7 @@ class TestSourceD extends Command
                     $btts['yes'] > $btts['no'] ? "Y {$btts['yes']}%" : "N {$btts['no']}%",
                 ];
             } catch (\Exception $e) {
+                $this->warn("Match #{$match->id} : " . get_class($e) . ' — ' . $e->getMessage());
                 $rows[] = [
                     substr($match->home_team, 0, 12),
                     substr($match->away_team, 0, 12),
@@ -233,6 +234,7 @@ class TestSourceD extends Command
                 ];
 
             } catch (\Exception $e) {
+                $this->warn("Match #{$match->id} : " . get_class($e) . ' — ' . $e->getMessage());
                 continue;
             }
         }

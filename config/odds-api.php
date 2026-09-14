@@ -11,10 +11,13 @@ return [
     // Format des cotes
     'odds_format' => 'decimal',
 
-    // Bookmaker unique dont on retient les cotes (clé The Odds API).
-    // Si ce bookmaker est absent de la réponse, aucune cote n'est stockée.
-    // Doit désigner le même bookmaker que api-football.preferred_bookmaker.
-    'bookmaker' => env('ODDS_API_BOOKMAKER', 'bet365'),
+    // Bookmaker de référence du CLV (clé The Odds API) : Pinnacle, l'étalon du
+    // marché, contre la clôture duquel le modèle a été mesuré en backtest.
+    // Le CLV mesure le mouvement de Pinnacle, PAS celui du prix Bet365 utilisé pour
+    // les prédictions (api-football.preferred_bookmaker). Bet365 n'existe pas sur
+    // The Odds API (absent des régions eu, uk et us, vérifié le 14/09/2026).
+    // Si ce bookmaker est absent d'un événement, aucun snapshot n'est pris.
+    'clv_bookmaker' => env('ODDS_API_CLV_BOOKMAKER', 'pinnacle'),
 
     // Marchés "featured" disponibles sur l'endpoint /sports/{sport}/odds (1 call par ligue).
     // The Odds API limite cet endpoint à : h2h, spreads, totals, outrights.

@@ -19,7 +19,6 @@
                     ['name' => 'API-Football', 'key' => $config['api_football_key'], 'detail' => 'Stats, H2H, blessures, predictions'],
                     ['name' => 'The Odds API', 'key' => $config['odds_api_key'], 'detail' => 'Cotes (bookmaker unique) + CLV'],
                     ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],
-                    ['name' => 'Anthropic (Claude)', 'key' => $config['anthropic_key'], 'detail' => 'Analyse IA narrative (Phase 5)'],
                 ];
             @endphp
 
@@ -72,17 +71,17 @@
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="px-5 py-3 border-b border-slate-100">
             <h3 class="text-sm font-semibold text-slate-800">Pipeline</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Scheduler desactive — lancement manuel uniquement</p>
+            <p class="text-xs text-slate-500 mt-0.5">pipeline:daily chaque jour (cron schedule:run requis)</p>
         </div>
         <div class="p-5 space-y-4">
             <div class="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                    <span class="text-slate-500">Heure passage 1</span>
-                    <span class="block font-medium text-slate-800">{{ $config['pipeline_time'] }}</span>
+                    <span class="text-slate-500">Passage quotidien</span>
+                    <span class="block font-medium text-slate-800">{{ $config['schedule_time'] }}</span>
                 </div>
                 <div>
-                    <span class="text-slate-500">Heure passage 2</span>
-                    <span class="block font-medium text-slate-800">{{ $config['pipeline_update'] }}</span>
+                    <span class="text-slate-500">Créneau des matchs (UTC)</span>
+                    <span class="block font-medium text-slate-800">{{ $config['match_start_hour'] }}h – {{ $config['match_end_hour'] }}h</span>
                 </div>
             </div>
 
@@ -96,6 +95,10 @@
                     <div class="bg-slate-50 rounded-lg px-3 py-2">
                         <code class="text-xs text-slate-700">php artisan context:enrich --date={{ now()->format('Y-m-d') }}</code>
                         <p class="text-xs text-slate-400 mt-0.5">Enrichir le contexte (meteo, enjeu, fatigue)</p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg px-3 py-2">
+                        <code class="text-xs text-slate-700">php artisan predictions:compute {{ now()->format('Y-m-d') }}</code>
+                        <p class="text-xs text-slate-400 mt-0.5">Calculer les probabilités des matchs à venir</p>
                     </div>
                     <div class="bg-slate-50 rounded-lg px-3 py-2">
                         <code class="text-xs text-slate-700">php artisan market:track snapshot</code>
@@ -114,13 +117,13 @@
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="px-5 py-3 border-b border-slate-100">
             <h3 class="text-sm font-semibold text-slate-800">Bookmaker de référence</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Un seul bookmaker, aucune cote stockée s'il est absent</p>
+            <p class="text-xs text-slate-500 mt-0.5">Un bookmaker unique par usage. Le CLV mesure le mouvement de Pinnacle, pas celui du prix Bet365.</p>
         </div>
         <div class="p-5 space-y-3">
             @php
                 $comboParams = [
-                    ['label' => 'The Odds API (ODDS_API_BOOKMAKER)', 'key' => 'bookmaker_odds_api', 'unit' => ''],
-                    ['label' => 'API-Football id (API_FOOTBALL_PREFERRED_BOOKMAKER)', 'key' => 'bookmaker_api_football', 'unit' => ''],
+                    ['label' => 'Cotes des prédictions, API-Football id (API_FOOTBALL_PREFERRED_BOOKMAKER)', 'key' => 'bookmaker_api_football', 'unit' => ''],
+                    ['label' => 'CLV, The Odds API (ODDS_API_CLV_BOOKMAKER)', 'key' => 'bookmaker_odds_api', 'unit' => ''],
                 ];
             @endphp
 

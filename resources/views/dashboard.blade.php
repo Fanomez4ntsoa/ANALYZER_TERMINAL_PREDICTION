@@ -2,44 +2,19 @@
 
 @section('title', 'Dashboard')
 @section('page-title', 'Dashboard')
-@section('page-subtitle', 'Performance du systeme')
+@section('page-subtitle', 'Etat du pipeline')
 
 @section('content')
 
 {{-- Metriques principales --}}
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <x-pro.metric label="Win Rate" :value="$backtestWinRate . '%'" sublabel="backtest recent" color="brand" />
-    <x-pro.metric label="ROI"
-        :value="($backtestROI >= 0 ? '+' : '') . $backtestROI . '%'"
-        :sublabel="'Yield: ' . ($backtestYield >= 0 ? '+' : '') . $backtestYield . '%'"
-        :color="$backtestROI >= 0 ? 'green' : 'red'" />
-    <x-pro.metric label="Max Drawdown" :value="number_format($backtestDrawdown, 0)" sublabel="perte max consecutive" color="amber" />
-    <x-pro.metric label="Matchs aujourd'hui" :value="$matchesToday" :sublabel="$analyzedMatches . ' avec prédictions'" color="slate" />
+    <x-pro.metric label="Matchs aujourd'hui" :value="$matchesToday" sublabel="importés par le pipeline" color="slate" />
+    <x-pro.metric label="Matchs en DB" :value="$totalMatches" :sublabel="$completedMatches . ' terminés'" color="slate" />
+    <x-pro.metric label="Avec prédictions" :value="$analyzedMatches" sublabel="probabilités calculées" color="brand" />
+    <x-pro.metric label="Quota Odds API" :value="($oddsQuota['used'] ?? 0) . '/' . ($oddsQuota['limit'] ?? 500)" sublabel="ce mois" color="amber" />
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-    {{-- Courbe bankroll --}}
-    <div class="lg:col-span-2">
-        <x-pro.card title="Evolution du bankroll" subtitle="Derniere simulation backtest">
-            <x-slot:actions>
-                @if($backtestRun)
-                    <a href="{{ route('backtest.show', $backtestRun->id) }}" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Voir le backtest</a>
-                @endif
-            </x-slot:actions>
-            <div style="height: 260px;">
-                @if(!empty($bankrollCurve))
-                    <canvas id="bankrollChart"></canvas>
-                @else
-                    <div class="h-full flex items-center justify-center text-sm text-slate-400">
-                        Aucun backtest lance.
-                        <a href="{{ route('backtest.index') }}" class="ml-2 text-blue-600 hover:text-blue-700">Lancer un backtest</a>
-                    </div>
-                @endif
-            </div>
-        </x-pro.card>
-    </div>
-
-    {{-- Statut systeme --}}
     <x-pro.card title="Systeme" subtitle="Statut pipeline">
         <div class="space-y-3 text-sm">
             <div class="flex items-center justify-between">
@@ -67,52 +42,6 @@
                 <span class="text-slate-500">Matchs avec prédictions</span>
                 <span class="text-slate-700 font-medium">{{ $analyzedMatches }}</span>
             </div>
-        </div>
-    </x-pro.card>
-</div>
-
-{{-- Performance par marche --}}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <x-pro.card title="Performance par marche" subtitle="Win rate depuis le dernier backtest">
-        <div style="height: 220px;">
-            @if(!empty($marketPerf))
-                <canvas id="marketChart"></canvas>
-            @else
-                <div class="h-full flex items-center justify-center text-sm text-slate-400">
-                    Aucune donnee. Lancez un backtest.
-                </div>
-            @endif
-        </div>
-    </x-pro.card>
-
-    {{-- Combos recents --}}
-    <x-pro.card title="Meilleurs combos recents" :padding="false">
-        <x-slot:actions>
-            <a href="{{ route('combos.index') }}" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Voir tout</a>
-        </x-slot:actions>
-        <div class="divide-y divide-slate-100">
-            @forelse($recentCombos as $combo)
-                <a href="{{ route('combos.index', ['date' => $combo->date->format('Y-m-d')]) }}"
-                   class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
-                    <div>
-                        <span class="text-sm font-medium text-slate-800">{{ $combo->match_count }} matchs</span>
-                        <span class="text-xs text-slate-400 ml-2">{{ $combo->date->format('d/m/Y') }}</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="text-sm font-semibold text-slate-700">{{ number_format($combo->total_odds, 2) }}</span>
-                        <span class="text-xs font-medium text-slate-500">Score: {{ number_format($combo->combo_score, 0) }}</span>
-                        @if($combo->won !== null)
-                            <span class="px-2 py-0.5 text-xs font-medium rounded {{ $combo->won ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700' }}">
-                                {{ $combo->won ? 'WON' : 'LOST' }}
-                            </span>
-                        @endif
-                    </div>
-                </a>
-            @empty
-                <div class="px-5 py-10 text-center text-sm text-slate-400">
-                    Aucun combo en base (génération hors flux).
-                </div>
-            @endforelse
         </div>
     </x-pro.card>
 </div>
@@ -160,53 +89,3 @@
 
 @endsection
 
-@push('scripts')
-<script>
-const cfg = { font: { family: 'Inter', size: 11 }, color: '#94a3b8' };
-
-@if(!empty($bankrollCurve))
-new Chart(document.getElementById('bankrollChart'), {
-    type: 'line',
-    data: {
-        labels: @json(collect($bankrollCurve)->pluck('date')),
-        datasets: [{
-            data: @json(collect($bankrollCurve)->pluck('bankroll')),
-            borderColor: '#3b82f6',
-            backgroundColor: 'rgba(59,130,246,0.08)',
-            fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3,
-        }]
-    },
-    options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.parsed.y.toFixed(0) + ' €' } } },
-        scales: {
-            x: { grid: { display: false }, ticks: { font: cfg.font, color: cfg.color, maxTicksLimit: 8 } },
-            y: { grid: { color: '#f1f5f9' }, ticks: { font: cfg.font, color: cfg.color } },
-        }
-    }
-});
-@endif
-
-@if(!empty($marketPerf))
-new Chart(document.getElementById('marketChart'), {
-    type: 'bar',
-    data: {
-        labels: @json(collect($marketPerf)->pluck('label')),
-        datasets: [{
-            data: @json(collect($marketPerf)->pluck('rate')),
-            backgroundColor: @json(collect($marketPerf)->map(fn($m) => $m['rate'] >= 60 ? '#10b981' : ($m['rate'] >= 50 ? '#f59e0b' : '#ef4444'))),
-            borderRadius: 4, barThickness: 24,
-        }]
-    },
-    options: {
-        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.parsed.x + '% win rate' } } },
-        scales: {
-            x: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' }, ticks: { callback: v => v + '%', font: cfg.font, color: cfg.color } },
-            y: { grid: { display: false }, ticks: { font: { ...cfg.font, weight: '500' }, color: '#475569' } }
-        }
-    }
-});
-@endif
-</script>
-@endpush

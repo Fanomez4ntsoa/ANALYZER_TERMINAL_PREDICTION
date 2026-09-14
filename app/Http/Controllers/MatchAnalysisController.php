@@ -69,11 +69,13 @@ class MatchAnalysisController extends Controller
         try {
             $match->load('advancedData');
 
-            // Enrichir le contexte (fatigue, enjeu, météo, arbitre, pression) si pas encore fait.
+            // Enrichir le contexte (fatigue, enjeu, météo, pression) si pas encore fait.
             // Ne nourrit pas le modèle xG : constitue un historique de features
             // collectées avant le coup d'envoi (voir context_data.collected_at).
             $contextData = $match->advancedData?->context_data ?? [];
-            $needsEnrichment = empty($contextData['weather']) || empty($contextData['fatigue']);
+            // Jamais après le coup d'envoi : la donnée serait post coup d'envoi.
+            $needsEnrichment = !$match->hasKickedOff()
+                && (empty($contextData['weather']) || empty($contextData['fatigue']));
 
             if ($needsEnrichment) {
                 try {
@@ -233,7 +235,7 @@ class MatchAnalysisController extends Controller
         return response()->streamDownload(function () use ($matches) {
             $h = fopen('php://output', 'w');
             fputcsv($h, [
-                'Match ID', 'Date', 'Competition', 'Home', 'Away', 'Score', 'Completed',
+                'Match ID', 'Date', 'Competition', 'Home', 'Away', 'Score', 'Completed', 'Post Kickoff Data',
                 'Market', 'Outcome', 'Model Prob', 'Odds', 'Implied Prob', 'Fair Prob', 'Edge',
                 'Bookmaker', 'Odds Taken At', 'Computed At',
             ]);
@@ -247,6 +249,7 @@ class MatchAnalysisController extends Controller
                     $m->away_team,
                     $m->completed ? "{$m->score_home}-{$m->score_away}" : '',
                     $m->completed ? 'yes' : 'no',
+                    $m->post_kickoff_data ? 'yes' : 'no',
                 ];
 
                 if ($m->predictions->isEmpty()) {
@@ -284,6 +287,7 @@ class MatchAnalysisController extends Controller
             $match->delete(); // Cascade delete via foreign keys
             return back()->with('success', 'Match supprimé !');
         } catch (\Exception $e) {
+            Log::warning("Suppression du match #{$match->id} echouee", ['error' => $e->getMessage()]);
             return back()->with('error', 'Erreur lors de la suppression');
         }
     }
@@ -299,42 +303,18 @@ class MatchAnalysisController extends Controller
         $analyzedMatches = FootballMatch::whereHas('predictions')->count();
         $matchesToday = FootballMatch::whereDate('match_date', now()->format('Y-m-d'))->count();
 
-        // Stats depuis le backtest le plus récent
-        $latestBacktest = \App\Models\BacktestRun::where('status', 'completed')
-            ->orderByDesc('created_at')
-            ->first();
-
-        $marketPerf = [];
-        if ($latestBacktest && $latestBacktest->by_market) {
-            foreach ($latestBacktest->by_market as $row) {
-                $marketPerf[] = ['label' => $row['label'], 'rate' => $row['win_rate']];
-            }
-        }
-
-        // Combos existants en base (génération hors flux)
-        $recentCombos = \App\Models\DailyCombo::where('rank', 1)
-            ->orderByDesc('date')
-            ->take(5)
-            ->get();
-
         $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
         try {
             $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            Log::warning('Dashboard: lecture du quota Odds API echouee', ['error' => $e->getMessage()]);
+        }
 
         return view('dashboard', [
             'totalMatches'      => $totalMatches,
             'completedMatches'  => $completedMatches,
             'analyzedMatches'   => $analyzedMatches,
             'matchesToday'      => $matchesToday,
-            'backtestRun'       => $latestBacktest,
-            'backtestWinRate'   => $latestBacktest?->win_rate ?? 0,
-            'backtestROI'       => $latestBacktest?->roi ?? 0,
-            'backtestYield'     => $latestBacktest?->yield_pct ?? 0,
-            'backtestDrawdown'  => $latestBacktest?->max_drawdown ?? 0,
-            'bankrollCurve'     => $latestBacktest?->bankroll_curve ?? [],
-            'marketPerf'        => $marketPerf,
-            'recentCombos'      => $recentCombos,
             'recentMatches'     => FootballMatch::withCount('predictions')
                                     ->orderBy('created_at', 'desc')
                                     ->take(8)

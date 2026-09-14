@@ -46,7 +46,7 @@ qui ne veut rien dire sans la cote associée.
 
 | Fichier | Quand le lire |
 |---|---|
-| `docs/architecture.md` | Avant de modifier du code : ce qui existe et ce qui est débranché |
+| `docs/architecture.md` | Avant de modifier du code : ce qui existe et ce qui a été supprimé |
 | `docs/decisions.md` | Avant de remettre en cause un choix : pourquoi il a été fait |
 | `docs/roadmap.md` | Pour savoir où on en est et ce qui vient ensuite |
 | `docs/git-workflow.md` | Branches, commits, fusions, tags |
@@ -72,7 +72,11 @@ Analyse d'un match : depuis `/analysis`, bouton Analyser.
 
 - Étape 1 terminée le 13/09/2026 : 12 116 lignes supprimées, le système sort des
   probabilités et plus de verdicts.
-- Sont débranchés, code conservé : les 5 agents IA, les combinés, le Layer 2.
-- Le backtest est **faux** tant que l'étape 2 n'est pas faite. N'utilise aucun
-  chiffre venant de `/backtest` ou `/dashboard` pour justifier quoi que ce soit.
-- Aucune mesure fiable de performance n'existe à ce jour.
+- Étape 2 terminée le 13/09/2026 : backtest de calibration sur football-data
+  (`backtest:run`, `backtest:report`). L'ancien backtest et la page `/backtest`
+  sont supprimés.
+- Nettoyage du 14/09/2026 : agents IA, combinés et Layer 2 supprimés (le tag
+  `etape-2-terminee` conserve leur code). Pipeline quotidien et clôture du CLV
+  automatiques. Les 913 matchs marqués `post_kickoff_data` sont exclus de toute
+  mesure.
+- Aucune mesure fiable de performance en conditions réelles n'existe à ce jour.

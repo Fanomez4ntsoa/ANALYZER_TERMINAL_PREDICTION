@@ -45,6 +45,14 @@ return [
     // Ligues temporairement desactivees (pas assez de journees jouees < 10)
     // Filtrees du pipeline mais gardees en config pour reactivation simple.
     // A reactiver en aout 2026 quand la saison sera bien lancee.
+    // Périmètre du relevé des cotes (id API-Football), sous-ensemble de `leagues`.
+    // Top 5 par défaut : Premier League 39 (E0), Bundesliga 78 (D1), Serie A 135 (I1),
+    // La Liga 140 (SP1), Ligue 1 61 (F1). Les autres ligues suivies gardent l'import
+    // des matchs et des scores (1 requête par jour pour toutes), sans cotes.
+    // Élargir coûte 1 requête de cote + 2 de facultatif par match (voir
+    // docs/decisions.md, 14/09/2026).
+    'odds_leagues' => array_map('intval', explode(',', env('API_FOOTBALL_ODDS_LEAGUES', '39,78,135,140,61'))),
+
     'inactive_leagues' => [
         113, // Allsvenskan
         119, // Superligaen
@@ -54,23 +62,25 @@ return [
     // Cache TTL en minutes par type de donnée
     'cache_ttl' => [
         'fixtures'   => 60,      // 1h — matchs à venir
-        'h2h'        => 1440,    // 24h — confrontations directes
-        'statistics'  => 360,    // 6h — stats équipe
         'injuries'   => 120,     // 2h — blessures
         'predictions' => 360,   // 6h — prédictions API-Football
-        'lineups'    => 60,      // 1h — compositions
-        'standings'  => 720,     // 12h — classements
-        'odds'       => 120,     // 2h — cotes (stables avant kickoff)
+        // Les cotes par date ne sont pas mises en cache : pages lues d'un seul tenant
     ],
 
-    // Bookmaker unique pour /odds (id API-Football). 8 = Bet365.
+    // Bookmaker unique des cotes des prédictions (id API-Football). 8 = Bet365.
     // Aucun repli sur les autres bookmakers : s'il ne couvre pas le match, aucune cote n'est stockée.
-    // Doit désigner le même bookmaker que odds-api.bookmaker.
+    // Distinct du bookmaker du CLV (odds-api.clv_bookmaker, Pinnacle).
     'preferred_bookmaker' => env('API_FOOTBALL_PREFERRED_BOOKMAKER', 8),
 
-    // Limites API (plan gratuit : 100 req/jour)
+    // Offre gratuite : 10 requêtes/minute (appels espacés en conséquence), 100/jour.
     'rate_limit' => [
-        'requests_per_minute' => 10,
+        'requests_per_minute' => (int) env('API_FOOTBALL_REQUESTS_PER_MINUTE', 10),
+    ],
+
+    'budget' => [
+        // Requêtes du jour gardées en réserve : sous ce seuil, les données
+        // facultatives (prédictions, blessures) ne sont plus collectées.
+        'optional_reserve' => (int) env('API_FOOTBALL_OPTIONAL_RESERVE', 10),
     ],
 
 ];

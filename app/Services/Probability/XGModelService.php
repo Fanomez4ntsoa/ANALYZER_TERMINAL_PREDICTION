@@ -7,12 +7,12 @@ use App\Models\FootballMatch;
 /**
  * Modèle probabiliste maison basé sur les xG et données API-Football.
  *
- * Combine 4 signaux pour estimer les λ (expected goals) de chaque équipe :
- *   1. xG proxy (footystats_data) — données brutes du pipeline
- *   2. Comparaison API-Football (context_data.comparison) — 7 dimensions
- *   3. Probabilités implicites des cotes — reverse-engineering du marché
- *   4. Facteur domicile/extérieur — appliqué aux seuls signaux 1 et 2, le
- *      signal marché contenant déjà l'avantage du terrain
+ * Combine 3 signaux pour estimer les λ (expected goals) de chaque équipe :
+ *   1. Comparaison API-Football (context_data.comparison) — 7 dimensions
+ *   2. Probabilités implicites des cotes — reverse-engineering du marché
+ *   3. Blessures — modificateur multiplicatif
+ * Le facteur domicile/extérieur ne s'applique qu'au signal comparaison, le
+ * signal marché contenant déjà l'avantage du terrain.
  *
  * Les λ sont ensuite injectés dans PoissonModelService pour dériver
  * toutes les probabilités par marché.
@@ -25,7 +25,6 @@ class XGModelService
 
     // Poids de chaque signal dans le calcul final des λ
     private const SIGNAL_WEIGHTS = [
-        'xg_proxy'    => 0.20,  // xG brut du pipeline (peu granulaire, 3 buckets)
         'comparison'  => 0.30,  // Comparaison API-Football 7D (riche)
         'market'      => 0.40,  // Probabilités implicites des cotes (le plus fiable)
         'injuries'    => 0.10,  // Ajustement blessures
@@ -53,10 +52,6 @@ class XGModelService
         144 => 1.45, // Jupiler Pro League
         203 => 1.50, // Süper Lig
     ];
-
-    // Seuil sous lequel un xG proxy est considéré comme "bucket dégénéré"
-    // et remplacé par la moyenne de ligue (cf. footystats_data sortant 0.30)
-    private const XG_PROXY_FLOOR = 0.5;
 
     private PoissonModelService $poisson;
     private LeagueGoalAverages $leagueGoals;
@@ -161,16 +156,13 @@ class XGModelService
 
         $signals = [];
 
-        // Signal 1 : xG proxy du pipeline
-        $signals['xg_proxy'] = $this->lambdasFromXGProxy($advancedData, $leagueAvg);
-
-        // Signal 2 : Comparaison API-Football 7D
+        // Signal 1 : Comparaison API-Football 7D
         $signals['comparison'] = $this->lambdasFromComparison($advancedData, $leagueAvg);
 
-        // Signal 3 : Probabilités implicites des cotes bookmakers
+        // Signal 2 : Probabilités implicites des cotes bookmakers
         $signals['market'] = $this->lambdasFromOdds($match, $rho);
 
-        // Signal 4 : Ajustement blessures
+        // Signal 3 : Ajustement blessures
         $signals['injuries'] = $this->injuryModifier($advancedData);
 
         $signals['_league_avg'] = $leagueAvg;
@@ -195,36 +187,7 @@ class XGModelService
     }
 
     /**
-     * Signal 1 : λ depuis les xG proxy (footystats_data).
-     *
-     * Le pipeline footystats produit des buckets dégénérés
-     * ({0.0, 0.30, 0.90, 1.05, 1.35, 1.50}). Toute valeur sous le plancher
-     * XG_PROXY_FLOOR est remplacée par la moyenne de ligue pour éviter
-     * un biais Under structurel (avg total observé 1.66 → corrigé ~2.7).
-     */
-    private function lambdasFromXGProxy($advancedData, float $leagueAvg): ?array
-    {
-        $xgData = $advancedData?->footystats_data['expectedGoals'] ?? null;
-
-        if (!$xgData) {
-            return null;
-        }
-
-        $homeXG = (float) ($xgData['home']['xGFor'] ?? $leagueAvg);
-        $awayXG = (float) ($xgData['away']['xGFor'] ?? $leagueAvg);
-
-        if ($homeXG < self::XG_PROXY_FLOOR) {
-            $homeXG = $leagueAvg;
-        }
-        if ($awayXG < self::XG_PROXY_FLOOR) {
-            $awayXG = $leagueAvg;
-        }
-
-        return ['home' => $homeXG, 'away' => $awayXG];
-    }
-
-    /**
-     * Signal 2 : λ depuis les comparaisons API-Football.
+     * Signal 1 : λ depuis les comparaisons API-Football.
      *
      * Utilise les dimensions 'att', 'def', 'poisson_distribution', 'form'
      * pour estimer un xG pondéré.
@@ -265,7 +228,7 @@ class XGModelService
     }
 
     /**
-     * Signal 3 : λ estimés depuis les cotes bookmakers.
+     * Signal 2 : λ estimés depuis les cotes bookmakers.
      *
      * Avec cotes Over/Under 2.5 (recalage conjoint) :
      *   1. le total λh + λa est fixé par P(Under 2.5) démarginalisée. Sous deux
@@ -528,7 +491,7 @@ class XGModelService
     }
 
     /**
-     * Signal 4 : Modificateur basé sur les blessures.
+     * Signal 3 : Modificateur basé sur les blessures.
      *
      * Retourne un facteur multiplicatif pour chaque équipe.
      * Plus il y a de blessés, plus le λ est réduit.
@@ -576,7 +539,7 @@ class XGModelService
 
         $legacy = (bool) config('xg-model.legacy_home_advantage_after_fusion');
 
-        foreach (['xg_proxy', 'comparison', 'market'] as $key) {
+        foreach (['comparison', 'market'] as $key) {
             $signal = $signals[$key] ?? null;
 
             if (!$signal || !isset($signal['home'], $signal['away'])) {
@@ -584,8 +547,8 @@ class XGModelService
             }
 
             // Le signal marché contient déjà l'avantage du terrain (les cotes le
-            // pricent). xg_proxy et comparison sont des forces neutres : c'est à
-            // eux seuls que s'applique le facteur domicile, à pleine valeur.
+            // pricent). comparison est une force neutre : c'est à lui seul que
+            // s'applique le facteur domicile, à pleine valeur.
             $home = $signal['home'];
             $away = $signal['away'];
             if ($key !== 'market' && !$legacy) {

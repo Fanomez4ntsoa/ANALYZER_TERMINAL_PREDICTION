@@ -9,6 +9,7 @@ class OddsMovement extends Model
 {
     protected $fillable = [
         'match_id',
+        'bookmaker',
         'odds_home',
         'odds_draw',
         'odds_away',

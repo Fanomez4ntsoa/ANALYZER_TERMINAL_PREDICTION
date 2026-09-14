@@ -10,7 +10,7 @@ return [
     // Ancien comportement : facteur domicile appliqué après la fusion des signaux,
     // donc aussi au signal marché qui contient déjà l'avantage du terrain
     // (+4,6 à +5,6 points sur la victoire à domicile, run #2).
-    // false = le facteur ne s'applique qu'aux signaux xg_proxy et comparison.
+    // false = le facteur ne s'applique qu'au signal comparison.
     'legacy_home_advantage_after_fusion' => false,
 
     // Ancien comportement : partage λh/λa trouvé par la grille 1X2 (à un total libre),

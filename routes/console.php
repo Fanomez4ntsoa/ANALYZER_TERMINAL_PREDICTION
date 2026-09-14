@@ -10,10 +10,21 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PIPELINE AUTOMATIQUE — Scheduler (DÉSACTIVÉ)
+// PIPELINE AUTOMATIQUE — Scheduler
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Sera réactivé quand le système sera complet (Phase 6+).
-// Pour l'instant, utiliser les commandes manuelles ci-dessous.
+// Nécessite `* * * * * php artisan schedule:run` dans la crontab (ou
+// `php artisan schedule:work`). Journal : storage/logs/pipeline-*.log.
+
+// Une fois par jour : import, contexte, probabilités, snapshot de cotes.
+Schedule::command('pipeline:daily')
+    ->dailyAt(config('pipeline.schedule_time'))
+    ->timezone(config('pipeline.schedule_timezone'))
+    ->withoutOverlapping();
+
+// Clôture automatique : snapshot sans cache juste avant le coup d'envoi, puis
+// report du snapshot en cote de clôture une fois le match commencé.
+Schedule::command('market:track closing')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('market:track close')->everyFiveMinutes()->withoutOverlapping();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // COMMANDE MANUELLE — Lancer le pipeline à la demande
@@ -37,7 +48,15 @@ Artisan::command('pipeline:run-sync {date?} {--all : Ignorer le filtre horaire}'
 
     FetchMatchDataJob::dispatchSync($date, null, true, $all);
 
-    $this->info("Pipeline terminé. Vérifiez la base de données.");
-})->purpose('Lancer le pipeline en mode synchrone (sans queue)');
+    $summary = FetchMatchDataJob::$lastSummary ?? [];
+    $this->line(json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
-// `combos:generate` retiré du flux (ComboSelectorService hors flux depuis la simplification).
+    // Cotes ou scores manquants pour cause d'échec ou de budget : code de sortie non nul
+    if (!($summary['indispensable_complete'] ?? false)) {
+        $this->error("Pipeline INCOMPLET : cotes ou scores manquants (voir storage/logs/pipeline-*.log).");
+        return 1;
+    }
+
+    $this->info("Pipeline terminé, cotes complètes.");
+    return 0;
+})->purpose('Lancer le pipeline en mode synchrone (sans queue)');

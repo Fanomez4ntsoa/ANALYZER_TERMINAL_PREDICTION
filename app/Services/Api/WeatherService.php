@@ -22,8 +22,8 @@ class WeatherService
 
     public function __construct()
     {
-        $this->baseUrl = config('app.openweathermap_base_url', 'https://api.openweathermap.org/data/2.5');
-        $this->apiKey = env('OPENWEATHERMAP_KEY', '');
+        $this->baseUrl = config('services.openweathermap.base_url');
+        $this->apiKey = (string) config('services.openweathermap.key');
     }
 
     /**
@@ -52,6 +52,7 @@ class WeatherService
     {
         if (!$weather) {
             return [
+                'available' => false,
                 'condition' => 'unknown',
                 'temperature' => null,
                 'wind_speed' => null,
@@ -63,11 +64,11 @@ class WeatherService
             ];
         }
 
-        $temp = $weather['temperature'] ?? 20;
-        $wind = $weather['wind_speed'] ?? 0; // km/h
-        $rain = $weather['rain'] ?? false;
-        $snow = $weather['snow'] ?? false;
-        $condition = $weather['condition'] ?? 'Clear';
+        $temp = $weather['temperature'];
+        $wind = $weather['wind_speed']; // km/h
+        $rain = $weather['rain'];
+        $snow = $weather['snow'];
+        $condition = $weather['condition'];
 
         $overMod = 0;
         $bttsMod = 0;
@@ -125,6 +126,7 @@ class WeatherService
         }
 
         return [
+            'available' => true,
             'condition' => $condition,
             'temperature' => $temp,
             'wind_speed' => $wind,
@@ -174,16 +176,23 @@ class WeatherService
                 }
             }
 
-            if (!$closest) {
+            // Prévisions par pas de 3 h sur 5 jours : au-delà de 3 h d'écart (match hors
+            // horizon), la prévision la plus proche ne décrit pas le match.
+            if (!$closest || $closestDiff > 3 * 3600) {
+                return null;
+            }
+
+            // Champs indispensables absents : pas de valeur par défaut inventée
+            if (!isset($closest['main']['temp'], $closest['wind']['speed'], $closest['weather'][0]['main'])) {
                 return null;
             }
 
             return [
-                'temperature' => round($closest['main']['temp'] ?? 20),
-                'feels_like' => round($closest['main']['feels_like'] ?? 20),
-                'humidity' => $closest['main']['humidity'] ?? 50,
-                'wind_speed' => round(($closest['wind']['speed'] ?? 0) * 3.6), // m/s → km/h
-                'condition' => $closest['weather'][0]['main'] ?? 'Clear',
+                'temperature' => round($closest['main']['temp']),
+                'feels_like' => isset($closest['main']['feels_like']) ? round($closest['main']['feels_like']) : null,
+                'humidity' => $closest['main']['humidity'] ?? null,
+                'wind_speed' => round($closest['wind']['speed'] * 3.6), // m/s → km/h
+                'condition' => $closest['weather'][0]['main'],
                 'description' => $closest['weather'][0]['description'] ?? '',
                 'rain' => isset($closest['rain']),
                 'snow' => isset($closest['snow']),

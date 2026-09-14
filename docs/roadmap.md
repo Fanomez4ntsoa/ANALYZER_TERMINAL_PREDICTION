@@ -130,6 +130,98 @@ calibré, sur quels marchés, sur quels championnats, et bat-il la clôture ?
 
 ---
 
+## Étape 2b — Nettoyage avant l'interface ✅ 14/09/2026 (branche `chore/nettoyage-post-etape-2`)
+
+- Supprimés (code conservé par le tag `etape-2-terminee`, tables gardées) : les 5
+  agents IA, `ClaudeClient`, `ai:batch`, `ai:test`, `results:collect`, les
+  combinés et la page `/combos`, l'ancien `BacktestEngine` et la page `/backtest`.
+- Retirés : signal `xg_proxy`, dimension arbitre du contexte.
+- Corrigé : appel à `FormationProfiles` (supprimée à l'étape 1) qui bloquait les
+  cotes dès qu'une composition était publiée ; exceptions avalées désormais
+  journalisées (canal `pipeline`) ; plus aucune écriture sur un match commencé,
+  hormis le score ; `env()` hors config remplacés, `config:cache` vérifié.
+- Matchs contaminés : `matches.post_kickoff_data`, 913 matchs sur 1 140, exclus
+  de toute mesure (`measurable()`).
+- `predictions:compute {date?}`, planificateur réactivé (`pipeline:daily` à
+  10:00 UTC), clôture automatique du CLV (Top 5, fenêtre de 10 minutes).
+
+Reste à faire par l'utilisateur : lancer la migration
+`2026_09_14_000001_add_post_kickoff_data_to_matches_table`, ajouter la ligne cron
+`schedule:run`, passer `PIPELINE_SCHEDULE_TIME` à 10:00 dans `.env`.
+
+### Constats du premier passage réel (14/09/2026)
+
+- **Cotes : 9 matchs sur 11 sans cote, cause = limite de débit API-Football**
+  (offre gratuite : 10 requêtes/minute, 100/jour). Environ 9 appels par match, dont
+  4 refusés d'office par l'offre (`headtohead` avec `last`, `teams/statistics` et
+  `standings` sur la saison 2026). À partir du 3e match, HTTP 429 ; `request()`
+  renvoie null et le pipeline compte « sans cotes », 0 échec. Bet365 est présent
+  sur les 11 matchs à l'appel direct, une seule page par `/odds?fixture=`.
+  `/odds?date=` pagine (13 pages de 10 ce jour-là).
+- **CLV : 0 snapshot.** `odds_api_event_id` est renseigné sur 10 matchs sur 11,
+  mais Bet365 n'existe pas dans The Odds API : absent des 95 événements en région
+  `eu`, et des régions `uk` et `us` (`au` non testée). Chaîne CLV inopérante tant
+  que le bookmaker de référence y est Bet365.
+- **Contexte collecté vide (à traiter plus tard, ne nourrit pas le modèle) :**
+  - Fatigue 0/0 partout : comptée sur les seuls matchs présents en base (ligues
+    suivies, créneau 12h-21h UTC), or rien n'a été importé entre le 05/05 et le
+    14/09/2026. Même avec un import continu, coupes et matchs hors créneau
+    manquent : la mesure reflète la couverture du pipeline, pas le calendrier
+    réel. Et elle se déclare `available: true` avec des zéros.
+  - Enjeux vides : classement (`standings`) refusé par l'offre gratuite pour
+    2026, donc pas de `fbref_data`. En début de saison, le rang ne dit de toute
+    façon presque rien.
+  - Pression entraîneur vide : forme récente issue de `teams/statistics`,
+    refusé pour 2026.
+  - Météo : 6 matchs sur 11 inconnus, la ville est devinée par une table de noms
+    d'équipes codée en dur.
+  - Comparaison et blessures : 2 matchs sur 11, pour cause de limite de débit.
+
+### Suites du diagnostic (14/09/2026)
+
+- Corrigé : erreur d'API comptée comme échec ; cotes match par match, en premier et
+  seules, avec garde-fou de budget (l'appel par date est inutilisable : l'offre gratuite
+  plafonne `page` à 3) ; appels refusés par l'offre, `/fixtures?id=` et compositions
+  retirés ; facultatif (prédictions, blessures) abandonné sous une réserve de budget et
+  non collecté quand les cotes sont incomplètes.
+- Relance vérifiée : 11 matchs sur 11 cotés Bet365, 34 requêtes. Un samedi à 50-66
+  matchs consommait tout le quota sans marge de relance.
+- **Tranché : cotes sur le Top 5** (`API_FOOTBALL_ODDS_LEAGUES`), matchs et scores sur
+  les 21 ligues, matchs hors périmètre comptés chaque jour dans le journal. 23 requêtes
+  au lieu de 68 le jour le plus chargé. Élargir avec une offre supérieure.
+- Laissé ouvert : CLV Over 2.5 partiel (ligne principale Pinnacle à 2.5 sur environ un
+  quart des événements), accepté ; le CLV 1X2 est complet.
+
+Étape close le 14/09/2026 : fusion `--no-ff` dans `main`, tag `etape-2b-nettoyage`.
+- CLV contre Pinnacle sur The Odds API, bookmaker enregistré par snapshot. CLV
+  Over 2.5 partiel : Pinnacle ne publie la ligne 2.5 en `totals` que sur 18
+  événements sur 81.
+- Contexte : chaque dimension sans donnée se déclare indisponible. **Enjeux et
+  pression entraîneur bloqués par l'offre gratuite** (`standings` et
+  `teams/statistics` refusés pour la saison en cours) : pas un bug, rien à corriger
+  tant que l'offre ne change pas. Fatigue indisponible tant que l'import filtre par
+  créneau horaire.
+- Volume d'appels et offre API-Football : décision à prendre plus tard, voir
+  `docs/architecture.md`, section « Limites de l'offre gratuite ».
+
+### Bookmaker de repli — non codé, en attente d'une absence observée
+
+Bet365 était présent sur les 11 matchs du 14/09/2026 : on ne code pas pour un
+problème non observé. Le journal le signale désormais (« bookmaker absent sur N
+match(s) après lecture de toutes les pages »). Le jour où il le fera :
+
+- une liste ordonnée de bookmakers dans la config (par exemple Bet365, puis Pinnacle,
+  présent sur les 11 matchs de ce jour-là) ;
+- tous les marchés d'un match viennent du premier bookmaker présent, jamais un
+  mélange entre marchés, jamais un maximum ni une moyenne ;
+- son nom va dans `matches.odds_bookmaker`, donc dans `predictions.bookmaker` ;
+- le journal compte chaque jour les matchs où le premier choix manquait.
+
+La règle à préserver est celle d'une cote d'un bookmaker unique et identifié, pas
+celle de Bet365 en particulier.
+
+---
+
 ## Étape 3 — Interface ⬜ à faire
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
@@ -216,6 +308,16 @@ Ce qu'on mesure :
   Pinnacle dans football-data. Un désaccord peut venir d'un décalage de relevé
   plutôt que d'une divergence d'opinion.
 
+### Candidat pour un futur test des xG — noté le 14/09/2026, rien d'engagé
+
+La bibliothèque Python EasySoccerData donne accès aux xG réels via son module FBref,
+disponible uniquement dans sa version de développement. Candidat pour tester si les
+xG apportent une information absente des cotes d'ouverture, **à condition de
+construire un historique hors ligne** : ce sont des points d'accès non documentés,
+donc inadaptés à une production quotidienne. Les mêmes règles s'appliquent
+(prédiction écrite avant le run, saisons antérieures uniquement, xG d'un match
+jamais utilisés avant son coup d'envoi).
+
 ### Jalon unique de fin d'étape 4 — validation sur l'échantillon réservé
 
 Quand plus rien ne bouge dans le modèle, un passage unique de `--sample=holdout`
@@ -236,10 +338,5 @@ pour savoir un jour si les signaux autres que le marché apportent quelque chose
 
 ## Plus tard, si les mesures le justifient
 
-- Réactivation ou suppression définitive des agents IA. Ils ne sont pas
-  réintroduits sans mesure prouvant leur apport.
-- Réactivation des combinés.
-- Remplacement de `env()` par `config()` hors config, puis activation de
-  `config:cache`.
-- Correction du signal `xg_proxy`, qui est aujourd'hui un pourcentage de victoire
-  multiplié par 0.03 et n'a pas de sens dimensionnel.
+- Agents IA ou combinés : supprimés le 14/09/2026. Un retour serait une réécriture
+  complète, et seulement sur une mesure prouvant leur apport.

@@ -67,6 +67,10 @@ return [
 
     'timezone' => 'UTC',
 
+    // Fuseau d'affichage des dates (helpers displayDate / displayTime). La base
+    // reste en UTC.
+    'display_timezone' => env('DISPLAY_TIMEZONE', 'Indian/Antananarivo'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

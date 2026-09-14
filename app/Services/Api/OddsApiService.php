@@ -221,9 +221,52 @@ class OddsApiService
             return null;
         }
 
+        $normalized = $this->findEventOdds($odds, $homeTeam, $awayTeam, $matchDate);
+
+        // Enrichir avec les marchés extras (alt totals, BTTS, DC) via l'endpoint per-event
+        if ($normalized && $this->fetchExtraMarkets && !empty($this->extraMarkets) && !empty($normalized['event_id'])) {
+            $sportKey = $this->getSportKeyForLeague($leagueId);
+            if ($sportKey) {
+                $extra = $this->getOddsByEventId($sportKey, $normalized['event_id'], $this->extraMarkets);
+                if ($extra && is_array($extra)) {
+                    $normalized = $this->mergeExtraMarkets($normalized, $extra);
+                }
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Cotes 1X2 et totals d'une ligue, SANS cache : pour la cote de clôture, une
+     * réponse en cache (jusqu'à 2 h) serait périmée. Coût : 2 crédits par appel
+     * (h2h + totals, une région). Pas de marchés extras.
+     */
+    public function getFreshOddsByLeagueId(int $leagueId): ?array
+    {
+        $sportKey = $this->getSportKeyForLeague($leagueId);
+
+        if (!$sportKey) {
+            Log::warning("OddsApi: pas de mapping pour la ligue API-Football #{$leagueId}");
+            return null;
+        }
+
+        return $this->request("/sports/{$sportKey}/odds", [
+            'regions' => $this->regions,
+            'markets' => implode(',', config('odds-api.default_markets')),
+            'oddsFormat' => $this->oddsFormat,
+        ]);
+    }
+
+    /**
+     * Retrouver un match API-Football dans une liste d'événements The Odds API
+     * (même date, noms d'équipe proches) et normaliser ses cotes.
+     */
+    public function findEventOdds(array $events, string $homeTeam, string $awayTeam, string $matchDate): ?array
+    {
         $matchDate = substr($matchDate, 0, 10); // YYYY-MM-DD
 
-        foreach ($odds as $event) {
+        foreach ($events as $event) {
             $eventDate = substr($event['commence_time'] ?? '', 0, 10);
 
             if ($eventDate !== $matchDate) {
@@ -235,20 +278,7 @@ class OddsApiService
             $eventAway = $event['away_team'] ?? '';
 
             if ($this->teamsMatch($homeTeam, $eventHome) && $this->teamsMatch($awayTeam, $eventAway)) {
-                $normalized = $this->normalizeOdds($event);
-
-                // Enrichir avec les marchés extras (alt totals, BTTS, DC) via l'endpoint per-event
-                if ($this->fetchExtraMarkets && !empty($this->extraMarkets) && !empty($event['id'])) {
-                    $sportKey = $this->getSportKeyForLeague($leagueId);
-                    if ($sportKey) {
-                        $extra = $this->getOddsByEventId($sportKey, $event['id'], $this->extraMarkets);
-                        if ($extra && is_array($extra)) {
-                            $normalized = $this->mergeExtraMarkets($normalized, $extra);
-                        }
-                    }
-                }
-
-                return $normalized;
+                return $this->normalizeOdds($event);
             }
         }
 
@@ -336,14 +366,14 @@ class OddsApiService
 
     /**
      * Normaliser les cotes d'un événement vers le format FootballMatch.
-     * Ne retient que les cotes du bookmaker configuré (odds-api.bookmaker).
+     * Ne retient que les cotes du bookmaker du CLV (odds-api.clv_bookmaker, Pinnacle).
      * Si ce bookmaker est absent de la réponse, toutes les cotes restent à null
      * et ne seront donc pas stockées (aucun repli sur un autre bookmaker).
      */
     private function normalizeOdds(array $event): array
     {
         $bookmakers = $event['bookmakers'] ?? [];
-        $selectedBookmaker = (string) config('odds-api.bookmaker', 'bet365');
+        $selectedBookmaker = (string) config('odds-api.clv_bookmaker', 'pinnacle');
         $result = [
             'event_id' => $event['id'],
             'home_team' => $event['home_team'],

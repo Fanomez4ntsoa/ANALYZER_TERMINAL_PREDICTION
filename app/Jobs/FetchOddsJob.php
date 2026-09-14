@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\FootballMatch;
 use App\Services\Api\OddsApiService;
 use App\Services\DataPipeline\MatchEnricherService;
+use App\Services\DataPipeline\PipelineLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -55,11 +56,14 @@ class FetchOddsJob implements ShouldQueue
             'remaining' => $usage['remaining'],
         ]);
 
-        // Matchs de la date pas encore liés à un événement The Odds API.
+        // Matchs de la date pas encore liés à un événement The Odds API, dans les seuls
+        // championnats du CLV (chaque ligue interrogée coûte 2 crédits).
         // Ce job ne stocke que odds_api_event_id (CLV) : il n'écrit aucune cote dans matches.
+        $leagueIds = array_values(array_intersect($this->leagueIds, config('pipeline.closing.leagues')));
         $matches = FootballMatch::where('data_source', 'api')
             ->whereDate('match_date', $this->date)
-            ->whereIn('league_id', $this->leagueIds)
+            ->where('match_date', '>', now())
+            ->whereIn('league_id', $leagueIds)
             ->whereNull('odds_api_event_id')
             ->get();
 
@@ -111,18 +115,13 @@ class FetchOddsJob implements ShouldQueue
                         }
 
                     } catch (\Exception $e) {
-                        Log::error("Pipeline: erreur enrichissement cotes pour match #{$match->id}", [
-                            'match' => $match->full_name,
-                            'error' => $e->getMessage(),
-                        ]);
+                        PipelineLog::caught('FetchOddsJob liaison événement', $e, ['match_id' => $match->id, 'match' => $match->full_name]);
                         $failedCount++;
                     }
                 }
 
             } catch (\Exception $e) {
-                Log::error("Pipeline: erreur récupération cotes ligue #{$leagueId}", [
-                    'error' => $e->getMessage(),
-                ]);
+                PipelineLog::caught('FetchOddsJob ligue', $e, ['league_id' => $leagueId]);
             }
         }
 

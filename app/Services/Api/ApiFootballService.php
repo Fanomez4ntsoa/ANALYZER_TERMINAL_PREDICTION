@@ -58,80 +58,19 @@ class ApiFootballService
         return $this->cachedRequest($cacheKey, 'fixtures', '/fixtures', $params);
     }
 
-    /**
-     * Récupérer un match par son ID
-     */
-    public function getFixture(int $fixtureId): ?array
-    {
-        $result = $this->cachedRequest(
-            "fixture_{$fixtureId}",
-            'fixtures',
-            '/fixtures',
-            ['id' => $fixtureId]
-        );
-
-        return $result[0] ?? null;
-    }
-
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HEAD TO HEAD — Confrontations directes
+    // DONNÉES FACULTATIVES — Collectées pour un test futur
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //
+    // Retirés le 14/09/2026 : headtohead (paramètre last), teams/statistics et
+    // standings (saison en cours), tous refusés par l'offre gratuite ; le
+    // rechargement /fixtures?id= (déjà dans /fixtures?date=) ; les compositions
+    // (jamais publiées à l'heure du passage quotidien).
 
     /**
-     * Récupérer l'historique H2H entre deux équipes
-     *
-     * @param int $teamId1 ID première équipe
-     * @param int $teamId2 ID deuxième équipe
-     * @param int $last Nombre de dernières confrontations
+     * Blessures et suspensions d'un match.
      */
-    public function getHeadToHead(int $teamId1, int $teamId2, int $last = 10): ?array
-    {
-        $h2hKey = min($teamId1, $teamId2) . '-' . max($teamId1, $teamId2);
-
-        return $this->cachedRequest(
-            "h2h_{$h2hKey}_{$last}",
-            'h2h',
-            '/fixtures/headtohead',
-            [
-                'h2h' => "{$teamId1}-{$teamId2}",
-                'last' => $last,
-            ]
-        );
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TEAM STATISTICS — Stats d'équipe (forme)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer les statistiques complètes d'une équipe pour une saison
-     */
-    public function getTeamStatistics(int $teamId, int $leagueId, ?int $season = null): ?array
-    {
-        $season = $season ?? config('api-football.default_season');
-
-        $result = $this->cachedRequest(
-            "team_stats_{$teamId}_{$leagueId}_{$season}",
-            'statistics',
-            '/teams/statistics',
-            [
-                'team' => $teamId,
-                'league' => $leagueId,
-                'season' => $season,
-            ]
-        );
-
-        return $result;
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // INJURIES — Blessures et suspensions
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer les blessures pour un match
-     */
-    public function getInjuries(int $fixtureId): ?array
+    public function getInjuries(int $fixtureId): array
     {
         return $this->cachedRequest(
             "injuries_{$fixtureId}",
@@ -142,30 +81,8 @@ class ApiFootballService
     }
 
     /**
-     * Récupérer les blessures d'une équipe (saison en cours)
-     */
-    public function getTeamInjuries(int $teamId, ?int $season = null): ?array
-    {
-        $season = $season ?? config('api-football.default_season');
-
-        return $this->cachedRequest(
-            "injuries_team_{$teamId}_{$season}",
-            'injuries',
-            '/injuries',
-            [
-                'team' => $teamId,
-                'season' => $season,
-            ]
-        );
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PREDICTIONS — Prédictions API-Football
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer les prédictions API-Football pour un match
-     * Utilisable comme "Source D" dans le pipeline Layer 1
+     * Prédictions API-Football d'un match (bloc comparison stocké, n'entre dans
+     * aucun calcul en mode marché seul).
      */
     public function getPredictions(int $fixtureId): ?array
     {
@@ -179,110 +96,59 @@ class ApiFootballService
         return $result[0] ?? null;
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // LINEUPS — Compositions d'équipe
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /**
-     * Récupérer les compositions pour un match (disponible ~1h avant)
+     * Données facultatives d'un match : 2 requêtes. Lève une exception au premier
+     * échec, que l'appelant traite comme un échec facultatif.
      */
-    public function getLineups(int $fixtureId): ?array
+    public function getOptionalMatchData(int $fixtureId): array
     {
-        return $this->cachedRequest(
-            "lineups_{$fixtureId}",
-            'lineups',
-            '/fixtures/lineups',
-            ['fixture' => $fixtureId]
-        );
+        return [
+            'predictions' => $this->getPredictions($fixtureId),
+            'injuries' => $this->getInjuries($fixtureId),
+        ];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // STANDINGS — Classements
+    // ODDS — Cotes du bookmaker configuré, match par match
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //
+    // Pas de /odds?date= : l'offre gratuite plafonne le paramètre page à 3 (limite
+    // non documentée, constatée le 14/09/2026 : 13 pages ce jour-là, refus « plan »
+    // dès la page 4). /odds?league=&season= est refusé pour la saison en cours.
+    // /odds?fixture= tient en une page : seule voie qui couvre tous les matchs.
 
     /**
-     * Récupérer le classement d'une ligue
-     */
-    public function getStandings(int $leagueId, ?int $season = null): ?array
-    {
-        $season = $season ?? config('api-football.default_season');
-
-        $result = $this->cachedRequest(
-            "standings_{$leagueId}_{$season}",
-            'standings',
-            '/standings',
-            [
-                'league' => $leagueId,
-                'season' => $season,
-            ]
-        );
-
-        // L'API retourne un tableau imbriqué : [0]['league']['standings'][0]
-        return $result[0]['league']['standings'][0] ?? null;
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FIXTURE STATISTICS — Stats d'un match
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer les statistiques détaillées d'un match joué
-     */
-    public function getFixtureStatistics(int $fixtureId): ?array
-    {
-        return $this->cachedRequest(
-            "fixture_stats_{$fixtureId}",
-            'statistics',
-            '/fixtures/statistics',
-            ['fixture' => $fixtureId]
-        );
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ODDS — Cotes par fixture (toutes lignes O/U + BTTS + DC)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer les cotes d'un match : 1 appel /odds ciblé sur le bookmaker configuré
-     * (api-football.preferred_bookmaker, Bet365 par défaut).
+     * Cotes du bookmaker configuré (api-football.preferred_bookmaker, Bet365) pour
+     * un match : 1 requête, sans cache (odds_fetched_at doit dater la cote).
      *
-     * Aucun repli sur les autres bookmakers : si le bookmaker configuré ne couvre
-     * pas le match, on retourne null et aucune cote n'est stockée.
-     *
-     * @return array|null  Cotes normalisées (cf. parseFixtureOdds) ou null si pas dispo
+     * @return array|null  Cotes normalisées, null si le bookmaker ne cote pas ce
+     *                     match. Toute erreur d'appel lève ApiFootballException.
      */
     public function getFixtureOdds(int $fixtureId): ?array
     {
-        $preferred = (int) config('api-football.preferred_bookmaker', 8);
+        $bookmaker = (int) config('api-football.preferred_bookmaker', 8);
+        $payload = $this->request('/odds', ['fixture' => $fixtureId, 'bookmaker' => $bookmaker]);
 
-        $payload = $this->cachedRequest(
-            "fixture_odds_{$fixtureId}_bk{$preferred}",
-            'odds',
-            '/odds',
-            ['fixture' => $fixtureId, 'bookmaker' => $preferred]
-        );
-
-        $parsed = $this->parseFixtureOdds($payload, $preferred);
-
-        if ($parsed === null) {
-            Log::info("ApiFootball: bookmaker {$preferred} sans cotes pour fixture {$fixtureId} — aucune cote stockée");
+        if ((int) ($payload['paging']['total'] ?? 1) > 1) {
+            throw new ApiFootballException(ApiFootballException::API, "réponse paginée inattendue pour la fixture {$fixtureId}", '/odds');
         }
 
-        return $parsed;
+        foreach ($payload['response'] ?? [] as $event) {
+            if ((int) ($event['fixture']['id'] ?? 0) === $fixtureId) {
+                return $this->parseEventOdds($event, $bookmaker);
+            }
+        }
+
+        return null;
     }
 
     /**
-     * Normaliser la réponse /odds en un dictionnaire de cotes.
+     * Normaliser un événement /odds en un dictionnaire de cotes.
      * Seul le bookmaker $bookmakerId est lu ; les autres sont ignorés.
-     * Retourne null si ce bookmaker est absent de la réponse.
+     * Retourne null si ce bookmaker est absent de l'événement.
      */
-    private function parseFixtureOdds(?array $response, int $bookmakerId): ?array
+    private function parseEventOdds(array $event, int $bookmakerId): ?array
     {
-        if (empty($response) || empty($response[0])) {
-            return null;
-        }
-
-        $event = $response[0];
         $bookmakers = array_values(array_filter(
             $event['bookmakers'] ?? [],
             fn ($b) => (int) ($b['id'] ?? 0) === $bookmakerId
@@ -302,9 +168,8 @@ class ApiFootballService
 
         $result = [
             'fixture_id' => $event['fixture']['id'] ?? null,
-            'bookmaker_count' => count($bookmakers),
-            'bookmaker' => $bookmakers[0]['name'] ?? (string) $bookmakerId,
-            'bookmakers_used' => array_map(fn($b) => $b['name'] ?? '?', $bookmakers),
+            // Clé stable du bookmaker (« Bet365 » → « bet365 »), enregistrée avec les cotes
+            'bookmaker' => strtolower(preg_replace('/\s+/', '', $bookmakers[0]['name'] ?? (string) $bookmakerId)),
             // 1X2
             'odds_home' => null,
             'odds_draw' => null,
@@ -384,46 +249,6 @@ class ApiFootballService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MÉTHODE COMBINÉE — Données complètes d'un match
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Récupérer toutes les données nécessaires pour analyser un match.
-     * Combine : fixture, H2H, stats équipes, blessures, prédictions, classement.
-     *
-     * C'est cette méthode que le pipeline (MatchEnricherService) appellera.
-     */
-    public function getFullMatchData(int $fixtureId): ?array
-    {
-        $fixture = $this->getFixture($fixtureId);
-
-        if (!$fixture) {
-            Log::warning("ApiFootball: fixture {$fixtureId} introuvable");
-            return null;
-        }
-
-        $homeTeamId = $fixture['teams']['home']['id'] ?? null;
-        $awayTeamId = $fixture['teams']['away']['id'] ?? null;
-        $leagueId = $fixture['league']['id'] ?? null;
-
-        if (!$homeTeamId || !$awayTeamId || !$leagueId) {
-            Log::warning("ApiFootball: données incomplètes pour fixture {$fixtureId}");
-            return null;
-        }
-
-        return [
-            'fixture' => $fixture,
-            'h2h' => $this->getHeadToHead($homeTeamId, $awayTeamId),
-            'homeStats' => $this->getTeamStatistics($homeTeamId, $leagueId),
-            'awayStats' => $this->getTeamStatistics($awayTeamId, $leagueId),
-            'injuries' => $this->getInjuries($fixtureId),
-            'predictions' => $this->getPredictions($fixtureId),
-            'lineups' => $this->getLineups($fixtureId),
-            'standings' => $this->getStandings($leagueId),
-        ];
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // RECHERCHE — Trouver des équipes/ligues
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -432,7 +257,7 @@ class ApiFootballService
      */
     public function searchTeam(string $name): ?array
     {
-        return $this->request('/teams', ['search' => $name]);
+        return $this->request('/teams', ['search' => $name])['response'] ?? [];
     }
 
     /**
@@ -440,7 +265,7 @@ class ApiFootballService
      */
     public function searchLeague(string $name): ?array
     {
-        return $this->request('/leagues', ['search' => $name]);
+        return $this->request('/leagues', ['search' => $name])['response'] ?? [];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -448,74 +273,178 @@ class ApiFootballService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Vérifier le quota API restant
+     * Statut du compte (/status, non décompté du quota journalier).
      */
     public function getAccountStatus(): ?array
     {
-        return $this->request('/status');
+        return $this->request('/status')['response'] ?? null;
+    }
+
+    /**
+     * Requêtes du jour : consommées, limite, restantes.
+     *
+     * Les compteurs de l'API sont en retard : le 14/09/2026, juste après un passage
+     * de 34 requêtes, /status en comptait 18 et l'en-tête de réponse 25. On retient
+     * donc le plus pessimiste de /status et du compteur local de ce serveur (jour
+     * UTC, remis à zéro à minuit UTC comme le quota).
+     *
+     * @return array{current: int, limit: int, remaining: int, status_current: int, local_current: int}
+     */
+    public function getDailyUsage(): array
+    {
+        $requests = $this->getAccountStatus()['requests'] ?? null;
+
+        if (!isset($requests['current'], $requests['limit_day'])) {
+            throw new ApiFootballException(ApiFootballException::API, 'quota journalier absent de /status', '/status');
+        }
+
+        self::$dailyLimit = (int) $requests['limit_day'];
+        $current = max((int) $requests['current'], $this->localDailyCount());
+
+        return [
+            'current' => $current,
+            'limit' => self::$dailyLimit,
+            'remaining' => max(0, self::$dailyLimit - $current),
+            'status_current' => (int) $requests['current'],
+            'local_current' => $this->localDailyCount(),
+        ];
+    }
+
+    /**
+     * Requêtes restantes du jour, estimation pessimiste : minimum de l'en-tête du
+     * dernier appel et de la limite moins le compteur local. Null si ni appel ni
+     * /status dans ce processus.
+     */
+    public function lastKnownDailyRemaining(): ?int
+    {
+        $candidates = [];
+        if (self::$dailyRemaining !== null) {
+            $candidates[] = self::$dailyRemaining;
+        }
+        if (self::$dailyLimit !== null) {
+            $candidates[] = max(0, self::$dailyLimit - $this->localDailyCount());
+        }
+
+        return $candidates ? min($candidates) : null;
+    }
+
+    /** Requêtes décomptées faites depuis ce serveur aujourd'hui (jour UTC). */
+    private function localDailyCount(): int
+    {
+        return (int) Cache::get($this->localCountKey(), 0);
+    }
+
+    private function localCountKey(): string
+    {
+        return 'api_football_requests_' . now('UTC')->format('Y-m-d');
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // TRANSPORT HTTP
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    /** Horodatage du dernier appel réel, partagé par toutes les instances du processus. */
+    private static float $lastRequestAt = 0.0;
+
+    private static ?int $dailyRemaining = null;
+
+    private static ?int $dailyLimit = null;
+
     /**
-     * Requête directe à l'API (sans cache)
+     * Requête directe à l'API (sans cache). Renvoie la réponse complète
+     * (response, paging, results).
+     *
+     * Toute erreur lève ApiFootballException : limite de débit, quota journalier,
+     * refus de l'offre, erreur HTTP ou réseau. Un appel qui échoue ne renvoie
+     * jamais null, sinon l'appelant le confondrait avec une absence de donnée.
+     *
+     * Les appels sont espacés pour respecter api-football.rate_limit, et une
+     * limite de débit atteinte malgré tout donne lieu à une seule nouvelle
+     * tentative après une minute.
      */
-    private function request(string $endpoint, array $params = []): ?array
+    private function request(string $endpoint, array $params = [], bool $retryOnRateLimit = true): array
     {
         if (empty($this->apiKey)) {
-            Log::error('ApiFootball: API_FOOTBALL_KEY non configurée');
-            return null;
+            throw new ApiFootballException(ApiFootballException::CONFIG, 'API_FOOTBALL_KEY non configurée', $endpoint);
         }
 
+        $this->throttle();
+
         try {
-            $response = Http::withHeaders([
-                'x-apisports-key' => $this->apiKey,
-            ])
-                ->timeout(15)
+            $response = Http::withHeaders(['x-apisports-key' => $this->apiKey])
+                ->timeout(20)
                 ->get($this->baseUrl . $endpoint, $params);
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            throw new ApiFootballException(ApiFootballException::NETWORK, $e->getMessage(), $endpoint, $e);
+        } finally {
+            self::$lastRequestAt = microtime(true);
+        }
 
-            if ($response->failed()) {
-                Log::error("ApiFootball: erreur HTTP {$response->status()}", [
-                    'endpoint' => $endpoint,
-                    'params' => $params,
-                ]);
-                return null;
-            }
+        // Compteur local du jour UTC (/status n'est pas décompté du quota)
+        if ($endpoint !== '/status') {
+            $key = $this->localCountKey();
+            Cache::add($key, 0, now('UTC')->endOfDay()->addHour());
+            Cache::increment($key);
+        }
 
-            $data = $response->json();
+        $remaining = $response->header('x-ratelimit-requests-remaining');
+        if ($remaining !== '' && $remaining !== null) {
+            self::$dailyRemaining = (int) $remaining;
+        }
 
-            // Vérifier les erreurs API
-            if (!empty($data['errors']) && count($data['errors']) > 0) {
-                Log::error('ApiFootball: erreur API', [
-                    'endpoint' => $endpoint,
-                    'errors' => $data['errors'],
-                ]);
-                return null;
-            }
+        $data = $response->json();
+        $errors = is_array($data['errors'] ?? null) ? $data['errors'] : [];
 
-            return $data['response'] ?? null;
+        $kind = match (true) {
+            $response->status() === 429, isset($errors['rateLimit']) => ApiFootballException::RATE_LIMIT,
+            isset($errors['requests']) => ApiFootballException::DAILY_QUOTA,
+            isset($errors['plan']) => ApiFootballException::PLAN,
+            $response->failed() => ApiFootballException::HTTP,
+            !empty($errors) || !is_array($data) => ApiFootballException::API,
+            default => null,
+        };
 
-        } catch (\Exception $e) {
-            Log::error('ApiFootball: exception', [
-                'endpoint' => $endpoint,
-                'message' => $e->getMessage(),
-            ]);
-            return null;
+        if ($kind === null) {
+            return $data;
+        }
+
+        $message = !empty($errors) ? json_encode($errors, JSON_UNESCAPED_UNICODE) : "HTTP {$response->status()}";
+
+        if ($kind === ApiFootballException::RATE_LIMIT && $retryOnRateLimit) {
+            Log::channel('pipeline')->warning("ApiFootball: limite de débit atteinte sur {$endpoint}, nouvelle tentative dans 61 s", ['params' => $params]);
+            sleep(61);
+
+            return $this->request($endpoint, $params, false);
+        }
+
+        throw new ApiFootballException($kind, $message, $endpoint);
+    }
+
+    /**
+     * Espacer les appels réels : 60 / requests_per_minute secondes, plus une marge.
+     */
+    private function throttle(): void
+    {
+        $perMinute = max(1, (int) config('api-football.rate_limit.requests_per_minute', 10));
+        $interval = 60 / $perMinute + 0.5;
+        $wait = self::$lastRequestAt + $interval - microtime(true);
+
+        if ($wait > 0) {
+            usleep((int) ($wait * 1_000_000));
         }
     }
 
     /**
-     * Requête avec cache Laravel
+     * Requête avec cache Laravel. Seule une réponse réussie est mise en cache ;
+     * une exception n'est jamais mise en cache.
      */
-    private function cachedRequest(string $cacheKey, string $ttlKey, string $endpoint, array $params = []): ?array
+    private function cachedRequest(string $cacheKey, string $ttlKey, string $endpoint, array $params = []): array
     {
         $fullCacheKey = "api_football_{$cacheKey}";
         $ttlMinutes = $this->cacheTtl[$ttlKey] ?? 60;
 
         return Cache::remember($fullCacheKey, now()->addMinutes($ttlMinutes), function () use ($endpoint, $params) {
-            return $this->request($endpoint, $params);
+            return $this->request($endpoint, $params)['response'] ?? [];
         });
     }
 

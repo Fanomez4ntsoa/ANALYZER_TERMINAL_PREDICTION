@@ -2,8 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Services\Api\ApiFootballException;
 use App\Services\Api\ApiFootballService;
 use App\Services\DataPipeline\MatchEnricherService;
+use App\Services\DataPipeline\PipelineLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -15,9 +17,11 @@ class FetchMatchDataJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
+    // Une seule tentative : une relance automatique consommerait le budget du jour une seconde fois
+    public int $tries = 1;
     public int $backoff = 30;
-    public int $timeout = 300;
+    // Appels espacés de 6,5 s (10/minute) : un passage complet dure plusieurs minutes
+    public int $timeout = 1800;
 
     private ?string $date;
     private ?array $leagueIds;
@@ -38,141 +42,238 @@ class FetchMatchDataJob implements ShouldQueue
         $this->allHours = $allHours;
     }
 
+    /**
+     * Bilan du dernier passage dans ce processus, lu par pipeline:run-sync pour
+     * son code de sortie (dispatchSync ne renvoie rien).
+     */
+    public static ?array $lastSummary = null;
+
+    /**
+     * Ordre imposé par le budget de l'offre gratuite (100 requêtes/jour) : les cotes
+     * d'abord et seules (1 requête par match), puis les scores de la veille, puis le
+     * facultatif (prédictions API-Football, blessures) tant que le budget le permet
+     * et seulement si les cotes sont complètes. Une donnée facultative n'empêche
+     * jamais une donnée indispensable.
+     */
     public function handle(ApiFootballService $apiFootball, MatchEnricherService $enricher): void
     {
         $date = $this->date ?? now()->format('Y-m-d');
         $trackedLeagues = $this->leagueIds ?? config('api-football.leagues');
+        $log = Log::channel('pipeline');
 
         // Exclure les ligues temporairement desactivees (debut de saison, etc.)
         $inactiveLeagues = config('api-football.inactive_leagues', []);
         $trackedLeagues = array_values(array_diff($trackedLeagues, $inactiveLeagues));
 
-        Log::info("Pipeline: FetchMatchDataJob démarré", [
+        $summary = [
             'date' => $date,
-            'leagues' => $trackedLeagues,
+            'daily_remaining_start' => null,
+            'matches' => 0,
+            'kicked_off_score_only' => 0,
+            'odds_out_of_scope' => 0,
+            'odds_out_of_scope_by_league' => [],
+            'with_odds' => 0,
+            'bookmaker_absent' => [],
+            'odds_failed' => [],
+            'odds_not_covered' => [],
+            'previous_day' => null,
+            'optional_done' => 0,
+            'optional_skipped_budget' => 0,
+            'optional_failures' => 0,
+            'indispensable_complete' => false,
+        ];
+        self::$lastSummary = $summary;
+
+        // Budget du jour (/status ne consomme pas de requête)
+        $usage = $apiFootball->getDailyUsage();
+        $summary['daily_remaining_start'] = $usage['remaining'];
+
+        $log->info("Pipeline: FetchMatchDataJob démarré", [
+            'date' => $date,
+            'daily_usage' => $usage,
         ]);
 
-        // 0. Mettre à jour les scores des matchs de J-1 (rattrapage automatique)
-        $this->updatePreviousDayResults($apiFootball, $enricher, $date, $trackedLeagues);
+        // 1. Matchs de la date (1 requête, en cache 1 h). Un échec ici arrête le job.
+        $fixtures = $apiFootball->getFixturesByDate($date) ?? [];
 
-        // 1. Récupérer tous les matchs de la date
-        $fixtures = $apiFootball->getFixturesByDate($date);
+        $trackedFixtures = array_filter($fixtures, fn ($fixture) => in_array($fixture['league']['id'] ?? 0, $trackedLeagues));
 
-        if (!$fixtures || empty($fixtures)) {
-            Log::info("Pipeline: aucun match trouvé pour le {$date}");
-            $this->dispatchOddsJob([], $date);
-            return;
-        }
-
-        // 2. Filtrer les ligues suivies
-        $trackedFixtures = array_filter($fixtures, function ($fixture) use ($trackedLeagues) {
-            return in_array($fixture['league']['id'] ?? 0, $trackedLeagues);
-        });
-
-        if (empty($trackedFixtures)) {
-            Log::info("Pipeline: aucun match des ligues suivies pour le {$date}", [
-                'total_fixtures' => count($fixtures),
-            ]);
-            $this->dispatchOddsJob([], $date);
-            return;
-        }
-
-        // 3. Filtrer par créneau horaire (sauf si --all)
+        // Filtrer par créneau horaire (sauf si --all)
         if (!$this->allHours) {
-            $startHour = (int) env('PIPELINE_MATCH_START_HOUR', 0);
-            $endHour = (int) env('PIPELINE_MATCH_END_HOUR', 23);
+            $startHour = (int) config('pipeline.match_start_hour');
+            $endHour = (int) config('pipeline.match_end_hour');
 
             if ($startHour > 0 || $endHour < 23) {
-                $beforeFilter = count($trackedFixtures);
                 $trackedFixtures = array_filter($trackedFixtures, function ($fixture) use ($startHour, $endHour) {
                     $matchTime = $fixture['fixture']['date'] ?? '';
                     if (empty($matchTime)) return true;
                     $hour = (int) \Carbon\Carbon::parse($matchTime)->format('H');
                     return $hour >= $startHour && $hour <= $endHour;
                 });
-
-                Log::info("Pipeline: filtre horaire {$startHour}h-{$endHour}h UTC", [
-                    'avant' => $beforeFilter,
-                    'apres' => count($trackedFixtures),
-                ]);
             }
         }
 
-        if (empty($trackedFixtures)) {
-            Log::info("Pipeline: aucun match dans le creneau horaire pour le {$date}");
-            $this->dispatchOddsJob([], $date);
-            return;
+        // 2. Créer/mettre à jour les matchs de toutes les ligues suivies (aucune requête).
+        //    Cotes et facultatif : périmètre api-football.odds_leagues seulement.
+        $oddsLeagues = config('api-football.odds_leagues');
+        $upcoming = [];
+        foreach ($trackedFixtures as $fixtureData) {
+            $match = $enricher->upsertFromApiFootball($fixtureData);
+            if (!$match) {
+                continue;
+            }
+            $summary['matches']++;
+
+            // Match commencé, reporté ou terminé : score seul. Données avancées et
+            // cotes écrites après le coup d'envoi contaminent le match (règle 5).
+            if (!MatchEnricherService::isBeforeKickoff($fixtureData)) {
+                $summary['kicked_off_score_only']++;
+                continue;
+            }
+
+            if (!in_array((int) $match->league_id, $oddsLeagues, true)) {
+                $summary['odds_out_of_scope']++;
+                $summary['odds_out_of_scope_by_league'][$match->competition] = ($summary['odds_out_of_scope_by_league'][$match->competition] ?? 0) + 1;
+                continue;
+            }
+
+            $upcoming[(int) $fixtureData['fixture']['id']] = $match;
         }
 
-        $count = count($trackedFixtures);
-        Log::info("Pipeline: {$count} match(s) retenus", [
-            'date' => $date,
+        // Ce qu'on ne couvre pas, chaque jour : matchs importés sans relevé de cotes
+        $log->info("Pipeline: {$summary['odds_out_of_scope']} match(s) à venir hors périmètre des cotes, " . count($upcoming) . " dans le périmètre", [
+            'odds_leagues' => $oddsLeagues,
+            'out_of_scope_by_league' => $summary['odds_out_of_scope_by_league'],
         ]);
 
-        // 3. Créer/mettre à jour chaque match en DB + enrichir avec données avancées
-        $createdMatches = [];
-        $leaguesWithMatches = [];
+        // 3. Cotes : indispensables, en premier et seules. 1 requête par match
+        //    (/odds?date= inutilisable : l'offre gratuite plafonne page à 3).
+        if (!empty($upcoming)) {
+            $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
 
-        foreach ($trackedFixtures as $fixtureData) {
-            try {
-                // Créer le match en DB
-                $match = $enricher->upsertFromApiFootball($fixtureData);
+            if ($remaining < count($upcoming)) {
+                $log->warning("Pipeline: budget API-Football insuffisant pour coter les matchs du {$date} : " . count($upcoming) . " match(s), {$remaining} requête(s) restante(s). Cotes partielles, matchs non couverts listés en fin de job.");
+            }
 
-                if (!$match) {
+            $stop = null;
+            foreach ($upcoming as $fixtureId => $match) {
+                $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
+                if ($stop !== null || $remaining < 1) {
+                    $summary['odds_not_covered'][] = $match->full_name;
                     continue;
                 }
 
-                $createdMatches[] = $match;
-                $leagueId = $fixtureData['league']['id'];
-                $leaguesWithMatches[$leagueId] = true;
+                try {
+                    $odds = $apiFootball->getFixtureOdds($fixtureId);
+                } catch (\Exception $e) {
+                    $summary['odds_failed'][] = $match->full_name;
+                    PipelineLog::caught('FetchMatchDataJob cotes', $e, ['match_id' => $match->id, 'fixture_id' => $fixtureId]);
 
-                // Enrichir avec données avancées (H2H, blessures, etc.)
-                $fixtureId = $fixtureData['fixture']['id'];
-                $fullData = $apiFootball->getFullMatchData($fixtureId);
-
-                if ($fullData) {
-                    $enricher->enrichWithAdvancedData($match, $fullData);
+                    // Débit persistant, quota ou refus de l'offre : les appels suivants
+                    // échoueraient pareil, les matchs restants sont non couverts.
+                    if ($e instanceof ApiFootballException && in_array($e->kind, [ApiFootballException::RATE_LIMIT, ApiFootballException::DAILY_QUOTA, ApiFootballException::PLAN], true)) {
+                        $stop = $e->kind;
+                    }
+                    continue;
                 }
 
-                // Cotes API-Football (source PRINCIPALE) — 1 call = toutes lignes O/U + BTTS + DC
-                $parsedOdds = $apiFootball->getFixtureOdds($fixtureId);
-                if ($parsedOdds) {
-                    $enricher->enrichWithApiFootballOdds($match, $parsedOdds);
+                if ($odds === null) {
+                    // Appel réussi : le bookmaker ne cote vraiment pas ce match
+                    $summary['bookmaker_absent'][] = $match->full_name;
+                    continue;
                 }
 
-            } catch (\Exception $e) {
-                Log::error("Pipeline: erreur enrichissement fixture", [
-                    'fixture_id' => $fixtureData['fixture']['id'] ?? 'unknown',
-                    'error' => $e->getMessage(),
+                $enricher->enrichWithApiFootballOdds($match, $odds);
+                $summary['with_odds']++;
+            }
+
+            if (!empty($summary['bookmaker_absent'])) {
+                $log->warning("Pipeline: bookmaker " . config('api-football.preferred_bookmaker') . " absent sur " . count($summary['bookmaker_absent']) . " match(s)", [
+                    'matches' => $summary['bookmaker_absent'],
                 ]);
             }
         }
 
-        Log::info("Pipeline: FetchMatchDataJob terminé", [
-            'date' => $date,
-            'matches_created' => count($createdMatches),
-            'leagues' => array_keys($leaguesWithMatches),
-        ]);
+        $summary['indispensable_complete'] = empty($summary['odds_not_covered']) && empty($summary['odds_failed']);
 
-        // 4. Chaîner vers FetchOddsJob avec les ligues qui ont des matchs
-        $this->dispatchOddsJob(array_keys($leaguesWithMatches), $date);
+        // 4. Scores de la veille (1 requête au plus)
+        try {
+            $summary['previous_day'] = $this->updatePreviousDayResults($apiFootball, $enricher, $date, $trackedLeagues);
+        } catch (\Exception $e) {
+            $summary['previous_day'] = 'échec';
+            $summary['indispensable_complete'] = false;
+            PipelineLog::caught('FetchMatchDataJob scores de la veille', $e, ['date' => $date]);
+        }
+
+        // 5. Facultatif : prédictions API-Football et blessures, 2 requêtes par match,
+        //    tant que le budget reste au-dessus de la réserve. Jamais avant les cotes,
+        //    et pas du tout si elles sont incomplètes : le budget reste à une relance.
+        $reserve = (int) config('api-football.budget.optional_reserve', 10);
+        $pending = $summary['indispensable_complete'] ? $upcoming : [];
+        if (!$summary['indispensable_complete'] && !empty($upcoming)) {
+            $summary['optional_skipped_budget'] = count($upcoming);
+            $log->warning("Pipeline: données facultatives non collectées, cotes incomplètes : budget gardé pour une relance");
+        }
+        foreach ($pending as $fixtureId => $match) {
+            $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
+            if ($remaining - 2 < $reserve) {
+                $summary['optional_skipped_budget'] = count($pending);
+                $log->warning("Pipeline: données facultatives abandonnées pour {$summary['optional_skipped_budget']} match(s) : {$remaining} requêtes restantes, réserve de {$reserve}");
+                break;
+            }
+
+            try {
+                $enricher->enrichWithAdvancedData($match, $apiFootball->getOptionalMatchData($fixtureId));
+                $summary['optional_done']++;
+            } catch (\Exception $e) {
+                $summary['optional_failures']++;
+                PipelineLog::caught('FetchMatchDataJob données facultatives', $e, ['match_id' => $match->id]);
+
+                // Limite de débit persistante ou quota : on abandonne le facultatif
+                if ($e instanceof ApiFootballException && in_array($e->kind, [ApiFootballException::RATE_LIMIT, ApiFootballException::DAILY_QUOTA], true)) {
+                    $summary['optional_skipped_budget'] = count($pending) - 1;
+                    $log->warning("Pipeline: données facultatives abandonnées ({$e->kind}) pour {$summary['optional_skipped_budget']} match(s) restant(s)");
+                    break;
+                }
+            }
+            unset($pending[$fixtureId]);
+        }
+
+        $summary['daily_remaining_end'] = $apiFootball->lastKnownDailyRemaining();
+        self::$lastSummary = $summary;
+
+        if (!$summary['indispensable_complete']) {
+            $log->error("Pipeline: FetchMatchDataJob INCOMPLET — cotes ou scores manquants pour cause d'échec ou de budget", $summary);
+        } elseif ($summary['optional_failures'] > 0 || $summary['optional_skipped_budget'] > 0) {
+            $log->warning("Pipeline: FetchMatchDataJob terminé, cotes complètes, facultatif partiel", $summary);
+        } else {
+            $log->info("Pipeline: FetchMatchDataJob terminé", $summary);
+        }
+
+        // 6. Liaison des événements The Odds API (CLV)
+        $leagues = array_values(array_unique(array_map(fn ($m) => $m->league_id, $upcoming)));
+        $this->dispatchOddsJob($leagues, $date);
     }
 
-    /**
-     * Dispatcher FetchOddsJob pour les ligues concernées.
-     * Découplé pour que les cotes soient récupérées même si certaines fixtures échouent.
-     */
+    /** @return string[] */
+    private function names(array $matches): array
+    {
+        return array_values(array_map(fn ($m) => $m->full_name, $matches));
+    }
+
     /**
      * Récupère les fixtures de J-1 et met à jour les scores des matchs FT.
      * Permet de rattraper automatiquement les résultats de la veille
      * sans dépendre d'une commande manuelle.
+     *
+     * @return string Bilan court pour le journal
      */
     private function updatePreviousDayResults(
         ApiFootballService $apiFootball,
         MatchEnricherService $enricher,
         string $currentDate,
         array $trackedLeagues
-    ): void {
+    ): string {
         $previousDate = \Carbon\Carbon::parse($currentDate)->subDay()->format('Y-m-d');
 
         // Vérifier s'il y a des matchs J-1 incomplets en DB
@@ -182,15 +283,10 @@ class FetchMatchDataJob implements ShouldQueue
             ->count();
 
         if ($incompleteCount === 0) {
-            return; // Rien à mettre à jour
+            return 'rien à mettre à jour';
         }
 
-        Log::info("Pipeline: rattrapage J-1 ({$previousDate}) — {$incompleteCount} matchs incomplets");
-
-        $previousFixtures = $apiFootball->getFixturesByDate($previousDate);
-        if (!$previousFixtures) {
-            return;
-        }
+        $previousFixtures = $apiFootball->getFixturesByDate($previousDate) ?? [];
 
         $updated = 0;
         foreach ($previousFixtures as $fixture) {
@@ -204,7 +300,7 @@ class FetchMatchDataJob implements ShouldQueue
             $updated++;
         }
 
-        Log::info("Pipeline: rattrapage J-1 termine — {$updated} matchs mis a jour avec scores FT");
+        return "{$updated} score(s) FT sur {$incompleteCount} match(s) incomplet(s) du {$previousDate}";
     }
 
     private function dispatchOddsJob(array $leagueIds, string $date): void
@@ -228,24 +324,15 @@ class FetchMatchDataJob implements ShouldQueue
     }
 
     /**
-     * Gestion des échecs du job.
+     * Gestion des échecs du job. Plus de relance de FetchOddsJob : lier des
+     * événements The Odds API sans matchs importés dépense des crédits pour rien.
      */
     public function failed(\Throwable $exception): void
     {
-        Log::error("Pipeline: FetchMatchDataJob ÉCHOUÉ", [
+        Log::channel('pipeline')->error("Pipeline: FetchMatchDataJob ÉCHOUÉ", [
             'date' => $this->date,
+            'exception' => get_class($exception),
             'error' => $exception->getMessage(),
         ]);
-
-        // Même en cas d'échec de FetchMatchData, on tente quand même les cotes
-        // car les matchs existants en DB peuvent quand même être enrichis
-        $trackedLeagues = $this->leagueIds ?? config('api-football.leagues');
-        $date = $this->date ?? now()->format('Y-m-d');
-
-        if ($this->sync) {
-            FetchOddsJob::dispatchSync($trackedLeagues, $date);
-        } else {
-            FetchOddsJob::dispatch($trackedLeagues, $date);
-        }
     }
 }
