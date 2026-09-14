@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\MatchAnalysisController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TerminalController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -22,8 +23,8 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     
-    // Dashboard principal (vue d'ensemble)
-    Route::get('/dashboard', [MatchAnalysisController::class, 'dashboard'])
+    // Page principale du terminal : sélections, Monte-Carlo, calibration, clôture
+    Route::get('/dashboard', [TerminalController::class, 'index'])
         ->name('dashboard');
     
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

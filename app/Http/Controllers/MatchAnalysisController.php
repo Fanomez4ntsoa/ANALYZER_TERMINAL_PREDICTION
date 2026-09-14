@@ -291,35 +291,4 @@ class MatchAnalysisController extends Controller
             return back()->with('error', 'Erreur lors de la suppression');
         }
     }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // DASHBOARD
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    public function dashboard()
-    {
-        $totalMatches = FootballMatch::count();
-        $completedMatches = FootballMatch::where('completed', true)->count();
-        $analyzedMatches = FootballMatch::whereHas('predictions')->count();
-        $matchesToday = FootballMatch::whereDate('match_date', now()->format('Y-m-d'))->count();
-
-        $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
-        try {
-            $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
-        } catch (\Exception $e) {
-            Log::warning('Dashboard: lecture du quota Odds API echouee', ['error' => $e->getMessage()]);
-        }
-
-        return view('dashboard', [
-            'totalMatches'      => $totalMatches,
-            'completedMatches'  => $completedMatches,
-            'analyzedMatches'   => $analyzedMatches,
-            'matchesToday'      => $matchesToday,
-            'recentMatches'     => FootballMatch::withCount('predictions')
-                                    ->orderBy('created_at', 'desc')
-                                    ->take(8)
-                                    ->get(),
-            'oddsQuota'         => $oddsQuota,
-        ]);
-    }
 }
