@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\MarketController;
 use App\Http\Controllers\MatchAnalysisController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TerminalController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -66,58 +68,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARCHÉ (CLV + Sharp money)
+    // MARCHÉ (écart de clôture Pinnacle)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    Route::get('/market', function () {
-        $clvTracker = app(\App\Services\Market\CLVTrackerService::class);
-        $oddsApi = app(\App\Services\Api\OddsApiService::class);
-
-        return view('pro.market', [
-            'summary' => $clvTracker->getSummary(),
-            'quota' => $oddsApi->getMonthlyUsage(),
-            'recentMovements' => \App\Models\OddsMovement::with('match')
-                ->orderBy('snapshot_at', 'desc')
-                ->take(20)
-                ->get(),
-            'sharpAlerts' => \App\Models\OddsMovement::with('match')
-                ->where('sharp_alert', true)
-                ->orderBy('snapshot_at', 'desc')
-                ->take(10)
-                ->get(),
-        ]);
-    })->name('market.index');
+    Route::get('/market', [MarketController::class, 'index'])->name('market.index');
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // PARAMÈTRES
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    Route::get('/settings', function () {
-        $oddsApi = app(\App\Services\Api\OddsApiService::class);
-        $apiFootball = app(\App\Services\Api\ApiFootballService::class);
-
-        try {
-            $apiFootballStatus = $apiFootball->getAccountStatus();
-        } catch (\App\Services\Api\ApiFootballException $e) {
-            \Illuminate\Support\Facades\Log::warning('Paramètres: statut API-Football indisponible', ['error' => $e->getMessage()]);
-            $apiFootballStatus = null;
-        }
-
-        return view('pro.settings', [
-            'oddsQuota' => $oddsApi->getMonthlyUsage(),
-            'apiFootballStatus' => $apiFootballStatus,
-            'config' => [
-                'api_football_key' => !empty(config('api-football.key')),
-                'odds_api_key' => !empty(config('odds-api.key')),
-                'openweathermap_key' => !empty(config('services.openweathermap.key')),
-                'match_start_hour' => config('pipeline.match_start_hour'),
-                'match_end_hour' => config('pipeline.match_end_hour'),
-                'schedule_time' => config('pipeline.schedule_time') . ' ' . config('pipeline.schedule_timezone'),
-                'bookmaker_odds_api' => config('odds-api.clv_bookmaker'),
-                'bookmaker_api_football' => config('api-football.preferred_bookmaker'),
-            ],
-        ]);
-    })->name('settings.index');
+    Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // PROFIL UTILISATEUR (Breeze)
