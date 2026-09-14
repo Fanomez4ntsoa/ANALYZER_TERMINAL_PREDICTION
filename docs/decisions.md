@@ -705,3 +705,88 @@ Quota The Odds API : clôturer tous les championnats suivis coûterait environ 6
 crédits par mois (≈300 créneaux championnat × heure, 2 crédits l'appel, estimé
 sur avril-mai 2026) pour un quota de 500. Clôture limitée au Top 5 (≈260 crédits),
 configurable, avec arrêt sous une réserve de 50 crédits. Choix de l'utilisateur.
+
+---
+
+## 2026-09-14 — Une erreur d'API est un échec, jamais une absence de donnée
+
+Premier passage réel : 9 matchs sur 11 sans cote. Bet365 était présent sur les
+onze. Cause : la limite de l'offre gratuite API-Football (10 requêtes/minute). Le
+code renvoyait `null` sur un HTTP 429, et le pipeline l'a compté comme « sans
+cotes », avec 0 échec. La règle du jour même sur les échecs silencieux était
+violée par le code qui venait de l'introduire : elle ne couvrait que les
+exceptions.
+
+Toute erreur API-Football lève désormais une exception typée (débit, quota
+journalier, refus de l'offre, HTTP, réseau). « Sans cotes » ne veut plus dire
+qu'une chose : toutes les pages ont été lues et le bookmaker ne cote pas le match.
+Des cotes manquantes pour cause d'échec ou de budget rendent le passage incomplet
+et son code de sortie non nul.
+
+---
+
+## 2026-09-14 — Les cotes d'abord et seules ; le facultatif cède toujours
+
+La production tourne en marché seul : seules les cotes entrent dans un calcul. Les
+prédictions API-Football et les blessures sont collectées pour un test futur.
+
+Ordre imposé : cotes, puis scores de la veille, puis facultatif tant que le budget
+du jour reste au-dessus d'une réserve. Une donnée facultative n'empêche jamais une
+donnée indispensable ; si le budget se tend, on abandonne le facultatif, jamais
+les cotes.
+
+Cotes par `/odds?date=` avec lecture de toutes les pages. Si le budget ne permet
+pas de toutes les lire, avertissement explicite avant de continuer, puis liste des
+matchs non couverts : jamais de collecte à moitié en silence.
+
+Retirés du passage quotidien : `headtohead` (paramètre `last`), `teams/statistics`
+et `standings` pour la saison en cours, refusés par l'offre gratuite ; le
+rechargement par `/fixtures?id=`, redondant ; les compositions, jamais publiées à
+l'heure du passage.
+
+---
+
+## 2026-09-14 — Le CLV se mesure contre Pinnacle
+
+**Le CLV mesure le mouvement de la cote Pinnacle entre la prédiction et la clôture.
+Il ne mesure pas le mouvement du prix Bet365 utilisé pour les prédictions.** Ce sont
+deux bookmakers distincts, chacun unique et identifié : Bet365 via API-Football pour
+les prédictions (`predictions.bookmaker`), Pinnacle via The Odds API pour le CLV
+(`odds_movements.bookmaker`). Cette distinction ne doit jamais se perdre dans une
+lecture des chiffres.
+
+Constat : Bet365 n'existe pas sur The Odds API (absent des 95 événements de la région
+`eu`, et des régions `uk` et `us`). Avec Bet365 comme référence, aucun snapshot
+n'était possible.
+
+Ce n'est pas un compromis. Le CLV sert à savoir si on avait raison contre le marché,
+et Pinnacle est l'étalon du marché : c'est contre sa clôture que le modèle a été
+mesuré pendant tout le backtest. Décision de l'utilisateur.
+
+Cote de prédiction et cote de clôture viennent toujours du même bookmaker, sinon le
+match n'est pas clôturé. Limite constatée : Pinnacle ne publie en `totals` que sa
+ligne principale, 2.5 sur 18 événements sur 81 ; le CLV Over 2.5 ne portera que sur
+une minorité de matchs, le CLV 1X2 sur tous.
+
+`predictions.bookmaker` vient maintenant de la cote réellement relevée
+(`matches.odds_bookmaker`), et non plus d'une config partagée qui aurait étiqueté
+des cotes Bet365 comme Pinnacle.
+
+---
+
+## 2026-09-14 — Le contexte dit quand il ne sait pas
+
+Une dimension sans donnée suffisante se déclare indisponible, avec sa raison. Un
+zéro ou une valeur par défaut présentés comme une mesure sont plus graves qu'une
+absence : ils s'accumulent comme des données et fausseraient tout test futur.
+
+- Fatigue : indisponible tant que la base ne couvre pas le calendrier (filtre
+  horaire à l'import, ou semaine sans match importé du championnat). Elle se
+  déclarait disponible avec 0/0.
+- Enjeux et pression entraîneur : **bloqués par l'offre gratuite**, qui refuse
+  `standings` et `teams/statistics` pour la saison en cours. Ce n'est pas un bug,
+  on ne cherche pas à les faire marcher.
+- Météo : plus de 20 °C, 50 % d'humidité ou « Clear » par défaut ; prévision rejetée
+  si elle tombe à plus de 3 h du match.
+- Importance : null sans enjeux ni pression. Elle valait « medium » par défaut, et
+  « high » dès que le conseil API-Football contenait le mot « draw ».
