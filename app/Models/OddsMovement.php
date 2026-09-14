@@ -20,8 +20,6 @@ class OddsMovement extends Model
         'move_draw_pct',
         'move_away_pct',
         'move_over_pct',
-        'sharp_alert',
-        'sharp_score',
         'snapshot_at',
     ];
 
@@ -35,7 +33,6 @@ class OddsMovement extends Model
         'move_draw_pct' => 'decimal:2',
         'move_away_pct' => 'decimal:2',
         'move_over_pct' => 'decimal:2',
-        'sharp_alert' => 'boolean',
         'snapshot_at' => 'datetime',
     ];
 

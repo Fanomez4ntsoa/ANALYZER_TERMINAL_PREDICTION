@@ -13,9 +13,8 @@ use Illuminate\View\View;
  * Écart de clôture (CLV) et relevés de cotes Pinnacle.
  *
  * Le CLV compare le premier relevé Pinnacle d'un match à sa clôture Pinnacle :
- * il mesure Pinnacle, jamais le prix Bet365 des prédictions. Les alertes « sharp
- * money » et leur score ne sont pas affichés : un score qui désigne quoi suivre
- * est une décision à la place de l'utilisateur (règle 4).
+ * il mesure Pinnacle, jamais le prix Bet365 des prédictions. Les relevés sont
+ * montrés bruts : le score « sharp money » est supprimé (verdict jamais mesuré).
  */
 class MarketController extends Controller
 {

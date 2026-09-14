@@ -405,8 +405,6 @@ class CLVTrackerService
             'move_draw_pct' => $movements['draw'],
             'move_away_pct' => $movements['away'],
             'move_over_pct' => $movements['over'],
-            'sharp_alert' => $movements['sharp_alert'],
-            'sharp_score' => $movements['sharp_score'],
             'snapshot_at' => now(),
         ]);
 
@@ -424,97 +422,33 @@ class CLVTrackerService
     }
 
     /**
-     * Calculer les mouvements de cotes par rapport au snapshot précédent.
+     * Variations brutes des cotes par rapport au relevé précédent du même
+     * bookmaker, en pourcentage signé. Matière première du test de mouvement de
+     * ligne (étape 4) : aucune interprétation, aucun score, aucun seuil.
+     *
+     * L'ancien score « sharp money » (0 à 100, pondérations écrites à la main,
+     * alerte à 60) est supprimé le 14/09/2026 : un verdict jamais mesuré. Les
+     * colonnes odds_movements.sharp_alert et sharp_score restent en base, orphelines.
      */
     private function calculateMovements(array $currentOdds, ?OddsMovement $previous): array
     {
         if (!$previous) {
-            return [
-                'home' => null, 'draw' => null, 'away' => null, 'over' => null,
-                'sharp_alert' => false, 'sharp_score' => 0,
-            ];
+            return ['home' => null, 'draw' => null, 'away' => null, 'over' => null];
         }
 
-        $moveHome = $this->percentChange((float) $previous->odds_home, (float) $currentOdds['odds_home']);
-        $moveDraw = $this->percentChange((float) $previous->odds_draw, (float) $currentOdds['odds_draw']);
-        $moveAway = $this->percentChange((float) $previous->odds_away, (float) $currentOdds['odds_away']);
         $moveOver = null;
-
         if ($previous->odds_over_2_5 && $currentOdds['odds_over_2_5']) {
             $moveOver = $this->percentChange((float) $previous->odds_over_2_5, (float) $currentOdds['odds_over_2_5']);
         }
 
-        // Détection sharp money
-        $sharpScore = $this->detectSharpScore($moveHome, $moveDraw, $moveAway, $moveOver, $previous);
-        $sharpAlert = $sharpScore >= 60;
+        $round = fn (?float $v) => $v !== null ? round($v, 2) : null;
 
         return [
-            'home' => $moveHome !== null ? round($moveHome, 2) : null,
-            'draw' => $moveDraw !== null ? round($moveDraw, 2) : null,
-            'away' => $moveAway !== null ? round($moveAway, 2) : null,
-            'over' => $moveOver !== null ? round($moveOver, 2) : null,
-            'sharp_alert' => $sharpAlert,
-            'sharp_score' => $sharpScore,
+            'home' => $round($this->percentChange((float) $previous->odds_home, (float) $currentOdds['odds_home'])),
+            'draw' => $round($this->percentChange((float) $previous->odds_draw, (float) $currentOdds['odds_draw'])),
+            'away' => $round($this->percentChange((float) $previous->odds_away, (float) $currentOdds['odds_away'])),
+            'over' => $round($moveOver),
         ];
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // SHARP MONEY DETECTION
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Score sharp money (0-100).
-     *
-     * Signaux :
-     * - Mouvement > 5% en < 4h sur une issue = 30 pts
-     * - Mouvement asymétrique (une issue baisse, les autres montent) = 25 pts
-     * - Mouvement > 8% = 20 pts supplémentaires
-     * - Mouvement sur O/U concordant = 15 pts
-     * - Beaucoup de bookmakers alignés = 10 pts
-     */
-    private function detectSharpScore(?float $moveHome, ?float $moveDraw, ?float $moveAway, ?float $moveOver, OddsMovement $previous): int
-    {
-        $score = 0;
-
-        $absHome = abs($moveHome ?? 0);
-        $absDraw = abs($moveDraw ?? 0);
-        $absAway = abs($moveAway ?? 0);
-        $absOver = abs($moveOver ?? 0);
-        $maxMove = max($absHome, $absDraw, $absAway);
-
-        // Mouvement significatif (> 5%)
-        if ($maxMove >= 5) {
-            $score += 30;
-
-            // Mouvement fort (> 8%)
-            if ($maxMove >= 8) {
-                $score += 20;
-            }
-        }
-
-        // Mouvement asymétrique : une issue baisse fortement, les autres montent
-        if ($moveHome !== null && $moveAway !== null) {
-            $homeDown = $moveHome < -3;
-            $awayDown = $moveAway < -3;
-
-            if ($homeDown && $moveAway > 1) {
-                $score += 25; // Sharp sur le domicile
-            } elseif ($awayDown && $moveHome > 1) {
-                $score += 25; // Sharp sur l'extérieur
-            }
-        }
-
-        // Mouvement concordant O/U
-        if ($absOver >= 4) {
-            $score += 15;
-        }
-
-        // Beaucoup de bookmakers alignés (mouvement de marché, pas un seul book)
-        if ($previous->bookmaker_count >= 15 && $maxMove >= 3) {
-            $score += 10;
-        }
-
-        return min(100, $score);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
