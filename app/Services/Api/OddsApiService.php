@@ -366,14 +366,14 @@ class OddsApiService
 
     /**
      * Normaliser les cotes d'un événement vers le format FootballMatch.
-     * Ne retient que les cotes du bookmaker configuré (odds-api.bookmaker).
+     * Ne retient que les cotes du bookmaker du CLV (odds-api.clv_bookmaker, Pinnacle).
      * Si ce bookmaker est absent de la réponse, toutes les cotes restent à null
      * et ne seront donc pas stockées (aucun repli sur un autre bookmaker).
      */
     private function normalizeOdds(array $event): array
     {
         $bookmakers = $event['bookmakers'] ?? [];
-        $selectedBookmaker = (string) config('odds-api.bookmaker', 'bet365');
+        $selectedBookmaker = (string) config('odds-api.clv_bookmaker', 'pinnacle');
         $result = [
             'event_id' => $event['id'],
             'home_team' => $event['home_team'],

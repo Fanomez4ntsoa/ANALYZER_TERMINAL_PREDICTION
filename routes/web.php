@@ -112,7 +112,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 'match_start_hour' => config('pipeline.match_start_hour'),
                 'match_end_hour' => config('pipeline.match_end_hour'),
                 'schedule_time' => config('pipeline.schedule_time') . ' ' . config('pipeline.schedule_timezone'),
-                'bookmaker_odds_api' => config('odds-api.bookmaker'),
+                'bookmaker_odds_api' => config('odds-api.clv_bookmaker'),
                 'bookmaker_api_football' => config('api-football.preferred_bookmaker'),
             ],
         ]);

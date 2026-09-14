@@ -59,12 +59,11 @@ return [
         // Les cotes par date ne sont pas mises en cache : pages lues d'un seul tenant
     ],
 
-    // Bookmaker unique pour /odds (id API-Football). 8 = Bet365.
+    // Bookmaker unique des cotes des prédictions (id API-Football). 8 = Bet365.
     // Aucun repli sur les autres bookmakers : s'il ne couvre pas le match, aucune cote n'est stockée.
-    // Doit désigner le même bookmaker que odds-api.bookmaker.
+    // Distinct du bookmaker du CLV (odds-api.clv_bookmaker, Pinnacle).
     'preferred_bookmaker' => env('API_FOOTBALL_PREFERRED_BOOKMAKER', 8),
 
-    // Limites API (plan gratuit : 100 req/jour)
     // Offre gratuite : 10 requêtes/minute (appels espacés en conséquence), 100/jour.
     'rate_limit' => [
         'requests_per_minute' => (int) env('API_FOOTBALL_REQUESTS_PER_MINUTE', 10),

@@ -117,13 +117,13 @@
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="px-5 py-3 border-b border-slate-100">
             <h3 class="text-sm font-semibold text-slate-800">Bookmaker de référence</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Un seul bookmaker, aucune cote stockée s'il est absent</p>
+            <p class="text-xs text-slate-500 mt-0.5">Un bookmaker unique par usage. Le CLV mesure le mouvement de Pinnacle, pas celui du prix Bet365.</p>
         </div>
         <div class="p-5 space-y-3">
             @php
                 $comboParams = [
-                    ['label' => 'The Odds API (ODDS_API_BOOKMAKER)', 'key' => 'bookmaker_odds_api', 'unit' => ''],
-                    ['label' => 'API-Football id (API_FOOTBALL_PREFERRED_BOOKMAKER)', 'key' => 'bookmaker_api_football', 'unit' => ''],
+                    ['label' => 'Cotes des prédictions, API-Football id (API_FOOTBALL_PREFERRED_BOOKMAKER)', 'key' => 'bookmaker_api_football', 'unit' => ''],
+                    ['label' => 'CLV, The Odds API (ODDS_API_CLV_BOOKMAKER)', 'key' => 'bookmaker_odds_api', 'unit' => ''],
                 ];
             @endphp
 

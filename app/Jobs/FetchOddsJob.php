@@ -56,12 +56,14 @@ class FetchOddsJob implements ShouldQueue
             'remaining' => $usage['remaining'],
         ]);
 
-        // Matchs de la date pas encore liés à un événement The Odds API.
+        // Matchs de la date pas encore liés à un événement The Odds API, dans les seuls
+        // championnats du CLV (chaque ligue interrogée coûte 2 crédits).
         // Ce job ne stocke que odds_api_event_id (CLV) : il n'écrit aucune cote dans matches.
+        $leagueIds = array_values(array_intersect($this->leagueIds, config('pipeline.closing.leagues')));
         $matches = FootballMatch::where('data_source', 'api')
             ->whereDate('match_date', $this->date)
             ->where('match_date', '>', now())
-            ->whereIn('league_id', $this->leagueIds)
+            ->whereIn('league_id', $leagueIds)
             ->whereNull('odds_api_event_id')
             ->get();
 

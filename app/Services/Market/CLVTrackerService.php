@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Log;
 /**
  * CLV (Closing Line Value) Tracker.
  *
+ * Bookmaker de référence : odds-api.clv_bookmaker (Pinnacle). Le CLV mesure le
+ * mouvement de la cote Pinnacle entre la prédiction et la clôture, PAS celui du
+ * prix Bet365 qui sert aux prédictions (voir docs/decisions.md, 14/09/2026).
+ * Cote de prédiction et cote de clôture viennent toujours du même bookmaker.
+ *
  * CLV = (cote_prise / cote_clôture - 1) × 100
  *
  * Si CLV > 0 → tu as pris une meilleure cote que la clôture = tu bats le marché.
@@ -42,11 +47,14 @@ class CLVTrackerService
     public function snapshotOdds(string $date): int
     {
         // Seulement les matchs à venir (pas les live ni les terminés)
+        // Championnats du CLV seulement : un snapshot sans clôture possible dépense
+        // des crédits pour rien.
         $matches = FootballMatch::where('data_source', 'api')
             ->measurable()
             ->whereDate('match_date', $date)
             ->where('completed', false)
             ->where('match_date', '>', now()) // Exclut les matchs déjà commencés (live)
+            ->whereIn('league_id', config('pipeline.closing.leagues'))
             ->whereNotNull('odds_api_event_id')
             ->get();
 
@@ -57,6 +65,7 @@ class CLVTrackerService
 
         $count = 0;
         $leaguesFetched = [];
+        $missing = [];
 
         foreach ($matches as $match) {
             $leagueId = $match->league_id;
@@ -78,8 +87,9 @@ class CLVTrackerService
                 $leagueId
             );
 
-            // Bookmaker configuré absent : aucune cote, pas de snapshot vide
+            // Bookmaker du CLV absent : aucune cote, pas de snapshot vide, mais signalé
             if (!$odds || $odds['odds_home'] === null) {
+                $missing[] = $match->full_name;
                 continue;
             }
 
@@ -87,8 +97,10 @@ class CLVTrackerService
             $count++;
         }
 
-        Log::info("CLV: {$count} snapshots créés pour le {$date}", [
+        Log::channel('pipeline')->log($missing ? 'warning' : 'info', "CLV : {$count} snapshot(s) de prédiction pour le {$date}", [
+            'bookmaker' => config('odds-api.clv_bookmaker'),
             'leagues_fetched' => count($leaguesFetched),
+            'matches_without_odds' => $missing,
         ]);
 
         return $count;
@@ -127,6 +139,7 @@ class CLVTrackerService
 
         // Déjà un snapshot dans la fenêtre de clôture : pas de second appel
         $matches = $candidates->reject(fn (FootballMatch $m) => OddsMovement::where('match_id', $m->id)
+            ->where('bookmaker', config('odds-api.clv_bookmaker'))
             ->whereNotNull('odds_home')
             ->where('snapshot_at', '>=', $m->match_date->copy()->subMinutes($window))
             ->exists());
@@ -203,7 +216,25 @@ class CLVTrackerService
         $missing = [];
 
         foreach ($matches as $match) {
+            // La cote de prédiction vient du premier snapshot : la clôture doit venir
+            // du même bookmaker, et ce bookmaker doit être celui du CLV.
+            $reference = OddsMovement::where('match_id', $match->id)
+                ->whereNotNull('odds_home')
+                ->orderBy('snapshot_at')
+                ->value('bookmaker');
+
+            if ($reference !== config('odds-api.clv_bookmaker')) {
+                if ($match->match_date->gte(now()->subMinutes($window))) {
+                    Log::channel('pipeline')->warning("CLV : match #{$match->id} non clôturé, cote de prédiction d'un autre bookmaker", [
+                        'prediction_bookmaker' => $reference,
+                        'clv_bookmaker' => config('odds-api.clv_bookmaker'),
+                    ]);
+                }
+                continue;
+            }
+
             $closing = OddsMovement::where('match_id', $match->id)
+                ->where('bookmaker', $reference)
                 ->whereNotNull('odds_home')
                 ->where('snapshot_at', '<=', $match->match_date)
                 ->where('snapshot_at', '>=', $match->match_date->copy()->subMinutes($window))
@@ -354,6 +385,7 @@ class CLVTrackerService
     private function storeSnapshot(FootballMatch $match, array $odds): OddsMovement
     {
         $previousSnapshot = OddsMovement::where('match_id', $match->id)
+            ->where('bookmaker', $odds['bookmaker'])
             ->whereNotNull('odds_home')
             ->orderBy('snapshot_at', 'desc')
             ->first();
@@ -362,6 +394,7 @@ class CLVTrackerService
 
         $snapshot = OddsMovement::create([
             'match_id' => $match->id,
+            'bookmaker' => $odds['bookmaker'],
             'odds_home' => $odds['odds_home'],
             'odds_draw' => $odds['odds_draw'],
             'odds_away' => $odds['odds_away'],
