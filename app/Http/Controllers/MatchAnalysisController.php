@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AdvancedData;
 use App\Models\FootballMatch;
 use App\Services\Context\ContextEnricherService;
+use App\Services\Probability\KickoffPassedException;
 use App\Services\Probability\PredictionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -99,6 +100,11 @@ class MatchAnalysisController extends Controller
                 'computed_at' => $predictions->first()?->computed_at?->toIso8601String(),
             ]);
 
+        } catch (KickoffPassedException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Match commencé : les probabilités ne sont plus calculées après le coup d\'envoi.',
+            ], 409);
         } catch (\Exception $e) {
             Log::error("Prediction match #{$match->id} echouee", ['error' => $e->getMessage()]);
             return response()->json([

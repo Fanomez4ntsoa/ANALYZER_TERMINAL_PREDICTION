@@ -23,10 +23,21 @@ class PredictionService
     /**
      * Calcule et persiste les prédictions d'un match (remplace les précédentes).
      *
+     * Refuse tout match commencé ou marqué post_kickoff_data : aucune donnée n'est
+     * écrite après le coup d'envoi, et les prédictions d'avant-match ne sont jamais
+     * écrasées. Garde unique pour tous les appelants (bouton Analyser, commande).
+     *
      * @return Collection<Prediction>
+     * @throws KickoffPassedException
      */
     public function computeAndStore(FootballMatch $match): Collection
     {
+        if ($match->hasKickedOff() || $match->post_kickoff_data) {
+            throw new KickoffPassedException(
+                "Match #{$match->id} commencé ou contaminé : aucune prédiction écrite après le coup d'envoi"
+            );
+        }
+
         $rows = $this->compute($match);
 
         DB::transaction(function () use ($match, $rows) {
