@@ -35,6 +35,11 @@ class EnrichContext extends Command
 
         $this->info("{$match->full_name} ({$match->competition})");
 
+        if ($match->hasKickedOff() && !$this->option('show')) {
+            $this->error("Coup d'envoi passé : contexte non enregistré (donnée post coup d'envoi). Utilisez --show pour afficher sans enregistrer.");
+            return self::FAILURE;
+        }
+
         $enriched = $enricher->enrich($match);
 
         if ($this->option('show')) {
@@ -57,8 +62,15 @@ class EnrichContext extends Command
             ->with('advancedData')
             ->get();
 
+        // Coup d'envoi passé : aucun contexte enregistré (donnée post coup d'envoi)
+        $kickedOff = $matches->filter(fn (FootballMatch $m) => $m->hasKickedOff());
+        if ($kickedOff->isNotEmpty() && !$this->option('show')) {
+            $this->warn("{$kickedOff->count()} match(s) déjà commencé(s), ignoré(s).");
+            $matches = $matches->reject(fn (FootballMatch $m) => $m->hasKickedOff());
+        }
+
         if ($matches->isEmpty()) {
-            $this->warn("Aucun match pour le {$date}.");
+            $this->warn("Aucun match à enrichir pour le {$date}.");
             return self::SUCCESS;
         }
 

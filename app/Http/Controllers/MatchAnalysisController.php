@@ -73,7 +73,9 @@ class MatchAnalysisController extends Controller
             // Ne nourrit pas le modèle xG : constitue un historique de features
             // collectées avant le coup d'envoi (voir context_data.collected_at).
             $contextData = $match->advancedData?->context_data ?? [];
-            $needsEnrichment = empty($contextData['weather']) || empty($contextData['fatigue']);
+            // Jamais après le coup d'envoi : la donnée serait post coup d'envoi.
+            $needsEnrichment = !$match->hasKickedOff()
+                && (empty($contextData['weather']) || empty($contextData['fatigue']));
 
             if ($needsEnrichment) {
                 try {

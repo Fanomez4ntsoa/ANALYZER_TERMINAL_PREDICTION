@@ -117,6 +117,7 @@ class FetchMatchDataJob implements ShouldQueue
         // échec des données avancées n'empêche plus la récupération des cotes.
         $failures = ['upsert' => 0, 'advanced_data' => 0, 'odds' => 0];
         $withoutOdds = 0;
+        $kickedOff = 0;
 
         foreach ($trackedFixtures as $fixtureData) {
             $fixtureId = $fixtureData['fixture']['id'] ?? null;
@@ -135,6 +136,14 @@ class FetchMatchDataJob implements ShouldQueue
             }
 
             $createdMatches[] = $match;
+
+            // Match commencé, reporté ou terminé : score seul. Données avancées et
+            // cotes écrites après le coup d'envoi contaminent le match (règle 5).
+            if (!MatchEnricherService::isBeforeKickoff($fixtureData)) {
+                $kickedOff++;
+                continue;
+            }
+
             $leaguesWithMatches[$fixtureData['league']['id']] = true;
 
             // Enrichir avec données avancées (H2H, blessures, etc.)
@@ -166,6 +175,7 @@ class FetchMatchDataJob implements ShouldQueue
         $summary = [
             'date' => $date,
             'matches' => count($createdMatches),
+            'kicked_off_score_only' => $kickedOff,
             'without_odds' => $withoutOdds,
             'failures' => $failures,
             'leagues' => array_keys($leaguesWithMatches),

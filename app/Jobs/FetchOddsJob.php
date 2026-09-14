@@ -60,6 +60,7 @@ class FetchOddsJob implements ShouldQueue
         // Ce job ne stocke que odds_api_event_id (CLV) : il n'écrit aucune cote dans matches.
         $matches = FootballMatch::where('data_source', 'api')
             ->whereDate('match_date', $this->date)
+            ->where('match_date', '>', now())
             ->whereIn('league_id', $this->leagueIds)
             ->whereNull('odds_api_event_id')
             ->get();
