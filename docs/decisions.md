@@ -1063,3 +1063,28 @@ par une commande explicite avec confirmation.
 échouent sur « could not find driver ». Le 24ᵉ était faux depuis l'initialisation du
 projet (il attendait un 200 sur `/`, qui redirige vers la connexion) : corrigé, il
 passe. Fusion de l'étape 3 faite sans les autres.
+
+---
+
+## 2026-09-14 — Migrations portables, suite de tests complète
+
+`pdo_sqlite` installé, les tests Feature butaient sur la migration
+`2026_09_14_000001_add_post_kickoff_data_to_matches_table` : un `UPDATE matches m LEFT
+JOIN advanced_data a … SET`, syntaxe MySQL que SQLite refuse. Réécrite avec le
+constructeur de requêtes : `created_at >= match_date` OU `EXISTS` d'une ligne
+`advanced_data` réécrite après le coup d'envoi.
+
+Équivalence vérifiée avant la réécriture, en lecture seule sur MariaDB : l'ancienne
+jointure et la nouvelle requête renvoient les mêmes 913 identifiants, exactement ceux
+déjà marqués `post_kickoff_data` (aucune ligne `advanced_data` en double par match,
+donc la jointure ne dupliquait rien). Vérifiée aussi sur SQLite avec cinq cas types
+(créé après, données réécrites après, avant, sans données, `created_at` nul) :
+seuls les deux premiers sont marqués, et la rejouer ne change rien. Chez l'utilisateur
+la migration est enregistrée (lot 11) et ne sera pas rejouée ; si elle l'était, la
+requête ne pose que des `true` sur les mêmes lignes.
+
+Aucune autre migration n'utilise de SQL brut ; les `->change()` sont gérés par
+Laravel 12 sur SQLite. `php artisan test` : 82 tests, tous verts.
+
+Règle qui en découle : une migration n'écrit jamais de SQL propre à un moteur. Les
+données se modifient par le constructeur de requêtes.
