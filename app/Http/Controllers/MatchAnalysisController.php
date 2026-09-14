@@ -233,7 +233,7 @@ class MatchAnalysisController extends Controller
         return response()->streamDownload(function () use ($matches) {
             $h = fopen('php://output', 'w');
             fputcsv($h, [
-                'Match ID', 'Date', 'Competition', 'Home', 'Away', 'Score', 'Completed',
+                'Match ID', 'Date', 'Competition', 'Home', 'Away', 'Score', 'Completed', 'Post Kickoff Data',
                 'Market', 'Outcome', 'Model Prob', 'Odds', 'Implied Prob', 'Fair Prob', 'Edge',
                 'Bookmaker', 'Odds Taken At', 'Computed At',
             ]);
@@ -247,6 +247,7 @@ class MatchAnalysisController extends Controller
                     $m->away_team,
                     $m->completed ? "{$m->score_home}-{$m->score_away}" : '',
                     $m->completed ? 'yes' : 'no',
+                    $m->post_kickoff_data ? 'yes' : 'no',
                 ];
 
                 if ($m->predictions->isEmpty()) {

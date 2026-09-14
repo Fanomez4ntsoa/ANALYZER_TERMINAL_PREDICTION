@@ -42,6 +42,7 @@ class CLVTrackerService
     {
         // Seulement les matchs à venir (pas les live ni les terminés)
         $matches = FootballMatch::where('data_source', 'api')
+            ->measurable()
             ->whereDate('match_date', $date)
             ->where('completed', false)
             ->where('match_date', '>', now()) // Exclut les matchs déjà commencés (live)
@@ -140,6 +141,7 @@ class CLVTrackerService
     public function markClosingOdds(): int
     {
         $matches = FootballMatch::where('data_source', 'api')
+            ->measurable()
             ->whereNotNull('odds_at_pred_home')
             ->whereNull('odds_closing_home')
             ->where('match_date', '<=', now())
@@ -215,7 +217,9 @@ class CLVTrackerService
      */
     public function getSummary(): array
     {
-        $matches = FootballMatch::whereNotNull('odds_at_pred_home')
+        // Matchs contaminés exclus (post_kickoff_data)
+        $matches = FootballMatch::measurable()
+            ->whereNotNull('odds_at_pred_home')
             ->whereNotNull('odds_closing_home')
             ->get();
 

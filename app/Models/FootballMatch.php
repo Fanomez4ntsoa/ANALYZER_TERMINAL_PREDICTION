@@ -68,6 +68,7 @@ class FootballMatch extends Model
         'score_home',
         'score_away',
         'completed',
+        'post_kickoff_data',
         'global_confidence',
         'context',
         'layer1_score',
@@ -113,6 +114,7 @@ class FootballMatch extends Model
         'odds_away_over_1_5' => 'decimal:3',
         'odds_away_under_1_5' => 'decimal:3',
         'completed' => 'boolean',
+        'post_kickoff_data' => 'boolean',
         'validated' => 'boolean',
         'context' => 'array',
     ];
@@ -171,6 +173,24 @@ class FootballMatch extends Model
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // SCOPES (Filtres réutilisables)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /**
+     * Matchs admissibles dans une mesure : aucune donnée écrite après le coup
+     * d'envoi (post_kickoff_data). Toute mesure sur `matches` passe par ce scope.
+     */
+    public function scopeMeasurable($query)
+    {
+        return $query->where('post_kickoff_data', false);
+    }
+
+    /**
+     * Coup d'envoi passé : plus aucune donnée ne doit être écrite sur ce match,
+     * hormis le score.
+     */
+    public function hasKickedOff(): bool
+    {
+        return $this->match_date !== null && $this->match_date->lte(now());
+    }
 
     /**
      * Matchs validés uniquement

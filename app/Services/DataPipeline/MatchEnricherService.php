@@ -55,6 +55,9 @@ class MatchEnricherService
             $payload['odds_home'] = null;
             $payload['odds_draw'] = null;
             $payload['odds_away'] = null;
+            // Créé après son coup d'envoi (backfill, rattrapage J-1) : contaminé
+            // définitivement, exclu de toute mesure. Jamais retiré ensuite.
+            $payload['post_kickoff_data'] = !self::isBeforeKickoff($fixtureData);
         }
 
         $match = FootballMatch::updateOrCreate(
@@ -70,6 +73,20 @@ class MatchEnricherService
         ]);
 
         return $match;
+    }
+
+    /**
+     * Fixture pas encore commencée : statut « à venir » et coup d'envoi futur.
+     * Un match reporté, en cours ou terminé ne reçoit plus que son score.
+     */
+    public static function isBeforeKickoff(array $fixtureData): bool
+    {
+        $status = $fixtureData['fixture']['status']['short'] ?? null;
+        $date = $fixtureData['fixture']['date'] ?? null;
+
+        return in_array($status, ['NS', 'TBD'], true)
+            && $date !== null
+            && \Carbon\Carbon::parse($date)->isFuture();
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
