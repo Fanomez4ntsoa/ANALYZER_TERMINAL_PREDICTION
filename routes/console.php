@@ -39,5 +39,3 @@ Artisan::command('pipeline:run-sync {date?} {--all : Ignorer le filtre horaire}'
 
     $this->info("Pipeline terminé. Vérifiez la base de données.");
 })->purpose('Lancer le pipeline en mode synchrone (sans queue)');
-
-// `combos:generate` retiré du flux (ComboSelectorService hors flux depuis la simplification).

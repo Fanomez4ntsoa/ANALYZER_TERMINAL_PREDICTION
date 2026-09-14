@@ -138,14 +138,6 @@ class FootballMatch extends Model
     }
 
     /**
-     * Un match a une analyse IA (Value, Risk, Final Judge).
-     */
-    public function aiAnalysis(): HasOne
-    {
-        return $this->hasOne(AIAnalysis::class, 'match_id', 'id');
-    }
-
-    /**
      * Un match a une entrée de données avancées (API-Football normalisées)
      */
     public function advancedData(): HasOne

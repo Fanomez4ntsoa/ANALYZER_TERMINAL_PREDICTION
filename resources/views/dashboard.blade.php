@@ -85,36 +85,6 @@
         </div>
     </x-pro.card>
 
-    {{-- Combos recents --}}
-    <x-pro.card title="Meilleurs combos recents" :padding="false">
-        <x-slot:actions>
-            <a href="{{ route('combos.index') }}" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Voir tout</a>
-        </x-slot:actions>
-        <div class="divide-y divide-slate-100">
-            @forelse($recentCombos as $combo)
-                <a href="{{ route('combos.index', ['date' => $combo->date->format('Y-m-d')]) }}"
-                   class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
-                    <div>
-                        <span class="text-sm font-medium text-slate-800">{{ $combo->match_count }} matchs</span>
-                        <span class="text-xs text-slate-400 ml-2">{{ $combo->date->format('d/m/Y') }}</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="text-sm font-semibold text-slate-700">{{ number_format($combo->total_odds, 2) }}</span>
-                        <span class="text-xs font-medium text-slate-500">Score: {{ number_format($combo->combo_score, 0) }}</span>
-                        @if($combo->won !== null)
-                            <span class="px-2 py-0.5 text-xs font-medium rounded {{ $combo->won ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700' }}">
-                                {{ $combo->won ? 'WON' : 'LOST' }}
-                            </span>
-                        @endif
-                    </div>
-                </a>
-            @empty
-                <div class="px-5 py-10 text-center text-sm text-slate-400">
-                    Aucun combo en base (génération hors flux).
-                </div>
-            @endforelse
-        </div>
-    </x-pro.card>
 </div>
 
 {{-- Matchs recents --}}

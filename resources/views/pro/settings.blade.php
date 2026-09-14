@@ -18,9 +18,7 @@
                 $apis = [
                     ['name' => 'API-Football', 'key' => $config['api_football_key'], 'detail' => 'Stats, H2H, blessures, predictions'],
                     ['name' => 'The Odds API', 'key' => $config['odds_api_key'], 'detail' => 'Cotes (bookmaker unique) + CLV'],
-                    ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],
-                    ['name' => 'Anthropic (Claude)', 'key' => $config['anthropic_key'], 'detail' => 'Analyse IA narrative (Phase 5)'],
-                ];
+                    ['name' => 'OpenWeatherMap', 'key' => $config['openweathermap_key'], 'detail' => 'Meteo des matchs'],                ];
             @endphp
 
             @foreach($apis as $api)

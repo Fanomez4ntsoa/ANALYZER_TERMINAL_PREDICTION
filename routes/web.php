@@ -73,21 +73,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/backtest/{run}', [\App\Http\Controllers\BacktestController::class, 'show'])->name('backtest.show');
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // COMBOS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    Route::get('/combos', function () {
-        $date = request('date', now()->format('Y-m-d'));
-        $combos = \App\Models\DailyCombo::where('date', $date)->orderBy('rank')->get();
-
-        // Dates voisines
-        $prevDate = \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d');
-        $nextDate = \Carbon\Carbon::parse($date)->addDay()->format('Y-m-d');
-
-        return view('pro.combos', compact('combos', 'date', 'prevDate', 'nextDate'));
-    })->name('combos.index');
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARCHÉ (CLV + Sharp money)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -124,9 +109,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'config' => [
                 'api_football_key' => !empty(config('api-football.key')),
                 'odds_api_key' => !empty(config('odds-api.key')),
-                'openweathermap_key' => !empty(env('OPENWEATHERMAP_KEY')),
-                'anthropic_key' => !empty(env('ANTHROPIC_API_KEY')),
-                'pipeline_time' => env('PIPELINE_SCHEDULE_TIME', '14:00'),
+                'openweathermap_key' => !empty(env('OPENWEATHERMAP_KEY')),                'pipeline_time' => env('PIPELINE_SCHEDULE_TIME', '14:00'),
                 'pipeline_update' => env('PIPELINE_SCHEDULE_UPDATE', '17:00'),
                 'bookmaker_odds_api' => config('odds-api.bookmaker'),
                 'bookmaker_api_football' => config('api-football.preferred_bookmaker'),

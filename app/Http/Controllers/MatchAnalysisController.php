@@ -311,12 +311,6 @@ class MatchAnalysisController extends Controller
             }
         }
 
-        // Combos existants en base (génération hors flux)
-        $recentCombos = \App\Models\DailyCombo::where('rank', 1)
-            ->orderByDesc('date')
-            ->take(5)
-            ->get();
-
         $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
         try {
             $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
@@ -334,7 +328,6 @@ class MatchAnalysisController extends Controller
             'backtestDrawdown'  => $latestBacktest?->max_drawdown ?? 0,
             'bankrollCurve'     => $latestBacktest?->bankroll_curve ?? [],
             'marketPerf'        => $marketPerf,
-            'recentCombos'      => $recentCombos,
             'recentMatches'     => FootballMatch::withCount('predictions')
                                     ->orderBy('created_at', 'desc')
                                     ->take(8)
