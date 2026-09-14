@@ -1,0 +1,52 @@
+/*
+  Jetons du terminal. Source : docs/design-system.md. Toute couleur, taille ou
+  espacement d'une page du terminal vient d'ici ; la config Tailwind du terminal
+  ne connaît que ces valeurs. Thème sombre unique, assumé.
+*/
+:root {
+  /* Fonds et lignes */
+  --bg: #040705;
+  --panel: #080d0a;
+  --panel-2: #0b120e;
+  --line: #14281d;
+  --line-hi: #1e3d2b;
+
+  /* Quatre niveaux de vert, plus le flash et le rouge */
+  --p-dead: #2e5240;  /* chrome non textuel */
+  --p-dim: #4e7d63;   /* étiquettes, en-têtes, graduations, 10 px minimum */
+  --p-mid: #86c9a3;   /* texte, valeurs des tableaux, mesures historiques */
+  --p-live: #1cff87;  /* ligne survolée ou cochée, valeur unique d'un panneau */
+  --p-hot: #b8ffd8;   /* flash de la matrice Monte-Carlo, rien d'autre */
+  --red: #ff2f4d;     /* écart négatif d'un marché dérivé, rien d'autre */
+
+  /* Survol et ligne cochée : voile du vert vif */
+  --row-hi: rgba(28, 255, 135, 0.035);
+
+  /* Typographie */
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --crt: 'VT323', 'JetBrains Mono', ui-monospace, monospace;
+  --fs-lab: 10px;
+  --fs-cell: 11.5px;
+  --fs-body: 12px;
+  --fs-title: 13px;
+  --fs-crt-s: 24px;
+  --fs-crt-m: 34px;
+  --fs-crt-l: 42px;
+  --fs-crt-xl: 58px;
+
+  /* Espacements */
+  --row: 5px;
+  --hd-y: 6px;
+  --gap: 7px;
+  --page: 8px;
+  --hd-x: 9px;
+  --bd: 10px;
+  --cell-x: 10px;
+  --group: 14px;
+
+  /* Lueur : uniquement via [data-glow], deux effets rendus par page */
+  --glow: 0 0 12px rgba(28, 255, 135, 0.45), 0 0 2px rgba(28, 255, 135, 0.7);
+  --glow-canvas-blur: 14;
+
+  color-scheme: dark;
+}
