@@ -50,9 +50,10 @@ class FetchMatchDataJob implements ShouldQueue
 
     /**
      * Ordre imposé par le budget de l'offre gratuite (100 requêtes/jour) : les cotes
-     * d'abord et seules, puis les scores de la veille, puis le facultatif
-     * (prédictions API-Football, blessures) tant que le budget le permet. Une donnée
-     * facultative n'empêche jamais une donnée indispensable.
+     * d'abord et seules (1 requête par match), puis les scores de la veille, puis le
+     * facultatif (prédictions API-Football, blessures) tant que le budget le permet
+     * et seulement si les cotes sont complètes. Une donnée facultative n'empêche
+     * jamais une donnée indispensable.
      */
     public function handle(ApiFootballService $apiFootball, MatchEnricherService $enricher): void
     {
@@ -69,11 +70,10 @@ class FetchMatchDataJob implements ShouldQueue
             'daily_remaining_start' => null,
             'matches' => 0,
             'kicked_off_score_only' => 0,
-            'odds_pages' => null,
             'with_odds' => 0,
             'bookmaker_absent' => [],
+            'odds_failed' => [],
             'odds_not_covered' => [],
-            'odds_error' => null,
             'previous_day' => null,
             'optional_done' => 0,
             'optional_skipped_budget' => 0,
@@ -130,51 +130,55 @@ class FetchMatchDataJob implements ShouldQueue
             $upcoming[(int) $fixtureData['fixture']['id']] = $match;
         }
 
-        // 3. Cotes : indispensables, en premier. /odds?date= lit toutes les pages.
+        // 3. Cotes : indispensables, en premier et seules. 1 requête par match
+        //    (/odds?date= inutilisable : l'offre gratuite plafonne page à 3).
         if (!empty($upcoming)) {
             $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
 
-            if ($remaining < 1) {
-                $log->warning("Pipeline: budget API-Football épuisé, AUCUNE cote relevée pour les " . count($upcoming) . " match(s) du {$date}", ['daily_usage' => $usage]);
-                $summary['odds_not_covered'] = $this->names($upcoming);
-            } else {
-                $result = $apiFootball->getOddsByDate($date, $remaining, function (int $pages) use ($remaining, $upcoming, $date, $log) {
-                    if ($pages > $remaining) {
-                        $log->warning("Pipeline: budget API-Football insuffisant pour couvrir les cotes du {$date} : {$pages} pages à lire, {$remaining} requêtes restantes. Cotes partielles, matchs non couverts listés en fin de job.", [
-                            'matches' => count($upcoming),
-                        ]);
+            if ($remaining < count($upcoming)) {
+                $log->warning("Pipeline: budget API-Football insuffisant pour coter les matchs du {$date} : " . count($upcoming) . " match(s), {$remaining} requête(s) restante(s). Cotes partielles, matchs non couverts listés en fin de job.");
+            }
+
+            $stop = null;
+            foreach ($upcoming as $fixtureId => $match) {
+                $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
+                if ($stop !== null || $remaining < 1) {
+                    $summary['odds_not_covered'][] = $match->full_name;
+                    continue;
+                }
+
+                try {
+                    $odds = $apiFootball->getFixtureOdds($fixtureId);
+                } catch (\Exception $e) {
+                    $summary['odds_failed'][] = $match->full_name;
+                    PipelineLog::caught('FetchMatchDataJob cotes', $e, ['match_id' => $match->id, 'fixture_id' => $fixtureId]);
+
+                    // Débit persistant, quota ou refus de l'offre : les appels suivants
+                    // échoueraient pareil, les matchs restants sont non couverts.
+                    if ($e instanceof ApiFootballException && in_array($e->kind, [ApiFootballException::RATE_LIMIT, ApiFootballException::DAILY_QUOTA, ApiFootballException::PLAN], true)) {
+                        $stop = $e->kind;
                     }
-                });
-
-                $summary['odds_pages'] = "{$result['pages_read']}/" . ($result['pages_total'] ?? '?');
-                $complete = $result['error'] === null && $result['pages_total'] !== null && $result['pages_read'] >= $result['pages_total'];
-
-                if ($result['error'] !== null) {
-                    $summary['odds_error'] = $result['error']->getMessage();
-                    PipelineLog::caught('FetchMatchDataJob cotes par date', $result['error'], ['pages' => $summary['odds_pages']]);
+                    continue;
                 }
 
-                foreach ($upcoming as $fixtureId => $match) {
-                    if (isset($result['odds'][$fixtureId])) {
-                        $enricher->enrichWithApiFootballOdds($match, $result['odds'][$fixtureId]);
-                        $summary['with_odds']++;
-                    } elseif ($complete) {
-                        // Toutes les pages lues : le bookmaker ne cote vraiment pas ce match
-                        $summary['bookmaker_absent'][] = $match->full_name;
-                    } else {
-                        $summary['odds_not_covered'][] = $match->full_name;
-                    }
+                if ($odds === null) {
+                    // Appel réussi : le bookmaker ne cote vraiment pas ce match
+                    $summary['bookmaker_absent'][] = $match->full_name;
+                    continue;
                 }
 
-                if (!empty($summary['bookmaker_absent'])) {
-                    $log->warning("Pipeline: bookmaker " . config('api-football.preferred_bookmaker') . " absent sur " . count($summary['bookmaker_absent']) . " match(s) après lecture de toutes les pages", [
-                        'matches' => $summary['bookmaker_absent'],
-                    ]);
-                }
+                $enricher->enrichWithApiFootballOdds($match, $odds);
+                $summary['with_odds']++;
+            }
+
+            if (!empty($summary['bookmaker_absent'])) {
+                $log->warning("Pipeline: bookmaker " . config('api-football.preferred_bookmaker') . " absent sur " . count($summary['bookmaker_absent']) . " match(s)", [
+                    'matches' => $summary['bookmaker_absent'],
+                ]);
             }
         }
 
-        $summary['indispensable_complete'] = empty($summary['odds_not_covered']) && $summary['odds_error'] === null;
+        $summary['indispensable_complete'] = empty($summary['odds_not_covered']) && empty($summary['odds_failed']);
 
         // 4. Scores de la veille (1 requête au plus)
         try {
@@ -186,10 +190,15 @@ class FetchMatchDataJob implements ShouldQueue
         }
 
         // 5. Facultatif : prédictions API-Football et blessures, 2 requêtes par match,
-        //    tant que le budget reste au-dessus de la réserve. Jamais avant les cotes.
+        //    tant que le budget reste au-dessus de la réserve. Jamais avant les cotes,
+        //    et pas du tout si elles sont incomplètes : le budget reste à une relance.
         $reserve = (int) config('api-football.budget.optional_reserve', 10);
-        $pending = $upcoming;
-        foreach ($upcoming as $fixtureId => $match) {
+        $pending = $summary['indispensable_complete'] ? $upcoming : [];
+        if (!$summary['indispensable_complete'] && !empty($upcoming)) {
+            $summary['optional_skipped_budget'] = count($upcoming);
+            $log->warning("Pipeline: données facultatives non collectées, cotes incomplètes : budget gardé pour une relance");
+        }
+        foreach ($pending as $fixtureId => $match) {
             $remaining = $apiFootball->lastKnownDailyRemaining() ?? $usage['remaining'];
             if ($remaining - 2 < $reserve) {
                 $summary['optional_skipped_budget'] = count($pending);

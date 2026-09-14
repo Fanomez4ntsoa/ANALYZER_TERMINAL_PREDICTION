@@ -98,7 +98,7 @@ class MatchEnricherService
      * C'est la source PRINCIPALE des cotes (remplace The Odds API pour les snapshots de cotes).
      *
      * @param FootballMatch $match
-     * @param array $parsedOdds Une entrée de ApiFootballService::getOddsByDate()['odds']
+     * @param array $parsedOdds Sortie de ApiFootballService::getFixtureOdds()
      */
     public function enrichWithApiFootballOdds(FootballMatch $match, array $parsedOdds): FootballMatch
     {

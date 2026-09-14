@@ -109,70 +109,37 @@ class ApiFootballService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ODDS — Cotes du bookmaker configuré, toutes pages d'une date
+    // ODDS — Cotes du bookmaker configuré, match par match
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //
+    // Pas de /odds?date= : l'offre gratuite plafonne le paramètre page à 3 (limite
+    // non documentée, constatée le 14/09/2026 : 13 pages ce jour-là, refus « plan »
+    // dès la page 4). /odds?league=&season= est refusé pour la saison en cours.
+    // /odds?fixture= tient en une page : seule voie qui couvre tous les matchs.
 
     /**
      * Cotes du bookmaker configuré (api-football.preferred_bookmaker, Bet365) pour
-     * tous les matchs d'une date, tous championnats confondus : /odds?date=&bookmaker=
-     * pagine (10 matchs par page). Toutes les pages sont lues, sinon un match
-     * présent en page 7 serait manqué selon l'ordre de retour.
+     * un match : 1 requête, sans cache (odds_fetched_at doit dater la cote).
      *
-     * Une page = une requête. $maxPages borne la lecture quand le budget du jour ne
-     * suffit pas ; le résultat dit alors combien de pages restent non lues.
-     * Aucun repli sur un autre bookmaker.
-     *
-     * Un échec en cours de lecture n'efface pas les pages déjà lues : il est rendu
-     * dans `error`, et `pages_read < pages_total` signale la couverture partielle.
-     *
-     * @param callable|null $onFirstPage  Appelée après la page 1 avec (pages_total),
-     *                                    avant toute page suivante (garde-fou budget)
-     * @return array{odds: array<int, array>, pages_total: ?int, pages_read: int, error: ?ApiFootballException}
-     *               odds indexé par id de fixture API-Football ; pages_total null si
-     *               la page 1 n'a pas pu être lue
+     * @return array|null  Cotes normalisées, null si le bookmaker ne cote pas ce
+     *                     match. Toute erreur d'appel lève ApiFootballException.
      */
-    public function getOddsByDate(string $date, ?int $maxPages = null, ?callable $onFirstPage = null): array
+    public function getFixtureOdds(int $fixtureId): ?array
     {
         $bookmaker = (int) config('api-football.preferred_bookmaker', 8);
-        $odds = [];
-        $total = null;
-        $read = 0;
-        $error = null;
+        $payload = $this->request('/odds', ['fixture' => $fixtureId, 'bookmaker' => $bookmaker]);
 
-        for ($page = 1; $total === null || $page <= $total; $page++) {
-            if ($maxPages !== null && $page > $maxPages) {
-                break;
-            }
+        if ((int) ($payload['paging']['total'] ?? 1) > 1) {
+            throw new ApiFootballException(ApiFootballException::API, "réponse paginée inattendue pour la fixture {$fixtureId}", '/odds');
+        }
 
-            try {
-                $payload = $this->request('/odds', ['date' => $date, 'bookmaker' => $bookmaker, 'page' => $page]);
-            } catch (ApiFootballException $e) {
-                $error = $e;
-                break;
-            }
-
-            $read++;
-            foreach ($payload['response'] ?? [] as $event) {
-                $parsed = $this->parseEventOdds($event, $bookmaker);
-                if ($parsed !== null && $parsed['fixture_id'] !== null) {
-                    $odds[(int) $parsed['fixture_id']] = $parsed;
-                }
-            }
-
-            if ($total === null) {
-                $total = max(1, (int) ($payload['paging']['total'] ?? 1));
-                if ($onFirstPage !== null) {
-                    $onFirstPage($total);
-                }
+        foreach ($payload['response'] ?? [] as $event) {
+            if ((int) ($event['fixture']['id'] ?? 0) === $fixtureId) {
+                return $this->parseEventOdds($event, $bookmaker);
             }
         }
 
-        return [
-            'odds' => $odds,
-            'pages_total' => $total,
-            'pages_read' => $read,
-            'error' => $error,
-        ];
+        return null;
     }
 
     /**
