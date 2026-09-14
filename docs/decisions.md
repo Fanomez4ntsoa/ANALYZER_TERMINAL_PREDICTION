@@ -790,3 +790,26 @@ absence : ils s'accumulent comme des données et fausseraient tout test futur.
   si elle tombe à plus de 3 h du match.
 - Importance : null sans enjeux ni pression. Elle valait « medium » par défaut, et
   « high » dès que le conseil API-Football contenait le mot « draw ».
+
+---
+
+## 2026-09-14 — Cotes par date abandonnées : l'offre gratuite plafonne `page` à 3
+
+La décision du jour même de passer à `/odds?date=` avec lecture de toutes les pages est
+remplacée. Relance du 14/09/2026 : 13 pages ce jour-là, refus `plan` dès la page 4
+(« Free plans are limited to a maximum value of 3 for the Page parameter »). Limite
+non documentée par l'API. Aucun des 11 matchs suivis ne figurait dans les 30 premiers :
+0 cote. Le garde-fou a signalé le passage incomplet ; rien n'a été silencieux.
+
+Les cotes se relèvent match par match (`/odds?fixture=`, une page, 1 requête). Choix de
+l'utilisateur. Deux ajustements :
+
+- Quand les cotes sont incomplètes, le facultatif n'est pas collecté : le budget reste
+  disponible pour une relance. Au premier passage, 22 requêtes de facultatif avaient été
+  dépensées alors qu'aucune cote n'était relevée.
+- Le budget est estimé au plus pessimiste de trois compteurs, ceux de l'API étant en
+  retard (18 et 25 affichés pour 34 requêtes réelles).
+
+Relance vérifiée : 11 matchs sur 11 cotés Bet365, 110 lignes de prédictions étiquetées
+`bet365`, 34 requêtes consommées. Projection et options de périmètre dans
+`docs/architecture.md`, section « Limites de l'offre gratuite ».

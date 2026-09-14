@@ -179,10 +179,13 @@ Reste à faire par l'utilisateur : lancer la migration
 
 ### Suites du diagnostic (14/09/2026)
 
-- Corrigé : erreur d'API comptée comme échec ; cotes par date, toutes pages, en
-  premier et seules, avec garde-fou de budget ; appels refusés par l'offre, `/fixtures?id=`
-  et compositions retirés ; facultatif (prédictions, blessures) abandonné sous une
-  réserve de budget.
+- Corrigé : erreur d'API comptée comme échec ; cotes match par match, en premier et
+  seules, avec garde-fou de budget (l'appel par date est inutilisable : l'offre gratuite
+  plafonne `page` à 3) ; appels refusés par l'offre, `/fixtures?id=` et compositions
+  retirés ; facultatif (prédictions, blessures) abandonné sous une réserve de budget et
+  non collecté quand les cotes sont incomplètes.
+- Relance vérifiée : 11 matchs sur 11 cotés Bet365, 34 requêtes. Un samedi à 50-66
+  matchs consomme tout le quota sans marge de relance : périmètre ou offre à trancher.
 - CLV contre Pinnacle sur The Odds API, bookmaker enregistré par snapshot. CLV
   Over 2.5 partiel : Pinnacle ne publie la ligne 2.5 en `totals` que sur 18
   événements sur 81.

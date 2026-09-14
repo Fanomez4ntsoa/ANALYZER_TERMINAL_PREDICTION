@@ -20,9 +20,10 @@ pipeline:run-sync {date}          code de sortie non nul si cotes ou scores inco
        │  match commencé, reporté ou terminé : score seul, rien d'autre n'est écrit
        ├─ ApiFootballService::getDailyUsage           /status, budget du jour (non décompté)
        ├─ ApiFootballService::getFixturesByDate       1 requête → upsert dans matches
-       ├─ ApiFootballService::getOddsByDate           /odds?date=&bookmaker=8, TOUTES les pages
+       ├─ ApiFootballService::getFixtureOdds          /odds?fixture=&bookmaker=8, 1 requête par match
        │    └─ enrichWithApiFootballOdds               odds_* + odds_fetched_at + odds_bookmaker
        │       budget insuffisant : avertissement, matchs non couverts listés, passage incomplet
+       │       cotes incomplètes : facultatif non collecté (budget gardé pour une relance)
        ├─ scores de la veille                         1 requête au plus
        ├─ ApiFootballService::getOptionalMatchData    prédictions + blessures, 2 requêtes/match,
        │    └─ enrichWithAdvancedData                  abandonné sous api-football.budget.optional_reserve
@@ -112,7 +113,7 @@ marché dépasse les 40 % affichés.
 | `PredictionService` | Persistance des probabilités |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
 | `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
-| `Api/ApiFootballService` | Fixtures, cotes Bet365 par date, prédictions et blessures ; `ApiFootballException` |
+| `Api/ApiFootballService` | Fixtures, cotes Bet365 par match, prédictions et blessures ; `ApiFootballException` ; budget du jour |
 | `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
@@ -228,42 +229,64 @@ Coût : 0,08 s par `predict`, deux passes par match, soit environ 4 minutes pour
 
 ## Limites de l'offre gratuite
 
-API-Football gratuit : **100 requêtes par jour, 10 par minute**, et refus de la
-saison en cours sur `standings`, `teams/statistics` et `/odds?league=&season=`, ainsi
-que du paramètre `last` de `headtohead`. The Odds API gratuit : **500 crédits par
-mois**.
+API-Football gratuit : **100 requêtes par jour** (remises à zéro à minuit UTC),
+**10 par minute**. Refusés pour la saison en cours : `standings`, `teams/statistics`,
+`/odds?league=&season=`, et le paramètre `last` de `headtohead`.
 
-Coût d'un passage quotidien API-Football après optimisation (14/09/2026) :
+**Limite non documentée, constatée le 14/09/2026 : le paramètre `page` est plafonné
+à 3.** `/odds?date=` renvoyait 13 pages (tous championnats du monde) ; la page 4 est
+refusée (`Free plans are limited to a maximum value of 3 for the Page parameter`).
+L'appel par date est donc inutilisable : il ne couvre que les 30 premiers matchs
+mondiaux, et aucun des 11 matchs suivis ce jour-là n'y figurait. Les cotes se
+relèvent match par match (`/odds?fixture=`, une page).
 
-| Poste | Requêtes |
-|---|---|
-| `/status` | 0 (non décompté) |
-| Matchs de la date | 1 |
-| Cotes par date | 1 par page ; 13 pages le lundi 14/09/2026, tous championnats du monde |
-| Scores de la veille | 0 ou 1 |
-| Facultatif (prédictions, blessures) | 2 par match |
+**Compteurs de l'API en retard.** Juste après un passage de 34 requêtes, `/status` en
+comptait 18 et l'en-tête `x-ratelimit-requests-remaining` 25 ; `/status` n'a rattrapé
+qu'après quelques secondes. Le budget est estimé au plus pessimiste de `/status`, de
+l'en-tête et d'un compteur local par jour UTC.
 
-- **11 matchs coûtent environ 35 requêtes** (1 + 13 + 1 + 22). Les cotes seules en
-  coûtent environ 15.
-- **Un samedi à 50 matchs dépasserait les 100 requêtes quotidiennes** : cotes
-  environ 15 à 30 selon le nombre de pages ce jour-là (non mesuré), plus 100 pour le
-  facultatif. Le garde-fou garde les cotes et abandonne le facultatif ; il n'y a pas
-  de place pour un second passage le même jour, ni pour des analyses manuelles.
-- Les cotes par date coûtent le même nombre de pages quel que soit le nombre de
-  matchs suivis : plus rentables que `/odds?fixture=` dès que les matchs du jour
-  dépassent le nombre de pages (ce n'était pas le cas le 14/09 : 11 matchs, 13 pages).
+The Odds API gratuit : **500 crédits par mois**.
+
+### Coût mesuré d'un passage quotidien (14/09/2026, cache vidé)
+
+| Poste | Requêtes | 11 matchs |
+|---|---|---|
+| `/status` | 0 (non décompté) | 0 |
+| Matchs de la date | 1 | 1 |
+| Cotes, 1 par match | N | 11 |
+| Scores de la veille | 0 ou 1 | 0 |
+| Facultatif (prédictions + blessures), 2 par match | 2N | 22 |
+| **Total** | **≈ 3N + 2** | **34 mesurées** |
+
+Durée : 239 s (appels espacés de 6,5 s).
+
+### Projection
+
+| Journée | Matchs | Indispensable (cotes + fixtures + veille) | Facultatif possible (réserve 10) | Reste pour une relance |
+|---|---|---|---|---|
+| Lundi 14/09/2026 | 11 | 13 | 11 matchs sur 11 | environ 55 |
+| Samedi type | 50 | 52 | 19 matchs sur 50 | 0 à 10 |
+| Samedi 02/05/2026 observé | 66 | 68 | 11 matchs sur 66 | 0 à 10 |
+| Top 5 seul, jour le plus chargé observé | 21 | 23 | 21 matchs sur 21 | environ 30 |
+
+- Avec les 21 ligues suivies, **un samedi consomme à lui seul plus de la moitié du
+  quota en cotes**, et le budget entier une fois le facultatif ajouté. Le garde-fou
+  garde les cotes et abandonne le facultatif, mais **il ne reste rien pour relancer
+  un passage échoué** ni pour une analyse manuelle : un samedi raté est perdu.
+- Le filtre horaire 12h-21h UTC réduit déjà ces volumes ; le lever (condition pour
+  une fatigue disponible) les augmenterait.
 - The Odds API : clôture limitée au Top 5 (environ 260 crédits/mois) et snapshot du
-  jour aux mêmes championnats (2 crédits par championnat ayant un match). Marge
-  estimée faible sur 500 crédits, à surveiller dans le journal.
+  jour aux mêmes championnats (2 crédits par championnat ayant un match). Marge faible
+  sur 500 crédits, à surveiller dans le journal.
 
 **Décision à prendre plus tard**, documentée ici pour ne pas être oubliée :
 
-1. **Offre supérieure** API-Football (et éventuellement The Odds API) : tous les
-   championnats suivis, facultatif compris, et les dimensions de contexte bloquées
-   (enjeux, pression) redeviennent collectables.
-2. **Périmètre restreint** à quelques championnats : le budget gratuit tient, mais
-   les cotes par date lisent toujours toutes les pages mondiales ; il faudrait alors
-   repasser à `/odds?fixture=` pour que le coût suive le périmètre.
+1. **Offre supérieure** API-Football (et éventuellement The Odds API) : toutes les
+   ligues suivies, facultatif compris, relances possibles, et les dimensions de
+   contexte bloquées (enjeux, pression) redeviennent collectables.
+2. **Périmètre restreint** à quelques championnats : le coût suit le périmètre
+   (environ 3 requêtes par match). Le Top 5 seul tient dans l'offre gratuite avec la
+   marge d'une relance.
 
 ## Pièges connus
 
