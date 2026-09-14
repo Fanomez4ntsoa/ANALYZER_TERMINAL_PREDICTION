@@ -6,6 +6,7 @@ use App\Models\FootballMatch;
 use App\Models\Prediction;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Transforme la sortie de XGModelService en lignes `predictions` :
@@ -43,8 +44,32 @@ class PredictionService
      */
     public function compute(FootballMatch $match): array
     {
-        $result = $this->xgModel->predict($match);
-        $analysis = $result['analysis'];
+        // Mode marché seul : la seule configuration mesurée par le backtest. Une
+        // probabilité issue d'autres signaux, affichée à côté d'une calibration
+        // mesurée sur ce seul signal, serait trompeuse. Lève une exception si les
+        // cotes 1X2 manquent.
+        $result = $this->xgModel->predict($match, marketOnly: true);
+        $model = $this->probabilities($result['analysis']);
+
+        // Configuration complète (marché + comparaison + blessures), stockée à part
+        // pour une comparaison future sur matchs réels. N'entre jamais dans
+        // model_probability ; son échec n'empêche pas le calcul affiché.
+        $full = null;
+        $fullSignals = null;
+        try {
+            $fullResult = $this->xgModel->predict($match);
+            $full = $this->probabilities($fullResult['analysis']);
+            $fullSignals = [
+                'used' => array_values(array_filter(
+                    ['market', 'comparison', 'injuries'],
+                    fn (string $signal) => !empty($fullResult['signals'][$signal])
+                )),
+                'lambda_home' => $fullResult['lambdas']['home'],
+                'lambda_away' => $fullResult['lambdas']['away'],
+            ];
+        } catch (\Exception $e) {
+            Log::warning("Prédiction #{$match->id} : configuration complète non calculée", ['error' => $e->getMessage()]);
+        }
 
         $computedAt = now();
 
@@ -59,28 +84,6 @@ class PredictionService
             throw new \RuntimeException("Match #{$match->id} : cotes relevées sans bookmaker identifié (odds_bookmaker vide)");
         }
         $bookmaker = $oddsTakenAt !== null ? $match->odds_bookmaker : 'legacy_max';
-
-        // Probabilités du modèle en décimal 0..1
-        $model = [
-            Prediction::MARKET_WINNER => [
-                '1' => $analysis['1x2']['home'] / 100,
-                'X' => $analysis['1x2']['draw'] / 100,
-                '2' => $analysis['1x2']['away'] / 100,
-            ],
-            Prediction::MARKET_DOUBLE_CHANCE => [
-                '1X' => $analysis['doubleChance']['1X'] / 100,
-                'X2' => $analysis['doubleChance']['X2'] / 100,
-                '12' => $analysis['doubleChance']['12'] / 100,
-            ],
-            Prediction::MARKET_OVER_UNDER_25 => [
-                'Over' => $analysis['overUnder25']['over'] / 100,
-                'Under' => $analysis['overUnder25']['under'] / 100,
-            ],
-            Prediction::MARKET_BTTS => [
-                'Yes' => $analysis['btts']['yes'] / 100,
-                'No' => $analysis['btts']['no'] / 100,
-            ],
-        ];
 
         // Cotes du bookmaker unique
         $odds = [
@@ -128,6 +131,12 @@ class PredictionService
                     'market' => $market,
                     'outcome' => $outcome,
                     'model_probability' => round($probability, 5),
+                    'model_mode' => 'market_only',
+                    'lambda_home' => $result['lambdas']['home'],
+                    'lambda_away' => $result['lambdas']['away'],
+                    'rho' => $result['rho'],
+                    'full_model_probability' => isset($full[$market][$outcome]) ? round($full[$market][$outcome], 5) : null,
+                    'full_model_signals' => $fullSignals,
                     'odds' => $odd,
                     'implied_probability' => $odd !== null ? round(1 / $odd, 5) : null,
                     'fair_probability' => $fairProb !== null ? round($fairProb, 5) : null,
@@ -140,6 +149,33 @@ class PredictionService
         }
 
         return $rows;
+    }
+
+    /**
+     * Probabilités par marché et issue, en décimal 0..1, depuis la sortie Poisson.
+     */
+    private function probabilities(array $analysis): array
+    {
+        return [
+            Prediction::MARKET_WINNER => [
+                '1' => $analysis['1x2']['home'] / 100,
+                'X' => $analysis['1x2']['draw'] / 100,
+                '2' => $analysis['1x2']['away'] / 100,
+            ],
+            Prediction::MARKET_DOUBLE_CHANCE => [
+                '1X' => $analysis['doubleChance']['1X'] / 100,
+                'X2' => $analysis['doubleChance']['X2'] / 100,
+                '12' => $analysis['doubleChance']['12'] / 100,
+            ],
+            Prediction::MARKET_OVER_UNDER_25 => [
+                'Over' => $analysis['overUnder25']['over'] / 100,
+                'Under' => $analysis['overUnder25']['under'] / 100,
+            ],
+            Prediction::MARKET_BTTS => [
+                'Yes' => $analysis['btts']['yes'] / 100,
+                'No' => $analysis['btts']['no'] / 100,
+            ],
+        ];
     }
 
     /**

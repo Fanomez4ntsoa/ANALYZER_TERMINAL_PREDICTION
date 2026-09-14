@@ -855,3 +855,29 @@ Pinnacle ne publie en `totals` que sa ligne principale, qui n'était 2.5 que sur
 événements sur 81 (environ un quart). Le CLV Over/Under 2.5 ne portera que sur ces
 matchs. On ne cherche pas à le contourner (lignes alternatives par événement, plus
 coûteuses en crédits) : le CLV 1X2 est complet, c'est suffisant pour commencer.
+
+---
+
+## 2026-09-14 — La production calcule en mode marché seul
+
+`model_probability` vient désormais de `XGModelService::predict(marketOnly: true)`, la
+configuration du backtest de l'étape 2 (cotes 1X2 et O/U 2.5, avantage domicile hors
+marché, recalage conjoint, Dixon-Coles à ρ unique). Décision de l'utilisateur, prise
+avant tout affichage.
+
+Raison : c'est la seule configuration mesurée. Afficher des probabilités issues de la
+fusion de trois signaux (marché, comparaison API-Football, blessures) à côté d'une
+calibration mesurée sur le seul signal marché ferait croire que la courbe décrit ce qui
+est affiché. C'est exactement le défaut de l'ancien système.
+
+La fusion à trois signaux n'est pas abandonnée : elle est calculée à chaque prédiction
+et stockée à part (`full_model_probability`, `full_model_signals`), sans jamais entrer
+dans `model_probability`. Quand le journal des sélections aura tourné quelques mois, les
+deux configurations pourront être comparées sur des matchs réels.
+
+Chaque ligne enregistre aussi `model_mode`, λ domicile, λ extérieur et ρ du calcul
+affiché : l'animation Monte-Carlo lit ces paramètres, jamais un recalcul.
+
+Écart constaté au passage, Inter-Udinese du 14/09/2026 : 76,1 % sur la victoire à
+domicile en marché seul, 74,8 % en fusion complète. Les prédictions déjà en base sont
+recalculées après la migration.
