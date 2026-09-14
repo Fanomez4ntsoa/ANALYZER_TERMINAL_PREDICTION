@@ -6,6 +6,8 @@ use App\Models\FootballMatch;
 use App\Models\OddsMovement;
 use App\Services\Api\OddsApiService;
 use App\Services\DataPipeline\PipelineLog;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -37,73 +39,144 @@ class CLVTrackerService
     // SNAPSHOT — Capturer les cotes à un instant T
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    public const MISSING_QUOTA = 'quota_exhausted';
+    public const MISSING_NO_RESPONSE = 'no_response';
+    public const MISSING_EVENT_NOT_FOUND = 'event_not_found';
+    public const MISSING_BOOKMAKER_ABSENT = 'bookmaker_absent';
+    public const MISSING_STALE_QUOTE = 'stale_quote';
+
     /**
-     * Prendre un snapshot des cotes pour tous les matchs à venir d'une date.
-     * Utilise les cotes déjà en cache si possible (0 crédit).
-     * Sinon, 1 appel par ligue (max 5 crédits/run = ~2-3 ligues × 2 marchés).
+     * Relevé de prédiction : cotes du bookmaker du CLV pour les matchs à venir
+     * d'une date, dans les championnats du CLV, liés à un événement The Odds API.
      *
-     * @return int Nombre de snapshots créés
+     * Toujours sans cache (2 crédits par championnat) : une réponse recyclée sous un
+     * horodatage récent n'est pas une observation. Un match attendu sans relevé est
+     * compté dans `missing` avec sa raison, et journalisé dans le canal pipeline.
+     *
+     * @return array{expected: int, stored: int, missing: list<array>}
      */
-    public function snapshotOdds(string $date): int
+    public function snapshotOdds(string $date): array
     {
-        // Seulement les matchs à venir (pas les live ni les terminés)
-        // Championnats du CLV seulement : un snapshot sans clôture possible dépense
-        // des crédits pour rien.
+        // Matchs à venir seulement ; championnats du CLV seulement, un relevé sans
+        // clôture possible dépense des crédits pour rien.
         $matches = FootballMatch::where('data_source', 'api')
             ->measurable()
             ->whereDate('match_date', $date)
             ->where('completed', false)
-            ->where('match_date', '>', now()) // Exclut les matchs déjà commencés (live)
+            ->where('match_date', '>', now())
             ->whereIn('league_id', config('pipeline.closing.leagues'))
             ->whereNotNull('odds_api_event_id')
+            ->orderBy('match_date')
             ->get();
 
         if ($matches->isEmpty()) {
-            Log::info("CLV: aucun match à venir pour le {$date}");
-            return 0;
+            Log::channel('pipeline')->info("CLV : aucun match à relever pour le {$date}");
+
+            return ['expected' => 0, 'stored' => 0, 'missing' => []];
         }
 
-        $count = 0;
-        $leaguesFetched = [];
+        $report = $this->snapshotLeagues($matches);
+
+        Log::channel('pipeline')->log($report['missing'] ? 'warning' : 'info', "CLV : {$report['stored']} relevé(s) de prédiction sur {$report['expected']} attendu(s) pour le {$date}", [
+            'bookmaker' => config('odds-api.clv_bookmaker'),
+            'missing' => $report['missing'],
+        ]);
+
+        return $report;
+    }
+
+    /**
+     * Un appel sans cache par championnat, puis un relevé par match si le bookmaker
+     * du CLV est présent avec une cote récente.
+     *
+     * @return array{expected: int, stored: int, missing: list<array>}
+     */
+    private function snapshotLeagues(Collection $matches): array
+    {
+        $stored = 0;
         $missing = [];
 
-        foreach ($matches as $match) {
-            $leagueId = $match->league_id;
-
-            // Récupérer les cotes de la ligue (1 appel par ligue, en cache 2h)
-            if (!isset($leaguesFetched[$leagueId])) {
-                if ($this->oddsApi->isQuotaExhausted()) {
-                    Log::warning("CLV: quota épuisé, arrêt des snapshots");
-                    break;
+        foreach ($matches->groupBy('league_id') as $leagueId => $leagueMatches) {
+            if ($this->oddsApi->isQuotaExhausted()) {
+                foreach ($leagueMatches as $match) {
+                    $missing[] = $this->missing($match, self::MISSING_QUOTA);
                 }
-                $leaguesFetched[$leagueId] = true;
-            }
-
-            // Trouver les cotes de ce match via le matching existant
-            $odds = $this->oddsApi->findOddsForMatch(
-                $match->home_team,
-                $match->away_team,
-                $match->match_date->format('Y-m-d'),
-                $leagueId
-            );
-
-            // Bookmaker du CLV absent : aucune cote, pas de snapshot vide, mais signalé
-            if (!$odds || $odds['odds_home'] === null) {
-                $missing[] = $match->full_name;
                 continue;
             }
 
-            $this->storeSnapshot($match, $odds);
-            $count++;
+            $events = $this->oddsApi->getFreshOddsByLeagueId((int) $leagueId);
+            if (!is_array($events)) {
+                foreach ($leagueMatches as $match) {
+                    $missing[] = $this->missing($match, self::MISSING_NO_RESPONSE, ['league_id' => (int) $leagueId]);
+                }
+                continue;
+            }
+
+            foreach ($leagueMatches as $match) {
+                try {
+                    $problem = $this->snapshotMatch($match, $events);
+                    if ($problem === null) {
+                        $stored++;
+                    } else {
+                        $missing[] = $problem;
+                    }
+                } catch (\Exception $e) {
+                    PipelineLog::caught('CLV relevé', $e, ['match_id' => $match->id]);
+                    $missing[] = $this->missing($match, 'exception', ['error' => $e->getMessage()]);
+                }
+            }
         }
 
-        Log::channel('pipeline')->log($missing ? 'warning' : 'info', "CLV : {$count} snapshot(s) de prédiction pour le {$date}", [
-            'bookmaker' => config('odds-api.clv_bookmaker'),
-            'leagues_fetched' => count($leaguesFetched),
-            'matches_without_odds' => $missing,
-        ]);
+        return ['expected' => $matches->count(), 'stored' => $stored, 'missing' => $missing];
+    }
 
-        return $count;
+    /**
+     * Relève un match dans une réponse fraîche. Retourne null si le relevé est
+     * enregistré, sinon la raison de l'absence.
+     */
+    private function snapshotMatch(FootballMatch $match, array $events): ?array
+    {
+        // Identifiant d'événement lié d'abord, noms d'équipe en repli
+        $odds = $match->odds_api_event_id
+            ? $this->oddsApi->findEventOddsById($events, $match->odds_api_event_id)
+            : null;
+        $odds ??= $this->oddsApi->findEventOdds($events, $match->home_team, $match->away_team, $match->match_date->format('Y-m-d'));
+
+        if ($odds === null) {
+            return $this->missing($match, self::MISSING_EVENT_NOT_FOUND, [
+                'event_id' => $match->odds_api_event_id,
+                'events_in_response' => count($events),
+            ]);
+        }
+
+        if ($odds['odds_home'] === null) {
+            return $this->missing($match, self::MISSING_BOOKMAKER_ABSENT, [
+                'event_id' => $odds['event_id'],
+                'bookmakers_present' => $odds['bookmaker_count'],
+            ]);
+        }
+
+        $maxAge = (int) config('pipeline.odds_snapshot.max_quote_age_minutes');
+        $quotedAt = $odds['quoted_at'] ? Carbon::parse($odds['quoted_at']) : null;
+        $age = $quotedAt ? round($quotedAt->diffInSeconds(now(), false) / 60, 1) : null;
+
+        if ($age === null || $age > $maxAge) {
+            return $this->missing($match, self::MISSING_STALE_QUOTE, [
+                'event_id' => $odds['event_id'],
+                'quoted_at' => $odds['quoted_at'],
+                'quote_age_minutes' => $age,
+                'max_quote_age_minutes' => $maxAge,
+            ]);
+        }
+
+        $this->storeSnapshot($match, $odds);
+
+        return null;
+    }
+
+    private function missing(FootballMatch $match, string $reason, array $context = []): array
+    {
+        return ['match_id' => $match->id, 'match' => $match->full_name, 'reason' => $reason] + $context;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -111,83 +184,59 @@ class CLVTrackerService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Snapshot de clôture : matchs dont le coup d'envoi tombe dans les
-     * `pipeline.closing.window_minutes` prochaines minutes, sans cache (une réponse
-     * en cache peut avoir 2 h), un appel par championnat (2 crédits).
+     * Relevé de clôture : matchs dont le coup d'envoi tombe dans les
+     * `pipeline.closing.window_minutes` prochaines minutes, mêmes règles que le
+     * relevé de prédiction (sans cache, cote récente, raison de chaque absence).
      *
      * Limité aux championnats `pipeline.closing.leagues` et arrêté quand le quota
-     * restant passe sous `pipeline.closing.quota_reserve` : le quota mensuel ne
-     * couvre pas la clôture de tous les championnats suivis.
+     * restant passe sous `pipeline.closing.quota_reserve`.
      *
-     * @return int Nombre de snapshots de clôture créés
+     * @return array{expected: int, stored: int, missing: list<array>}
      */
-    public function snapshotClosingOdds(): int
+    public function snapshotClosingOdds(): array
     {
         $window = (int) config('pipeline.closing.window_minutes');
-        $leagues = config('pipeline.closing.leagues');
         $reserve = (int) config('pipeline.closing.quota_reserve');
 
         $candidates = FootballMatch::where('data_source', 'api')
             ->measurable()
             ->where('completed', false)
-            ->whereIn('league_id', $leagues)
+            ->whereIn('league_id', config('pipeline.closing.leagues'))
             ->whereNotNull('odds_api_event_id')
             ->whereNotNull('odds_at_pred_home')
             ->where('match_date', '>', now())
             ->where('match_date', '<=', now()->addMinutes($window))
+            ->orderBy('match_date')
             ->get();
 
-        // Déjà un snapshot dans la fenêtre de clôture : pas de second appel
+        // Déjà un relevé fiable dans la fenêtre de clôture : pas de second appel
         $matches = $candidates->reject(fn (FootballMatch $m) => OddsMovement::where('match_id', $m->id)
             ->where('bookmaker', config('odds-api.clv_bookmaker'))
-            ->whereNotNull('odds_home')
+            ->reliable()
             ->where('snapshot_at', '>=', $m->match_date->copy()->subMinutes($window))
             ->exists());
 
         if ($matches->isEmpty()) {
-            return 0;
+            return ['expected' => 0, 'stored' => 0, 'missing' => []];
         }
 
-        $count = 0;
-        $missing = [];
-
-        foreach ($matches->groupBy('league_id') as $leagueId => $leagueMatches) {
-            $usage = $this->oddsApi->getMonthlyUsage();
-            if ($usage['remaining'] < $reserve) {
-                Log::channel('pipeline')->warning("CLV clôture : quota restant {$usage['remaining']} sous la réserve {$reserve}, clôture non relevée", [
-                    'matches' => $matches->pluck('id')->all(),
-                ]);
-                break;
-            }
-
-            $events = $this->oddsApi->getFreshOddsByLeagueId((int) $leagueId);
-            if (!$events) {
-                Log::channel('pipeline')->warning("CLV clôture : aucune réponse The Odds API pour la ligue #{$leagueId}", [
-                    'matches' => $leagueMatches->pluck('id')->all(),
-                ]);
-                continue;
-            }
-
-            foreach ($leagueMatches as $match) {
-                try {
-                    $odds = $this->oddsApi->findEventOdds($events, $match->home_team, $match->away_team, $match->match_date->format('Y-m-d'));
-                    if (!$odds || $odds['odds_home'] === null) {
-                        $missing[] = $match->id;
-                        continue;
-                    }
-                    $this->storeSnapshot($match, $odds);
-                    $count++;
-                } catch (\Exception $e) {
-                    PipelineLog::caught('CLV snapshot de clôture', $e, ['match_id' => $match->id]);
-                }
-            }
+        $remaining = $this->oddsApi->getMonthlyUsage()['remaining'];
+        if ($remaining !== null && $remaining < $reserve) {
+            $report = [
+                'expected' => $matches->count(),
+                'stored' => 0,
+                'missing' => $matches->map(fn ($m) => $this->missing($m, self::MISSING_QUOTA, ['remaining' => $remaining, 'reserve' => $reserve]))->values()->all(),
+            ];
+        } else {
+            $report = $this->snapshotLeagues($matches);
         }
 
-        Log::channel('pipeline')->log($missing ? 'warning' : 'info', "CLV clôture : {$count} snapshot(s) de clôture", [
-            'matches_without_odds' => $missing,
+        Log::channel('pipeline')->log($report['missing'] ? 'warning' : 'info', "CLV clôture : {$report['stored']} relevé(s) sur {$report['expected']} attendu(s)", [
+            'bookmaker' => config('odds-api.clv_bookmaker'),
+            'missing' => $report['missing'],
         ]);
 
-        return $count;
+        return $report;
     }
 
     /**
@@ -196,9 +245,11 @@ class CLVTrackerService
      * aucun repli sur une cote plus ancienne ni sur une autre source (les cotes
      * odds_* de matches viennent d'API-Football, relevées des heures plus tôt).
      *
-     * @return int Nombre de matchs clôturés
+     * Seul un relevé fiable (sans cache, cote récente) peut servir de clôture.
+     *
+     * @return array{closed: int, missing: list<int>}
      */
-    public function markClosingOdds(): int
+    public function markClosingOdds(): array
     {
         $window = (int) config('pipeline.closing.window_minutes');
 
@@ -235,6 +286,7 @@ class CLVTrackerService
 
             $closing = OddsMovement::where('match_id', $match->id)
                 ->where('bookmaker', $reference)
+                ->reliable()
                 ->whereNotNull('odds_home')
                 ->where('snapshot_at', '<=', $match->match_date)
                 ->where('snapshot_at', '>=', $match->match_date->copy()->subMinutes($window))
@@ -266,8 +318,9 @@ class CLVTrackerService
             ]);
         }
 
-        Log::info("CLV: {$count} matchs clôturés");
-        return $count;
+        Log::channel('pipeline')->info("CLV : {$count} match(s) clôturé(s)");
+
+        return ['closed' => $count, 'missing' => $missing];
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -379,13 +432,16 @@ class CLVTrackerService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Enregistrer un snapshot (mouvement calculé contre le précédent). Le premier
-     * snapshot d'un match fixe la cote au moment de la prédiction.
+     * Enregistrer un relevé fiable (appelé seulement après les contrôles de
+     * snapshotMatch). Le premier relevé d'un match fixe la cote de prédiction.
      */
     private function storeSnapshot(FootballMatch $match, array $odds): OddsMovement
     {
+        // Variation calculée contre le dernier relevé fiable seulement : jamais contre
+        // un relevé recyclé depuis le cache
         $previousSnapshot = OddsMovement::where('match_id', $match->id)
             ->where('bookmaker', $odds['bookmaker'])
+            ->reliable()
             ->whereNotNull('odds_home')
             ->orderBy('snapshot_at', 'desc')
             ->first();
@@ -406,6 +462,8 @@ class CLVTrackerService
             'move_away_pct' => $movements['away'],
             'move_over_pct' => $movements['over'],
             'snapshot_at' => now(),
+            'quoted_at' => Carbon::parse($odds['quoted_at']),
+            'reliable' => true,
         ]);
 
         if (!$match->odds_at_pred_home) {

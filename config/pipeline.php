@@ -28,4 +28,12 @@ return [
         'quota_reserve' => (int) env('PIPELINE_CLOSING_QUOTA_RESERVE', 50),
     ],
 
+    // Relevés de cotes du CLV (market:track snapshot et closing) : toujours sans
+    // cache. Un relevé dont la cote du bookmaker (last_update) a plus de N minutes
+    // est refusé : c'est une réponse recyclée, pas une observation. Mesuré le
+    // 14/09/2026 sur 1 003 cotes fraîches : médiane 0,4 min, p90 1,7 min, max 5,7.
+    'odds_snapshot' => [
+        'max_quote_age_minutes' => (int) env('PIPELINE_MAX_QUOTE_AGE_MINUTES', 10),
+    ],
+
 ];

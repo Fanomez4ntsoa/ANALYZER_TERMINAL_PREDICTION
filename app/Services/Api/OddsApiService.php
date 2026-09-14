@@ -240,8 +240,9 @@ class OddsApiService
     }
 
     /**
-     * Cotes 1X2 et totals d'une ligue, SANS cache : pour la cote de clôture, une
-     * réponse en cache (jusqu'à 2 h) serait périmée. Coût : 2 crédits par appel
+     * Cotes 1X2 et totals d'une ligue, SANS cache : tout relevé du CLV (prédiction
+     * et clôture) passe par ici. Une réponse en cache (jusqu'à 2 h) recyclée sous
+     * un horodatage récent n'est pas une observation. Coût : 2 crédits par appel
      * (h2h + totals, une région). Pas de marchés extras.
      */
     public function getFreshOddsByLeagueId(int $leagueId): ?array
@@ -258,6 +259,21 @@ class OddsApiService
             'markets' => implode(',', config('odds-api.default_markets')),
             'oddsFormat' => $this->oddsFormat,
         ]);
+    }
+
+    /**
+     * Événement d'une liste par son identifiant The Odds API, normalisé ; null s'il
+     * n'y figure pas.
+     */
+    public function findEventOddsById(array $events, string $eventId): ?array
+    {
+        foreach ($events as $event) {
+            if (($event['id'] ?? null) === $eventId) {
+                return $this->normalizeOdds($event);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -376,6 +392,7 @@ class OddsApiService
     {
         $bookmakers = $event['bookmakers'] ?? [];
         $selectedBookmaker = (string) config('odds-api.clv_bookmaker', 'pinnacle');
+        $quotedAt = null;
         $result = [
             'event_id' => $event['id'],
             'home_team' => $event['home_team'],
@@ -383,6 +400,9 @@ class OddsApiService
             'commence_time' => $event['commence_time'],
             'bookmaker_count' => count($bookmakers),
             'bookmaker' => $selectedBookmaker,
+            // Heure de la cote retenue : last_update le plus ancien des marchés 1X2 et
+            // totals du bookmaker du CLV (null si absent)
+            'quoted_at' => null,
             // Cotes 1X2 (bookmaker configuré uniquement)
             'odds_home' => null,
             'odds_draw' => null,
@@ -415,6 +435,14 @@ class OddsApiService
         foreach ($bookmakers as $bookmaker) {
             $bookmakerKey = $bookmaker['key'];
             $bookmakerOdds = [];
+
+            if ($bookmakerKey === $selectedBookmaker) {
+                $updates = array_filter(array_map(
+                    fn (array $m) => in_array($m['key'] ?? null, ['h2h', 'totals'], true) ? ($m['last_update'] ?? null) : null,
+                    $bookmaker['markets'] ?? []
+                ));
+                $quotedAt = $updates === [] ? ($bookmaker['last_update'] ?? null) : min($updates);
+            }
 
             foreach ($bookmaker['markets'] ?? [] as $market) {
                 $marketKey = $market['key'];
@@ -494,13 +522,13 @@ class OddsApiService
         }
 
         // Cotes retenues : uniquement celles du bookmaker configuré
+        // Absence du bookmaker : signalée par l'appelant (CLVTrackerService, canal pipeline)
         $selectedOdds = $result['bookmakers_detail'][$selectedBookmaker] ?? null;
-        if ($selectedOdds === null) {
-            Log::info("OddsApi: bookmaker '{$selectedBookmaker}' absent pour {$event['home_team']} vs {$event['away_team']} — aucune cote retenue");
-        } else {
+        if ($selectedOdds !== null) {
             foreach ($selectedOdds as $key => $price) {
                 $result["odds_{$key}"] = $price;
             }
+            $result['quoted_at'] = $quotedAt;
         }
 
         // Cotes moyennes tous bookmakers (information uniquement)

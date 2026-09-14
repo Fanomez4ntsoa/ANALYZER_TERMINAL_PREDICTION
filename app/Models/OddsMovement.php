@@ -5,6 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Relevé de cotes du bookmaker du CLV. Seuls les relevés `reliable` sont des
+ * observations : sans cache, cote datée (quoted_at) de moins de
+ * pipeline.odds_snapshot.max_quote_age_minutes. Les relevés antérieurs au
+ * 14/09/2026 sont non fiables et ne servent pas au test de mouvement de ligne.
+ */
 class OddsMovement extends Model
 {
     protected $fillable = [
@@ -21,6 +27,8 @@ class OddsMovement extends Model
         'move_away_pct',
         'move_over_pct',
         'snapshot_at',
+        'quoted_at',
+        'reliable',
     ];
 
     protected $casts = [
@@ -34,7 +42,14 @@ class OddsMovement extends Model
         'move_away_pct' => 'decimal:2',
         'move_over_pct' => 'decimal:2',
         'snapshot_at' => 'datetime',
+        'quoted_at' => 'datetime',
+        'reliable' => 'boolean',
     ];
+
+    public function scopeReliable($query)
+    {
+        return $query->where('reliable', true);
+    }
 
     public function match(): BelongsTo
     {
