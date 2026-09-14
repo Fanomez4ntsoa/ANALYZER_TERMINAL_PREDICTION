@@ -1001,3 +1001,36 @@ retirant.
 À faire à l'étape 4 : sortir la DC de la famille « dérivés » dans le backtest et dans
 le résumé de calibration, sans recalculer les runs passés (la famille est une
 étiquette, les prédictions stockées restent valides).
+
+---
+
+## 2026-09-14 — Pages restantes du terminal
+
+- **Correctif avant migration** : `analyzeExistingMatch` (bouton de calcul de
+  `/analysis`) calculait et écrivait les prédictions sans vérifier le coup d'envoi, et
+  « Recalculer tous les matchs » aurait écrasé des prédictions d'avant-match par un
+  calcul d'après-match. `predictions:compute` filtrait, pas ce chemin. La garde est
+  désormais dans `PredictionService::computeAndStore`, pour tous les appelants
+  (`KickoffPassedException`, 409 côté contrôleur). Vérifié en base : aucune
+  prédiction dont `computed_at` dépasse le coup d'envoi.
+- **Alertes « sharp money » retirées de `/market`.** L'ancienne page affichait un
+  score de mouvement, rouge au-delà de 80 : un score qui désigne quoi suivre est une
+  décision à la place de l'utilisateur (règle 4). Le calcul existe toujours dans
+  `CLVTrackerService` et remplit `odds_movements` ; à supprimer ou garder comme donnée
+  brute, à décider.
+- **CLV sans couleur.** La couleur de signe est réservée à l'écart du modèle sur un
+  marché dérivé ; colorer le CLV par match reviendrait à hiérarchiser les matchs.
+- **Bouton de suppression d'un match retiré de l'historique.** Un clic détruisait un
+  match, ses prédictions et sa clôture : donnée irremplaçable pour toute mesure. La
+  route `DELETE /history/{match}` reste en place, sans interface, en attendant une
+  décision.
+- **`/analysis/results` redirige** vers le détail du match : la page doublonnait
+  `/history/{id}`.
+- **Fin des CDN** : Tailwind, Alpine et Chart.js par CDN disparaissent avec
+  `layouts.pro` ; la connexion passe au terminal ; les polices Bunny de Breeze sont
+  retirées (repli sur la pile système).
+- **Lettres grecques en capitales** : sur le détail d'un match et dans le pied de
+  page commun, « ρ Dixon-Coles » s'affichait « P DIXON-COLES » et « λ » en « Λ ».
+  Corrigé, et l'audit de développement signale désormais toute minuscule grecque
+  rendue en capitales (il a aussi trouvé les deux occurrences de la page de
+  démonstration).

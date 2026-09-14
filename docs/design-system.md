@@ -176,7 +176,22 @@ Monte-Carlo et calibration en haut, sélections en bas sur deux colonnes. En des
   Clic sur une rencontre pour la simuler. La frontière tracée sur la matrice est
   l'Under 2.5 exact, en escalier (la maquette traçait le carré 0-2 × 0-2, qui compte
   2-1, 1-2 et 2-2).
-- λ et ρ ne passent jamais en capitales : `text-transform` change ρ en Ρ, qui se lit P.
+- λ et ρ ne passent jamais en capitales : `text-transform` change ρ en Ρ, qui se lit P,
+  et λ en Λ. Dans une étiquette (`.lab`, `x-terminal.row`), la lettre passe par
+  `<span class="normal-case">`. L'audit de développement le signale.
+
+## Autres pages
+
+- **Marché** : deux mentions en tête, toujours visibles. Le CLV mesure les cotes
+  Pinnacle, pas le prix Bet365 des prédictions ; l'O/U 2.5 y est partiel. Valeurs du
+  CLV sans couleur (la couleur de signe est réservée à l'écart du modèle sur un marché
+  dérivé), lignes par date, jamais par CLV. Aucun score de mouvement ni alerte « sharp
+  money » : un score qui désigne quoi suivre est une décision (règle 4).
+- **Historique** : du plus récent au plus ancien ; filtres équipe, championnat,
+  statut, dates. Matchs contaminés étiquetés. Pas de bouton de suppression.
+- **Matchs** : calcul à la demande seulement avant le coup d'envoi ; le serveur refuse
+  de toute façon.
+- **Réglages** : lecture seule.
 
 ## Mouvement
 

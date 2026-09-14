@@ -34,7 +34,9 @@ Toute erreur API-Football (débit, quota, refus de l'offre, HTTP, réseau) lève
 ApiFootballException : jamais confondue avec une absence de donnée. Appels espacés
 de 6,5 s (10/minute), une seule nouvelle tentative après un 429.
 
-/analysis → bouton Analyser → MatchAnalysisController::analyzeExistingMatch
+/analysis → bouton Calculer → MatchAnalysisController::analyzeExistingMatch
+  (refusé en 409 si le match est commencé ou contaminé : KickoffPassedException,
+  levée par PredictionService::computeAndStore pour tous les appelants)
   (ou predictions:compute {date} : matchs à venir, non contaminés, avec cotes 1X2)
   ├─ ContextEnricherService::enrich                  fatigue, enjeux, météo, pression
   │                                                  (stocké, ne nourrit pas le modèle ;
@@ -288,11 +290,29 @@ offre API-Football supérieure, à raison d'environ 3 requêtes par match
 supplémentaire. Le périmètre du CLV (`PIPELINE_CLOSING_LEAGUES`) suit celui des cotes
 par défaut.
 
-## Interface du terminal (étape 3, socle)
+## Interface du terminal (étape 3)
 
-Règles visuelles : `docs/design-system.md`. Page migrée : `/dashboard` (page
-principale). Les autres restent sur `layouts.pro` (Tailwind, Alpine et Chart.js par
-CDN), Breeze sur `app.css`.
+Règles visuelles : `docs/design-system.md`. Toutes les pages passent par
+`<x-terminal-layout>` et le build Vite ; plus aucun CDN. Breeze (profil, inscription,
+mot de passe oublié) garde `layouts.app` / `layouts.guest` sur `app.css`.
+
+| Route | Contrôleur | Vue |
+|---|---|---|
+| `/dashboard?date=` | `TerminalController@index` | `terminal/index` : sélections, combiné, Monte-Carlo, calibration, clôture |
+| `/analysis?date=` | `MatchAnalysisController@index` | `terminal/matches` : matchs du jour, calcul à la demande (`match-compute.js`) |
+| `/analysis/results` | `MatchAnalysisController@results` | redirection vers le détail du match demandé ou du dernier calculé |
+| `/history` | `MatchAnalysisController@history` | `terminal/history` : filtres de navigation, export CSV, pagination |
+| `/history/{id}` | `MatchAnalysisController@show` | `terminal/match` : cotes, λ, ρ, probabilités par catalogue |
+| `/market` | `MarketController@index` | `terminal/market` : CLV Pinnacle, relevés bruts |
+| `/settings` | `SettingsController@index` | `terminal/settings` : clés, quotas, bookmakers, `pipeline_runs` |
+| `/login` | Breeze | `auth/login` au style du terminal, sans état du pipeline |
+
+Supprimé le 14/09/2026 : `layouts.pro`, `layouts.dashboard`, `components/pro/*`,
+`components/sidebar`, `components/header`, `analysis/*`, `pro/*`, `welcome`,
+l'ancien tableau de bord. La route `DELETE /history/{match}` existe encore mais
+n'a plus de bouton (voir `docs/decisions.md`). Les alertes « sharp money »
+(`odds_movements.sharp_alert`, `sharp_score`) sont toujours calculées par
+`CLVTrackerService` mais plus affichées.
 
 ```
 GET /dashboard?date=Y-m-d → TerminalController@index → terminal/index.blade.php
@@ -313,7 +333,8 @@ resources/css/terminal.css             base, composants (hors @layer : jamais pu
   ├─ terminal/tokens.css               variables CSS, source unique des valeurs
   └─ terminal/fonts.css                @font-face woff2 locaux (resources/fonts, OFL), latin, latin-ext, grec
 resources/js/terminal.js               Alpine, interrupteur de mouvement, horloge UTC
-  └─ terminal/design-audit.js          en dev : lueurs mesurées sur l'effet rendu, vidéo inverse unique
+  └─ terminal/design-audit.js          en dev : lueurs mesurées sur l'effet rendu, vidéo inverse unique,
+                                       lettres grecques mises en capitales
 app/View/Components/TerminalLayout.php <x-terminal-layout title= :states=> → layouts/terminal.blade.php
   ├─ Support/Terminal/PipelineFreshness  fraîcheur lue dans pipeline_runs (logique pure testée)
   └─ Support/Terminal/SystemState        gravité ; arrange() : un seul critique en vidéo inverse

@@ -240,8 +240,16 @@ Fait le 14/09/2026 :
 - Page principale (`/dashboard`) : sélections et combiné, Monte-Carlo, calibration
   du run #8 sur 1X2, O/U 2.5 et BTTS, Brier, écart de clôture.
 
-Reste : `/analysis`, `/history`, `/settings`, `/market` (CLV Pinnacle), puis retrait
-des CDN de `layouts.pro` et de `layouts.dashboard` (sans usage).
+- Tri par heure, championnat, marché et filtre par marché ; tri par écart retiré.
+- Pages matchs, historique, détail, marché, réglages et connexion migrées ; anciens
+  gabarits et CDN supprimés.
+- Correctif : le bouton de calcul écrivait des prédictions sur un match commencé
+  (aucune ligne touchée en base, vérifié).
+
+Reste : revue des pages par l'utilisateur, puis fusion dans `main` et tag
+`etape-3-terminee`. Pour l'étape 4 : sortir la DC de la famille « dérivés » du
+backtest ; décider du sort du calcul « sharp money » et de la route de suppression
+d'un match.
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart

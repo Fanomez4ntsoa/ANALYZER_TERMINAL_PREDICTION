@@ -67,7 +67,7 @@ php artisan market:track snapshot|closing|close|clv
 php artisan app:reset [--force]
 ```
 
-Analyse d'un match : depuis `/analysis`, bouton Analyser.
+Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après le coup d'envoi).
 
 ---
 
