@@ -19,7 +19,8 @@ pipeline:run-sync {date}          code de sortie non nul si cotes ou scores inco
   └─ FetchMatchDataJob              ordre imposé par le budget : indispensable d'abord
        │  match commencé, reporté ou terminé : score seul, rien d'autre n'est écrit
        ├─ ApiFootballService::getDailyUsage           /status, budget du jour (non décompté)
-       ├─ ApiFootballService::getFixturesByDate       1 requête → upsert dans matches
+       ├─ ApiFootballService::getFixturesByDate       1 requête → upsert dans matches, 21 ligues
+       │    matchs hors api-football.odds_leagues (Top 5) : comptés dans le journal, ni cotes ni facultatif
        ├─ ApiFootballService::getFixtureOdds          /odds?fixture=&bookmaker=8, 1 requête par match
        │    └─ enrichWithApiFootballOdds               odds_* + odds_fetched_at + odds_bookmaker
        │       budget insuffisant : avertissement, matchs non couverts listés, passage incomplet
@@ -279,14 +280,13 @@ Durée : 239 s (appels espacés de 6,5 s).
   jour aux mêmes championnats (2 crédits par championnat ayant un match). Marge faible
   sur 500 crédits, à surveiller dans le journal.
 
-**Décision à prendre plus tard**, documentée ici pour ne pas être oubliée :
-
-1. **Offre supérieure** API-Football (et éventuellement The Odds API) : toutes les
-   ligues suivies, facultatif compris, relances possibles, et les dimensions de
-   contexte bloquées (enjeux, pression) redeviennent collectables.
-2. **Périmètre restreint** à quelques championnats : le coût suit le périmètre
-   (environ 3 requêtes par match). Le Top 5 seul tient dans l'offre gratuite avec la
-   marge d'une relance.
+**Décidé le 14/09/2026 : périmètre restreint.** Cotes et facultatif sur le Top 5
+(`API_FOOTBALL_ODDS_LEAGUES`, défaut `39,78,135,140,61`), matchs et scores sur les 21
+ligues. Jour le plus chargé observé : 23 requêtes indispensables, 65 avec le
+facultatif, marge d'environ 35 pour une relance. Élargir redevient possible avec une
+offre API-Football supérieure, à raison d'environ 3 requêtes par match
+supplémentaire. Le périmètre du CLV (`PIPELINE_CLOSING_LEAGUES`) suit celui des cotes
+par défaut.
 
 ## Pièges connus
 

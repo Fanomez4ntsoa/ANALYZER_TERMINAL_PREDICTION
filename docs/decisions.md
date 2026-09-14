@@ -813,3 +813,45 @@ l'utilisateur. Deux ajustements :
 Relance vérifiée : 11 matchs sur 11 cotés Bet365, 110 lignes de prédictions étiquetées
 `bet365`, 34 requêtes consommées. Projection et options de périmètre dans
 `docs/architecture.md`, section « Limites de l'offre gratuite ».
+
+---
+
+## 2026-09-14 — Cotes relevées sur le Top 5 ; matchs et scores sur les 21 ligues
+
+Le relevé des cotes, et avec lui les données facultatives, est restreint au Top 5 :
+Premier League (E0, id 39), Bundesliga (D1, 78), Serie A (I1, 135), La Liga (SP1, 140),
+Ligue 1 (F1, 61). Configurable par `API_FOOTBALL_ODDS_LEAGUES`. Décision de
+l'utilisateur.
+
+L'import des matchs et des scores reste sur les 21 ligues suivies : il coûte une
+requête par jour quelle que soit leur nombre, et l'historique des résultats continue
+de s'accumuler gratuitement sur tout le périmètre. Le journal indique chaque jour
+combien de matchs à venir sont hors périmètre des cotes, par championnat.
+
+Calcul qui la justifie (offre gratuite : 100 requêtes par jour, coût mesuré le
+14/09/2026 à environ 3 requêtes par match coté plus 2 fixes) :
+
+| Journée | Matchs cotés | Cotes + matchs + scores | Avec facultatif | Marge sur 100 |
+|---|---|---|---|---|
+| 21 ligues, samedi 02/05/2026 observé | 66 | 68 | 68 + 22 (11 matchs, réserve atteinte) | ~0 à 10, aucune relance possible |
+| Top 5, jour le plus chargé observé | 21 | 23 | 65 | ~35, une relance des cotes (21) possible |
+
+Avec 21 ligues, un samedi consomme le quota à lui seul et un passage raté ne peut pas
+être relancé. Avec le Top 5, les cotes coûtent 23 requêtes au lieu de 68, le facultatif
+est complet, et la marge couvre une relance.
+
+C'est aussi le périmètre sur lequel l'utilisateur parie, et la population « Top 5 »
+dont le backtest a mesuré la calibration.
+
+**Élargir redevient possible avec une offre API-Football supérieure** : il suffit
+d'ajouter des ids à `API_FOOTBALL_ODDS_LEAGUES`, à raison d'environ 3 requêtes par
+match supplémentaire.
+
+---
+
+## 2026-09-14 — CLV Over 2.5 partiel, accepté en l'état
+
+Pinnacle ne publie en `totals` que sa ligne principale, qui n'était 2.5 que sur 18
+événements sur 81 (environ un quart). Le CLV Over/Under 2.5 ne portera que sur ces
+matchs. On ne cherche pas à le contourner (lignes alternatives par événement, plus
+coûteuses en crédits) : le CLV 1X2 est complet, c'est suffisant pour commencer.

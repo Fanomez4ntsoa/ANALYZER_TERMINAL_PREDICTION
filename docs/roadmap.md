@@ -149,7 +149,7 @@ Reste à faire par l'utilisateur : lancer la migration
 `2026_09_14_000001_add_post_kickoff_data_to_matches_table`, ajouter la ligne cron
 `schedule:run`, passer `PIPELINE_SCHEDULE_TIME` à 10:00 dans `.env`.
 
-### Constats du premier passage réel (14/09/2026) — fusion suspendue
+### Constats du premier passage réel (14/09/2026)
 
 - **Cotes : 9 matchs sur 11 sans cote, cause = limite de débit API-Football**
   (offre gratuite : 10 requêtes/minute, 100/jour). Environ 9 appels par match, dont
@@ -185,7 +185,14 @@ Reste à faire par l'utilisateur : lancer la migration
   retirés ; facultatif (prédictions, blessures) abandonné sous une réserve de budget et
   non collecté quand les cotes sont incomplètes.
 - Relance vérifiée : 11 matchs sur 11 cotés Bet365, 34 requêtes. Un samedi à 50-66
-  matchs consomme tout le quota sans marge de relance : périmètre ou offre à trancher.
+  matchs consommait tout le quota sans marge de relance.
+- **Tranché : cotes sur le Top 5** (`API_FOOTBALL_ODDS_LEAGUES`), matchs et scores sur
+  les 21 ligues, matchs hors périmètre comptés chaque jour dans le journal. 23 requêtes
+  au lieu de 68 le jour le plus chargé. Élargir avec une offre supérieure.
+- Laissé ouvert : CLV Over 2.5 partiel (ligne principale Pinnacle à 2.5 sur environ un
+  quart des événements), accepté ; le CLV 1X2 est complet.
+
+Étape close le 14/09/2026 : fusion `--no-ff` dans `main`, tag `etape-2b-nettoyage`.
 - CLV contre Pinnacle sur The Odds API, bookmaker enregistré par snapshot. CLV
   Over 2.5 partiel : Pinnacle ne publie la ligne 2.5 en `totals` que sur 18
   événements sur 81.
