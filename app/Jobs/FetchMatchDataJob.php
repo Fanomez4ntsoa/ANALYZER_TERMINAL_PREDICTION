@@ -70,6 +70,8 @@ class FetchMatchDataJob implements ShouldQueue
             'daily_remaining_start' => null,
             'matches' => 0,
             'kicked_off_score_only' => 0,
+            'odds_out_of_scope' => 0,
+            'odds_out_of_scope_by_league' => [],
             'with_odds' => 0,
             'bookmaker_absent' => [],
             'odds_failed' => [],
@@ -111,7 +113,9 @@ class FetchMatchDataJob implements ShouldQueue
             }
         }
 
-        // 2. Créer/mettre à jour les matchs (aucune requête)
+        // 2. Créer/mettre à jour les matchs de toutes les ligues suivies (aucune requête).
+        //    Cotes et facultatif : périmètre api-football.odds_leagues seulement.
+        $oddsLeagues = config('api-football.odds_leagues');
         $upcoming = [];
         foreach ($trackedFixtures as $fixtureData) {
             $match = $enricher->upsertFromApiFootball($fixtureData);
@@ -127,8 +131,20 @@ class FetchMatchDataJob implements ShouldQueue
                 continue;
             }
 
+            if (!in_array((int) $match->league_id, $oddsLeagues, true)) {
+                $summary['odds_out_of_scope']++;
+                $summary['odds_out_of_scope_by_league'][$match->competition] = ($summary['odds_out_of_scope_by_league'][$match->competition] ?? 0) + 1;
+                continue;
+            }
+
             $upcoming[(int) $fixtureData['fixture']['id']] = $match;
         }
+
+        // Ce qu'on ne couvre pas, chaque jour : matchs importés sans relevé de cotes
+        $log->info("Pipeline: {$summary['odds_out_of_scope']} match(s) à venir hors périmètre des cotes, " . count($upcoming) . " dans le périmètre", [
+            'odds_leagues' => $oddsLeagues,
+            'out_of_scope_by_league' => $summary['odds_out_of_scope_by_league'],
+        ]);
 
         // 3. Cotes : indispensables, en premier et seules. 1 requête par match
         //    (/odds?date= inutilisable : l'offre gratuite plafonne page à 3).

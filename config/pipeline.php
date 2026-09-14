@@ -21,7 +21,8 @@ return [
         // Championnats clôturés (id API-Football). Top 5 par défaut : le quota de
         // 500 crédits/mois couvre ~260 crédits de clôture, pas tous les championnats
         // (~600 crédits estimés sur avril-mai 2026).
-        'leagues' => array_map('intval', explode(',', env('PIPELINE_CLOSING_LEAGUES', '39,140,135,78,61'))),
+        // Par défaut, le périmètre du relevé des cotes : un CLV sans cotes n'a pas de sens.
+        'leagues' => array_map('intval', explode(',', env('PIPELINE_CLOSING_LEAGUES', env('API_FOOTBALL_ODDS_LEAGUES', '39,78,135,140,61')))),
 
         // Quota The Odds API restant sous lequel plus aucune clôture n'est relevée.
         'quota_reserve' => (int) env('PIPELINE_CLOSING_QUOTA_RESERVE', 50),

@@ -45,6 +45,14 @@ return [
     // Ligues temporairement desactivees (pas assez de journees jouees < 10)
     // Filtrees du pipeline mais gardees en config pour reactivation simple.
     // A reactiver en aout 2026 quand la saison sera bien lancee.
+    // Périmètre du relevé des cotes (id API-Football), sous-ensemble de `leagues`.
+    // Top 5 par défaut : Premier League 39 (E0), Bundesliga 78 (D1), Serie A 135 (I1),
+    // La Liga 140 (SP1), Ligue 1 61 (F1). Les autres ligues suivies gardent l'import
+    // des matchs et des scores (1 requête par jour pour toutes), sans cotes.
+    // Élargir coûte 1 requête de cote + 2 de facultatif par match (voir
+    // docs/decisions.md, 14/09/2026).
+    'odds_leagues' => array_map('intval', explode(',', env('API_FOOTBALL_ODDS_LEAGUES', '39,78,135,140,61'))),
+
     'inactive_leagues' => [
         113, // Allsvenskan
         119, // Superligaen
