@@ -130,6 +130,27 @@ calibré, sur quels marchés, sur quels championnats, et bat-il la clôture ?
 
 ---
 
+## Étape 2b — Nettoyage avant l'interface ✅ 14/09/2026 (branche `chore/nettoyage-post-etape-2`)
+
+- Supprimés (code conservé par le tag `etape-2-terminee`, tables gardées) : les 5
+  agents IA, `ClaudeClient`, `ai:batch`, `ai:test`, `results:collect`, les
+  combinés et la page `/combos`, l'ancien `BacktestEngine` et la page `/backtest`.
+- Retirés : signal `xg_proxy`, dimension arbitre du contexte.
+- Corrigé : appel à `FormationProfiles` (supprimée à l'étape 1) qui bloquait les
+  cotes dès qu'une composition était publiée ; exceptions avalées désormais
+  journalisées (canal `pipeline`) ; plus aucune écriture sur un match commencé,
+  hormis le score ; `env()` hors config remplacés, `config:cache` vérifié.
+- Matchs contaminés : `matches.post_kickoff_data`, 913 matchs sur 1 140, exclus
+  de toute mesure (`measurable()`).
+- `predictions:compute {date?}`, planificateur réactivé (`pipeline:daily` à
+  10:00 UTC), clôture automatique du CLV (Top 5, fenêtre de 10 minutes).
+
+Reste à faire par l'utilisateur : lancer la migration
+`2026_09_14_000001_add_post_kickoff_data_to_matches_table`, ajouter la ligne cron
+`schedule:run`, passer `PIPELINE_SCHEDULE_TIME` à 10:00 dans `.env`.
+
+---
+
 ## Étape 3 — Interface ⬜ à faire
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
@@ -236,10 +257,5 @@ pour savoir un jour si les signaux autres que le marché apportent quelque chose
 
 ## Plus tard, si les mesures le justifient
 
-- Réactivation ou suppression définitive des agents IA. Ils ne sont pas
-  réintroduits sans mesure prouvant leur apport.
-- Réactivation des combinés.
-- Remplacement de `env()` par `config()` hors config, puis activation de
-  `config:cache`.
-- Correction du signal `xg_proxy`, qui est aujourd'hui un pourcentage de victoire
-  multiplié par 0.03 et n'a pas de sens dimensionnel.
+- Agents IA ou combinés : supprimés le 14/09/2026. Un retour serait une réécriture
+  complète, et seulement sur une mesure prouvant leur apport.
