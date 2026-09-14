@@ -49,6 +49,7 @@ qui ne veut rien dire sans la cote associée.
 | `docs/architecture.md` | Avant de modifier du code : ce qui existe et ce qui a été supprimé |
 | `docs/decisions.md` | Avant de remettre en cause un choix : pourquoi il a été fait |
 | `docs/roadmap.md` | Pour savoir où on en est et ce qui vient ensuite |
+| `docs/design-system.md` | Avant de toucher à l'interface : principes, jetons, vert vif, lueur, états système |
 | `docs/git-workflow.md` | Branches, commits, fusions, tags |
 | `docs/archive/roadmap-2026-04.md` | Historique. Décrit l'ancien système, supprimé en septembre 2026. Utile uniquement pour retrouver l'origine d'une constante. **Ne décrit pas le système actuel.** |
 

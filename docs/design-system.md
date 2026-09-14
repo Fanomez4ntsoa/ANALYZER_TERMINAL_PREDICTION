@@ -17,11 +17,24 @@ Ils valent au-delà des couleurs.
 2. **Le vert vif et la lueur signalent une donnée vivante, jamais une mesure
    historique.** Un Brier, une courbe de calibration ou tout résultat de backtest
    s'affichent en vert moyen, sans lueur, sans pastille active.
+3. **Un écart mécaniquement nul ne doit jamais être présenté comme une information.**
+   En marché seul, les λ sont estimés sur les cotes 1X2 et O/U 2.5 : sur ces marchés
+   et sur la Double Chance qui en découle, le modèle ne fait que recalculer son point
+   de départ. C'est la distinction du backtest entre contrôle de cohérence et test
+   indépendant ; elle doit se lire à l'écran.
 
 Et leurs corollaires :
 
 - Le vert et le rouge indiquent le signe de l'écart, rien d'autre. Un écart arrondi à
   0,0 n'a pas de couleur.
+- **Marchés d'ajustement** (1X2, DC, O/U 2.5) et **marchés dérivés** (BTTS, O/U 1.5,
+  O/U 3.5) sont distingués dans chaque tableau par une colonne « Nature »
+  (`Ajust.` / `Dérivé`) et une note de bas de tableau. L'écart d'un marché
+  d'ajustement ne prend jamais de couleur : il est nul sur l'O/U 2.5 et vaut un
+  résidu d'ajustement sur le 1X2 et la DC (le partage des λ, cherché à total fixé par
+  l'O/U, ne reproduit pas exactement les trois issues ; 0,58 pt en moyenne, 2,74 pts
+  au maximum sur les 33 lignes du 14/09/2026). Il s'affiche tel quel, sans mise en
+  forme compensatoire. Seul l'écart d'un marché dérivé porte le vert ou le rouge.
 - Une cote absente laisse la cellule vide : aucune estimation.
 - Un match hors périmètre des cotes est affiché et étiqueté, jamais omis.
 - Le calculateur de combiné affiche le produit des probabilités et le produit des
@@ -40,8 +53,8 @@ Et leurs corollaires :
 | `--line-hi` | `#1e3d2b` | Bordures d'emphase | |
 | `--p-dead` (éteint) | `#2e5240` | **Chrome non textuel** : pastilles inactives, barres d'effectif, séparateurs décoratifs | 2,2:1 |
 | `--p-dim` (sombre) | `#4e7d63` | Étiquettes, en-têtes de tableau, graduations, à 10 px minimum | 4,1:1 |
-| `--p-mid` (moyen) | `#86c9a3` | Texte courant, valeurs non vivantes, mesures historiques | 10,2:1 |
-| `--p-live` (vif) | `#1cff87` | Valeurs vivantes uniquement | 14,6:1 |
+| `--p-mid` (moyen) | `#86c9a3` | Texte courant, valeurs des tableaux, mesures historiques | 10,2:1 |
+| `--p-live` (vif) | `#1cff87` | Ligne survolée ou cochée, valeur unique d'un panneau, écart positif d'un marché dérivé | 14,6:1 |
 | `--p-hot` | `#b8ffd8` | Flash de la matrice Monte-Carlo, rien d'autre | |
 | `--red` | `#ff2f4d` | Écart négatif, rien d'autre | 5,4:1 |
 
@@ -49,18 +62,47 @@ Aucun texte indispensable en vert éteint. Le vert sombre reste sous le seuil WC
 4,5:1 à toute taille inférieure à 18 px : on compense par la taille (10 px au lieu de
 9), pas par la couleur.
 
-### État système : vidéo inverse
+### Vert vif : rationnement
 
-Pipeline pas à jour, écart de configuration, erreur : **fond `--p-live`, texte
-`--bg`**. Aucune donnée n'a de fond plein, la confusion est impossible. Pas de couleur
-d'alerte supplémentaire.
+Le rationnement vaut pour le vert vif comme pour la lueur. Une valeur vivante n'est
+pas automatiquement en vert vif : quand cinquante lignes le sont, la hiérarchie
+disparaît.
+
+- **Valeurs d'un tableau** (probabilité du modèle, cote, implicite) : vert moyen.
+- **Vert vif** : la ligne survolée ou cochée (ses valeurs passent en vert vif), et les
+  valeurs uniques d'un panneau (horloge, produit du combiné, compteurs du
+  Monte-Carlo, CLV).
+- Exception conservée, en attente de confirmation : l'écart positif d'un marché
+  dérivé garde le vert vif, pour que le signe reste symétrique du rouge.
+
+### État système
+
+- **Vidéo inverse** (fond `--p-live`, texte `--bg`) : **un seul bloc par page**,
+  réservé à l'anomalie la plus grave. Un avertissement permanent n'avertit plus.
+  Aucune donnée n'a de fond plein, la confusion est impossible.
+- **Autres états** (pipeline en retard mais passé, écart de configuration secondaire,
+  erreur non bloquante) : une ligne en vert sombre, bordure `--line-hi`, message
+  tronqué avec texte complet en infobulle.
+- Le layout choisit : les états lui sont passés avec une gravité, le plus grave passe
+  en vidéo inverse, les autres en ligne. Pas de couleur d'alerte supplémentaire.
 
 ### Lueur
 
-- **Deux éléments par page au maximum** ; page principale : flash de la matrice
+- **Deux effets rendus par page au maximum** ; page principale : flash de la matrice
   Monte-Carlo et valeur du CLV.
-- Une lueur ne s'applique que par l'attribut `data-glow`. Au chargement, en
-  développement, un avertissement console signale plus de trois `[data-glow]`.
+- Une lueur ne s'applique que par l'attribut `data-glow` ; sur un canvas, le code de
+  dessin n'utilise `shadowBlur` que si le canvas porte l'attribut.
+- **Le compteur mesure l'effet, pas l'attribut.** En développement, un audit relève
+  chaque seconde, dans les styles calculés de chaque élément et de ses
+  pseudo-éléments, `text-shadow` (seulement là où il apparaît et s'il porte du
+  texte), `box-shadow`, `filter` et les dégradés radiaux, et intercepte `shadowBlur`
+  sur les canvas. Avertissement console si plus de deux effets, si un effet n'a pas
+  de `data-glow`, si un `data-glow` ne rend rien, ou si plus d'un bloc est en vidéo
+  inverse.
+- Pas de halo d'ambiance : le dégradé radial vert de la maquette est supprimé (effet
+  de page entière, hors budget). Les lignes de balayage restent : elles assombrissent,
+  n'éclairent pas, mais donnent aux aplats (barres d'effectif) un aspect de phosphore
+  sans aucune lueur mesurable.
 
 ---
 
@@ -105,8 +147,20 @@ repos, la matrice affiche les probabilités exactes.
 5. Tri par défaut par heure, suppression de la barre proportionnelle à l'écart.
 6. Suppression du bandeau défilant des sélections.
 
-Plus : en-têtes et graduations en vert sombre à 10 px, état système en vidéo inverse,
+Plus : en-têtes et graduations en vert sombre à 10 px (variante B retenue, la variante
+A de la maquette à 9 px en vert éteint est abandonnée), état système en vidéo inverse,
 budget de lueur à deux éléments.
 
+Deuxième revue (14/09/2026) :
+
+7. Un seul bloc en vidéo inverse par page ; les autres états en ligne, vert sombre.
+8. Valeurs des tableaux en vert moyen ; vert vif réservé à la ligne survolée ou cochée
+   et aux valeurs uniques des panneaux.
+9. Compteur de lueurs fondé sur l'effet rendu. L'ancien, fondé sur `[data-glow]`,
+   affichait 2/2 alors que la page en rendait 3 : il comptait un `data-glow` sans effet
+   (`text-shadow` sur le conteneur du canvas), manquait le `shadowBlur` du canvas et
+   le halo radial d'ambiance.
+10. Distinction marchés d'ajustement / marchés dérivés (principe 3).
+
 Page de démonstration : artifact « Système de design Terminal Prédiction », publié le
-14/09/2026.
+14/09/2026, version 2.
