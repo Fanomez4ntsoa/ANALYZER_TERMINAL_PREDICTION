@@ -1,65 +1,51 @@
+{{--
+    Connexion, au style du terminal. Autonome : ni barre du haut ni état du
+    pipeline avant authentification.
+--}}
 <!DOCTYPE html>
-<html lang="fr" class="h-full">
+<html lang="fr" data-motion="off">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Connexion — Football Analyzer</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } }
-        }
-    </script>
+    <title>Connexion · Terminal Prédiction</title>
+    @vite(['resources/css/terminal.css'])
 </head>
-<body class="h-full font-sans antialiased bg-slate-50 flex items-center justify-center">
-
-<div class="w-full max-w-sm mx-auto px-6">
-    <div class="text-center mb-8">
-        <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white font-bold text-lg mb-4">FA</div>
-        <h1 class="text-xl font-semibold text-slate-800">Football Analyzer</h1>
-        <p class="text-sm text-slate-500 mt-1">Systeme de prediction</p>
-    </div>
-
-    @if(session('status'))
-        <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">{{ session('status') }}</div>
-    @endif
-    @if($errors->any())
-        <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            @foreach($errors->all() as $error)
-                <p class="text-sm text-red-700">{{ $error }}</p>
-            @endforeach
+<body>
+<div class="t-wrap" style="max-width: 360px; padding-top: 12vh;">
+    <div class="flex items-center gap-group">
+        <div class="topbar-mark" aria-hidden="true">▚</div>
+        <div>
+            <div class="topbar-title">TERMINAL PRÉDICTION</div>
+            <div class="lab">Probabilités, cotes, écarts. Aucune décision.</div>
         </div>
-    @endif
-
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <form method="POST" action="{{ route('login') }}" class="space-y-4">
-            @csrf
-            <div>
-                <label for="email" class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus
-                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div>
-                <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
-                <input id="password" type="password" name="password" required
-                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div class="flex items-center">
-                <label class="flex items-center gap-2 text-sm text-slate-600">
-                    <input type="checkbox" name="remember" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                    Se souvenir
-                </label>
-            </div>
-            <button type="submit" class="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                Connexion
-            </button>
-        </form>
     </div>
-    <p class="text-center text-xs text-slate-400 mt-6">v3.0</p>
-</div>
 
+    @if (session('status'))
+        <div class="state-line" role="status"><span class="state-key">Info</span><span class="state-msg">{{ session('status') }}</span></div>
+    @endif
+    @foreach ($errors->all() as $error)
+        <div class="state-line" role="alert"><span class="state-key">Erreur</span><span class="state-msg" title="{{ $error }}">{{ $error }}</span></div>
+    @endforeach
+
+    <x-terminal.panel title="Connexion">
+        <form method="POST" action="{{ route('login') }}" class="flex flex-col gap-bd">
+            @csrf
+            <div class="field">
+                <label class="lab" for="email">E-mail</label>
+                <input class="input" id="email" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username">
+            </div>
+            <div class="field">
+                <label class="lab" for="password">Mot de passe</label>
+                <input class="input" id="password" type="password" name="password" required autocomplete="current-password">
+            </div>
+            <label class="flex items-center gap-gap lab" for="remember">
+                <input class="pick" id="remember" type="checkbox" name="remember">
+                Se souvenir de moi
+            </label>
+            <button type="submit" class="toggle justify-center">Se connecter</button>
+        </form>
+    </x-terminal.panel>
+</div>
 </body>
 </html>

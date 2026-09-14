@@ -49,6 +49,7 @@ qui ne veut rien dire sans la cote associée.
 | `docs/architecture.md` | Avant de modifier du code : ce qui existe et ce qui a été supprimé |
 | `docs/decisions.md` | Avant de remettre en cause un choix : pourquoi il a été fait |
 | `docs/roadmap.md` | Pour savoir où on en est et ce qui vient ensuite |
+| `docs/design-system.md` | Avant de toucher à l'interface : principes, jetons, vert vif, lueur, états système |
 | `docs/git-workflow.md` | Branches, commits, fusions, tags |
 | `docs/archive/roadmap-2026-04.md` | Historique. Décrit l'ancien système, supprimé en septembre 2026. Utile uniquement pour retrouver l'origine d'une constante. **Ne décrit pas le système actuel.** |
 
@@ -57,14 +58,16 @@ qui ne veut rien dire sans la cote associée.
 ## Commandes
 
 ```bash
-php artisan pipeline:run-sync {date}     # Import matchs + cotes
+php artisan pipeline:daily [date]        # Passage quotidien : import, contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
+php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
 php artisan pipeline:backfill --from= --to=
 php artisan context:enrich --date=       # Fatigue, enjeux, météo
-php artisan market:track snapshot|close|clv
+php artisan market:track snapshot|closing|close|clv
 php artisan app:reset [--force]
 ```
 
-Analyse d'un match : depuis `/analysis`, bouton Analyser.
+Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après le coup d'envoi).
 
 ---
 
@@ -79,4 +82,6 @@ Analyse d'un match : depuis `/analysis`, bouton Analyser.
   `etape-2-terminee` conserve leur code). Pipeline quotidien et clôture du CLV
   automatiques. Les 913 matchs marqués `post_kickoff_data` sont exclus de toute
   mesure.
+- Étape 3 terminée le 14/09/2026 : interface terminal (`docs/design-system.md`),
+  plus aucun CDN, score « sharp money » et route de suppression d'un match supprimés.
 - Aucune mesure fiable de performance en conditions réelles n'existe à ce jour.

@@ -4,8 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\AdvancedData;
 use App\Models\FootballMatch;
+use App\Models\Prediction;
 use App\Services\Context\ContextEnricherService;
+use App\Services\Probability\KickoffPassedException;
 use App\Services\Probability\PredictionService;
+use App\Support\Terminal\MarketLabel;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -23,41 +27,54 @@ class MatchAnalysisController extends Controller
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Page "Matchs du jour" — liste les matchs importés par le pipeline.
+     * Page « Matchs » : les matchs importés d'une date, les données disponibles et
+     * le calcul à la demande. Seuls les matchs à venir, non contaminés et avec
+     * cotes 1X2 complètes sont calculables (même règle que predictions:compute).
      */
-    public function index()
+    public function index(Request $request)
     {
-        $date = request('date', now()->format('Y-m-d'));
+        $date = $this->dateParam($request->query('date'));
 
         $matches = FootballMatch::where('data_source', 'api')
-            ->whereDate('match_date', $date)
+            ->whereDate('match_date', $date->toDateString())
             ->with(['advancedData', 'predictions'])
             ->orderBy('match_date')
+            ->orderBy('id')
             ->get();
 
         // Données disponibles pour chaque match (affichage uniquement)
-        $matches->each(function ($match) {
+        $matches->each(function (FootballMatch $match) {
             $adv = $match->advancedData;
-            $match->available_data = [
+            $match->available_data = array_keys(array_filter([
                 'cotes' => (float) $match->odds_home > 0,
-                'comparison' => !empty($adv?->context_data['comparison'] ?? null),
-                'weather' => !empty($adv?->context_data['weather']['condition'] ?? null) && ($adv?->context_data['weather']['condition'] ?? 'unknown') !== 'unknown',
-                'injuries' => !empty($adv?->sofascore_data['injuries'] ?? null),
+                'comparaison' => !empty($adv?->context_data['comparison'] ?? null),
+                'météo' => !empty($adv?->context_data['weather']['condition'] ?? null) && ($adv?->context_data['weather']['condition'] ?? 'unknown') !== 'unknown',
+                'blessures' => !empty($adv?->sofascore_data['injuries'] ?? null),
                 'h2h' => !empty($adv?->sofascore_data['h2h'] ?? null),
-            ];
-            $match->is_analyzed = $match->predictions->isNotEmpty();
+            ]));
             $match->computed_at = $match->predictions->first()?->computed_at;
+            $match->can_compute = !$match->hasKickedOff()
+                && !$match->post_kickoff_data
+                && (float) $match->odds_home > 0 && (float) $match->odds_draw > 0 && (float) $match->odds_away > 0;
         });
 
-        $prevDate = \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d');
-        $nextDate = \Carbon\Carbon::parse($date)->addDay()->format('Y-m-d');
-
-        return view('analysis.index', [
+        return view('terminal.matches', [
             'matches' => $matches,
             'date' => $date,
-            'prevDate' => $prevDate,
-            'nextDate' => $nextDate,
         ]);
+    }
+
+    private function dateParam(mixed $value): CarbonImmutable
+    {
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            try {
+                return CarbonImmutable::createFromFormat('!Y-m-d', $value, 'UTC');
+            } catch (\Throwable) {
+                // date invalide : aujourd'hui
+            }
+        }
+
+        return CarbonImmutable::now('UTC')->startOfDay();
     }
 
     /**
@@ -99,6 +116,11 @@ class MatchAnalysisController extends Controller
                 'computed_at' => $predictions->first()?->computed_at?->toIso8601String(),
             ]);
 
+        } catch (KickoffPassedException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Match commencé : les probabilités ne sont plus calculées après le coup d\'envoi.',
+            ], 409);
         } catch (\Exception $e) {
             Log::error("Prediction match #{$match->id} echouee", ['error' => $e->getMessage()]);
             return response()->json([
@@ -113,64 +135,33 @@ class MatchAnalysisController extends Controller
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Page prédictions : le match demandé (?match_id=) ou le dernier calculé,
-     * avec un sélecteur des matchs récents.
+     * Ancienne page « prédictions » : renvoie au détail du match demandé
+     * (?match_id=) ou du dernier match calculé.
      */
     public function results(Request $request)
     {
-        $recentMatches = FootballMatch::with('predictions')
-            ->whereHas('predictions')
-            ->orderByDesc('match_date')
-            ->take(10)
-            ->get();
+        $matchId = $request->query('match_id')
+            ?? FootballMatch::whereHas('predictions')->orderByDesc('match_date')->value('id');
 
-        if ($recentMatches->isEmpty()) {
-            return redirect()->route('analysis.index')
-                ->with('error', 'Aucune prédiction calculée. Lancez d\'abord une analyse.');
-        }
-
-        $matchId = $request->query('match_id');
-        $selectedMatch = $matchId
-            ? FootballMatch::with('predictions')->findOrFail((int) $matchId)
-            : $recentMatches->first();
-
-        return view('analysis.results', [
-            'footballMatch' => $selectedMatch,
-            'predictionsByMarket' => $this->groupPredictions($selectedMatch),
-            'allRecentMatches' => $recentMatches,
-            'selectedMatchId' => $selectedMatch->id,
-        ]);
+        return $matchId === null
+            ? redirect()->route('analysis.index')
+            : redirect()->route('history.show', (int) $matchId);
     }
 
     /**
-     * Détail d'un match (historique).
+     * Détail d'un match : cotes, paramètres enregistrés et prédictions dans
+     * l'ordre du catalogue des marchés.
      */
     public function show($id)
     {
-        $footballMatch = FootballMatch::with(['predictions', 'advancedData'])->findOrFail($id);
+        $footballMatch = FootballMatch::with('predictions')->findOrFail($id);
 
-        return view('analysis.show', [
-            'footballMatch' => $footballMatch,
-            'predictionsByMarket' => $this->groupPredictions($footballMatch),
+        return view('terminal.match', [
+            'match' => $footballMatch,
+            'predictions' => $footballMatch->predictions
+                ->sortBy(fn (Prediction $p) => MarketLabel::sortKey($p->market, $p->outcome))
+                ->values(),
         ]);
-    }
-
-    /**
-     * Regrouper les prédictions par marché dans l'ordre d'affichage.
-     */
-    private function groupPredictions(FootballMatch $match): array
-    {
-        $order = ['winner', 'doubleChance', 'overUnder25', 'btts'];
-        $grouped = $match->predictions->groupBy('market');
-
-        $result = [];
-        foreach ($order as $market) {
-            if ($grouped->has($market)) {
-                $result[$market] = $grouped[$market]->values();
-            }
-        }
-
-        return $result;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -218,7 +209,7 @@ class MatchAnalysisController extends Controller
             ->orderBy('competition')
             ->get();
 
-        return view('analysis.history', [
+        return view('terminal.history', [
             'matches' => $matches,
             'leagues' => $leagues,
             'filters' => $request->only(['league', 'status', 'date_from', 'date_to', 'q']),
@@ -275,51 +266,6 @@ class MatchAnalysisController extends Controller
             fclose($h);
         }, 'history_' . now()->format('Ymd_His') . '.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
-    }
-
-    /**
-     * Supprimer un match
-     */
-    public function deleteMatch(FootballMatch $match)
-    {
-        try {
-            $match->delete(); // Cascade delete via foreign keys
-            return back()->with('success', 'Match supprimé !');
-        } catch (\Exception $e) {
-            Log::warning("Suppression du match #{$match->id} echouee", ['error' => $e->getMessage()]);
-            return back()->with('error', 'Erreur lors de la suppression');
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // DASHBOARD
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    public function dashboard()
-    {
-        $totalMatches = FootballMatch::count();
-        $completedMatches = FootballMatch::where('completed', true)->count();
-        $analyzedMatches = FootballMatch::whereHas('predictions')->count();
-        $matchesToday = FootballMatch::whereDate('match_date', now()->format('Y-m-d'))->count();
-
-        $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
-        try {
-            $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
-        } catch (\Exception $e) {
-            Log::warning('Dashboard: lecture du quota Odds API echouee', ['error' => $e->getMessage()]);
-        }
-
-        return view('dashboard', [
-            'totalMatches'      => $totalMatches,
-            'completedMatches'  => $completedMatches,
-            'analyzedMatches'   => $analyzedMatches,
-            'matchesToday'      => $matchesToday,
-            'recentMatches'     => FootballMatch::withCount('predictions')
-                                    ->orderBy('created_at', 'desc')
-                                    ->take(8)
-                                    ->get(),
-            'oddsQuota'         => $oddsQuota,
         ]);
     }
 }

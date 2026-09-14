@@ -34,7 +34,9 @@ Toute erreur API-Football (débit, quota, refus de l'offre, HTTP, réseau) lève
 ApiFootballException : jamais confondue avec une absence de donnée. Appels espacés
 de 6,5 s (10/minute), une seule nouvelle tentative après un 429.
 
-/analysis → bouton Analyser → MatchAnalysisController::analyzeExistingMatch
+/analysis → bouton Calculer → MatchAnalysisController::analyzeExistingMatch
+  (refusé en 409 si le match est commencé ou contaminé : KickoffPassedException,
+  levée par PredictionService::computeAndStore pour tous les appelants)
   (ou predictions:compute {date} : matchs à venir, non contaminés, avec cotes 1X2)
   ├─ ContextEnricherService::enrich                  fatigue, enjeux, météo, pression
   │                                                  (stocké, ne nourrit pas le modèle ;
@@ -287,6 +289,67 @@ facultatif, marge d'environ 35 pour une relance. Élargir redevient possible ave
 offre API-Football supérieure, à raison d'environ 3 requêtes par match
 supplémentaire. Le périmètre du CLV (`PIPELINE_CLOSING_LEAGUES`) suit celui des cotes
 par défaut.
+
+## Interface du terminal (étape 3)
+
+Règles visuelles : `docs/design-system.md`. Toutes les pages passent par
+`<x-terminal-layout>` et le build Vite ; plus aucun CDN. Breeze (profil, inscription,
+mot de passe oublié) garde `layouts.app` / `layouts.guest` sur `app.css`.
+
+| Route | Contrôleur | Vue |
+|---|---|---|
+| `/dashboard?date=` | `TerminalController@index` | `terminal/index` : sélections, combiné, Monte-Carlo, calibration, clôture |
+| `/analysis?date=` | `MatchAnalysisController@index` | `terminal/matches` : matchs du jour, calcul à la demande (`match-compute.js`) |
+| `/analysis/results` | `MatchAnalysisController@results` | redirection vers le détail du match demandé ou du dernier calculé |
+| `/history` | `MatchAnalysisController@history` | `terminal/history` : filtres de navigation, export CSV, pagination |
+| `/history/{id}` | `MatchAnalysisController@show` | `terminal/match` : cotes, λ, ρ, probabilités par catalogue |
+| `/market` | `MarketController@index` | `terminal/market` : CLV Pinnacle, relevés bruts |
+| `/settings` | `SettingsController@index` | `terminal/settings` : clés, quotas, bookmakers, `pipeline_runs` |
+| `/login` | Breeze | `auth/login` au style du terminal, sans état du pipeline |
+
+Supprimé le 14/09/2026 : `layouts.pro`, `layouts.dashboard`, `components/pro/*`,
+`components/sidebar`, `components/header`, `analysis/*`, `pro/*`, `welcome`,
+l'ancien tableau de bord, la route `DELETE /history/{match}`, le score et l'alerte
+« sharp money ». `CLVTrackerService` enregistre les variations brutes de chaque relevé
+(`odds_movements.move_*_pct`, pourcentage signé contre le relevé précédent du même
+bookmaker, `snapshot_at`). Les colonnes `sharp_alert` et `sharp_score` restent en base,
+orphelines : avant le 14/09/2026 un score à pondérations écrites à la main, ensuite la
+valeur par défaut (false, 0). Ne jamais les lire.
+
+```
+GET /dashboard?date=Y-m-d → TerminalController@index → terminal/index.blade.php
+  ├─ SelectionsBoard::forDate       matchs du jour triés par heure, prédictions dans l'ordre
+  │                                 du catalogue (MarketLabel), statut de chaque match sans
+  │                                 prédiction, paramètres Monte-Carlo (λ, ρ, matrice exacte)
+  ├─ ReferenceCalibration::summary  Brier et courbes 1X2, O/U 2.5, BTTS du run de référence
+  └─ CLVTrackerService::getSummary  écart de clôture Pinnacle
+resources/js/terminal/home.js       Alpine terminalHome : marché choisi, match simulé, combiné
+resources/js/terminal/monte-carlo.js tirages dans la matrice, pause onglet caché, repos exact
+```
+
+```
+vite.config.js                         entrées terminal.css + terminal.js, à côté de Breeze
+tailwind.terminal.config.js            palette, tailles, espacements REMPLACÉS par les jetons ;
+                                       ombres, anneaux, flous, arrondis désactivés
+resources/css/terminal.css             base, composants (hors @layer : jamais purgés), utilitaires
+  ├─ terminal/tokens.css               variables CSS, source unique des valeurs
+  └─ terminal/fonts.css                @font-face woff2 locaux (resources/fonts, OFL), latin, latin-ext, grec
+resources/js/terminal.js               Alpine, interrupteur de mouvement, horloge UTC
+  └─ terminal/design-audit.js          en dev : lueurs mesurées sur l'effet rendu, vidéo inverse unique,
+                                       lettres grecques mises en capitales
+app/View/Components/TerminalLayout.php <x-terminal-layout title= :states=> → layouts/terminal.blade.php
+  ├─ Support/Terminal/PipelineFreshness  fraîcheur lue dans pipeline_runs (logique pure testée)
+  └─ Support/Terminal/SystemState        gravité ; arrange() : un seul critique en vidéo inverse
+app/Support/Terminal/Fmt.php           format français (virgule, U+2212), valeur absente = chaîne vide
+app/Support/Terminal/MarketNature.php  ajustement (1X2, DC, O/U 2.5) / dérivé (BTTS) ; couleur de l'écart
+resources/views/components/terminal/   panel, row, kv, figure, readout, tag, nature, nature-note, edge,
+                                       scope, state, measure, note, dot, clock, motion-toggle,
+                                       calibration-plot
+```
+
+Un marché absent de `MarketNature` lève une exception : il doit être classé avant
+d'être affiché. Pages futures : `resources/views/terminal/`, déjà dans le glob
+Tailwind.
 
 ## Pièges connus
 

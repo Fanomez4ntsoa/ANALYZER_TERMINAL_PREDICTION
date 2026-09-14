@@ -855,3 +855,211 @@ Pinnacle ne publie en `totals` que sa ligne principale, qui n'était 2.5 que sur
 événements sur 81 (environ un quart). Le CLV Over/Under 2.5 ne portera que sur ces
 matchs. On ne cherche pas à le contourner (lignes alternatives par événement, plus
 coûteuses en crédits) : le CLV 1X2 est complet, c'est suffisant pour commencer.
+
+---
+
+## 2026-09-14 — La production calcule en mode marché seul
+
+`model_probability` vient désormais de `XGModelService::predict(marketOnly: true)`, la
+configuration du backtest de l'étape 2 (cotes 1X2 et O/U 2.5, avantage domicile hors
+marché, recalage conjoint, Dixon-Coles à ρ unique). Décision de l'utilisateur, prise
+avant tout affichage.
+
+Raison : c'est la seule configuration mesurée. Afficher des probabilités issues de la
+fusion de trois signaux (marché, comparaison API-Football, blessures) à côté d'une
+calibration mesurée sur le seul signal marché ferait croire que la courbe décrit ce qui
+est affiché. C'est exactement le défaut de l'ancien système.
+
+La fusion à trois signaux n'est pas abandonnée : elle est calculée à chaque prédiction
+et stockée à part (`full_model_probability`, `full_model_signals`), sans jamais entrer
+dans `model_probability`. Quand le journal des sélections aura tourné quelques mois, les
+deux configurations pourront être comparées sur des matchs réels.
+
+Chaque ligne enregistre aussi `model_mode`, λ domicile, λ extérieur et ρ du calcul
+affiché : l'animation Monte-Carlo lit ces paramètres, jamais un recalcul.
+
+Écart constaté au passage, Inter-Udinese du 14/09/2026 : 76,1 % sur la victoire à
+domicile en marché seul, 74,8 % en fusion complète. Les prédictions déjà en base sont
+recalculées après la migration.
+
+---
+
+## 2026-09-14 — Système de design, deuxième revue
+
+Quatre corrections de l'utilisateur sur la page de démonstration :
+
+- **Vidéo inverse unique.** Quatre blocs visibles écrasaient la page ; un
+  avertissement permanent n'avertit plus. Un seul bloc par page, l'anomalie la plus
+  grave ; les autres états en ligne, vert sombre, bordure d'emphase. Dans le socle,
+  seul un état **critique** passe en vidéo inverse : l'écart de configuration du run
+  de référence est permanent et ne doit pas occuper ce bloc tous les jours.
+- **Vert vif rationné.** Toute la colonne Modèle était en vert vif : cinquante lignes
+  vivantes n'ont plus de hiérarchie. Valeurs des tableaux en vert moyen, vert vif sur
+  la ligne survolée ou cochée et les valeurs uniques des panneaux.
+- **Variante B** (en-têtes 10 px, vert sombre) retenue, comparaison supprimée.
+- **Compteur de lueurs mesuré.** L'ancien comptait les `[data-glow]` et affichait 2/2
+  pour 3 effets rendus : un `data-glow` sans effet (`text-shadow` sur le conteneur
+  d'un canvas), le `shadowBlur` du canvas non vu, un halo radial d'ambiance non vu.
+  Le halo est supprimé. L'impression de barres lumineuses dans l'histogramme vient des
+  lignes de balayage sur un aplat : aucune lueur mesurable sur ces barres.
+
+Et un principe ajouté : **un écart mécaniquement nul ne doit jamais être présenté
+comme une information.** En marché seul, 1X2, DC et O/U 2.5 sont des marchés
+d'ajustement ; BTTS (et O/U 1.5, O/U 3.5 s'ils sont affichés) sont dérivés. C'est la
+distinction du backtest entre contrôle de cohérence et test indépendant.
+
+Constat à cette occasion : l'écart du 1X2 n'est pas nul. À total fixé par l'O/U 2.5,
+un seul partage des λ ne reproduit pas les trois issues ; sur les 33 lignes 1X2 du
+14/09/2026, résidu moyen 0,58 pt, maximum 2,74 pts (DC identique), contre 0,03 pt en
+moyenne sur l'O/U 2.5. Ce résidu est un défaut d'ajustement, pas une information : il
+s'affiche sans couleur, comme le zéro.
+
+## 2026-09-14 — Socle de l'interface
+
+- **Tailwind du terminal séparé** (`tailwind.terminal.config.js`, `@config`) : palette,
+  tailles et espacements remplacés par les jetons, ombres et flous désactivés. Une
+  couleur hors système ne génère rien. Breeze et `layouts.pro` gardent leur config
+  jusqu'à leur migration, pour ne rien casser en cours de route.
+- **Polices copiées dans `resources/fonts`** plutôt qu'une dépendance npm : onze woff2
+  (184 Ko, licence OFL jointe), sous-ensembles latin, latin-ext et grec pour λ et ρ.
+  Le sous-ensemble latin couvre U+2212.
+- **Composants CSS hors `@layer`** : Tailwind purge les classes de couche absentes des
+  vues scannées ; une classe du système ne doit pas disparaître parce qu'aucune page
+  ne l'utilise encore.
+- **Règles d'affichage en PHP testé**, pas dans les vues : `MarketNature` (couleur de
+  l'écart, exception pour un marché non classé), `Fmt` (jamais « −0,0 », valeur
+  absente = vide), `SystemState::arrange`, `PipelineFreshness::evaluate`
+  (délai de grâce 30 min après 10:00 UTC, passage en cours jugé interrompu après 2 h).
+
+---
+
+## 2026-09-14 — Troisième revue du design : signes de l'écart, résidu d'ajustement
+
+**Le résidu d'ajustement est un résultat, pas du bruit.** Une fois le total calé sur
+l'O/U 2.5, un seul paramètre de partage ne peut pas reproduire exactement les trois
+issues du 1X2 : le résidu mesure ce que deux lois de Poisson corrélées ne savent pas
+représenter, le défaut structurel du backtest vu au niveau d'un match. À l'écran, un
+écart sur un marché d'ajustement ne signale jamais une opportunité ; il mesure une
+contrainte de marché que le modèle n'a pas pu satisfaire. Il reste sans couleur.
+
+**Signes à poids égal.** Un négatif rouge vif face à un positif indistinct fait
+ressortir un côté. L'utilisateur a refusé le vert vif dans le tableau et proposé
+`--p-hot`. Comparaison à l'écran de quatre paires : contre `--p-hot` (L* 95), le rouge
+`#ff2f4d` (L* 56, chroma 84) écrase le positif ; un rose de même luminosité et même
+chroma est hors gamut sRGB ; `#ffbab6` (L* 82, chroma 27) est le plus proche qui reste
+lisiblement rose, les teintes plus pâles se confondent avec `--p-hot`. Retenu :
+`--p-hot` et `--neg` = `#ffbab6`. Le jeton `--red` disparaît.
+
+## 2026-09-14 — Page principale
+
+- **`/dashboard` devient la page principale du terminal** : la route garde son nom
+  (redirections de Breeze), l'ancien tableau de bord (compteurs, quota) est supprimé ;
+  le quota reste dans `/settings`.
+- **Combiné limité à une ligne par match.** Le produit des probabilités n'est juste
+  que pour des issues indépendantes ; 1X2 · 1 et DC · 1X, ou BTTS · Oui et Over 2.5,
+  ne le sont pas. Afficher leur produit serait afficher une probabilité fausse.
+- **Double Chance retirée de la calibration.** Sur le run #8, son Brier est identique
+  à celui du 1X2 (0,19173, Pinnacle 0,19103) : chaque probabilité DC est le
+  complément d'une issue 1X2, l'erreur quadratique est la même ligne à ligne. Le
+  backtest la range dans la famille « dérivés », à tort : ce n'est pas un test
+  indépendant. À corriger dans `CalibrationBacktestService` et `ReferenceCalibration`
+  à l'étape 4 (rien n'est recalculé ici).
+- **« Hors périmètre » exige l'absence de cotes.** Un match de mai 2026 relevé quand le
+  périmètre couvrait 21 ligues a des cotes : il est « non calculé », pas hors
+  périmètre. Le premier rendu du 02/05 en étiquetait 45 à tort.
+- **Monte-Carlo sur la matrice exacte du modèle** (0 à 6 buts, λ et ρ enregistrés).
+  L'Over enregistré compte la masse au-delà de 6 buts, les tirages non : l'écart
+  simulé / enregistré n'est pas que du bruit, c'est dit en infobulle.
+- **Tri par écart au clic non livré.** Tranché ensuite : jamais (entrée suivante).
+
+---
+
+## 2026-09-14 — Aucun tri par écart, même sur les marchés dérivés
+
+Le document de design autorisait le tri par écart au clic. Retiré. Le restreindre aux
+marchés dérivés ne respecte pas le principe 1 : il classerait toujours du meilleur au
+pire, sur un sous-ensemble. Tris gardés : heure (défaut), championnat, marché, qui
+sont des critères de navigation ; filtre par marché. **Toute apparition de l'écart
+comme critère de classement est une régression.**
+
+## 2026-09-14 — La Double Chance n'est pas un test indépendant
+
+Constat de la page principale : sur le run #8, le Brier de la DC est identique à celui
+du 1X2 au millième près (0,19173, Pinnacle clôture 0,19103). C'est mécanique : chaque
+probabilité DC est le complément d'une issue du 1X2 (1X = 1 − P(2)), donc
+`(1 − p − (1 − y))² = (p − y)²` ligne à ligne, et la courbe de calibration est le
+miroir de celle du 1X2.
+
+**Lecture corrigée des tableaux du backtest** : `CalibrationBacktestService` et
+`ReferenceCalibration` rangent la DC dans la famille « dérivés ». Elle n'en est pas
+une au sens du test indépendant : c'est une recombinaison du 1X2, qui répète le
+contrôle de cohérence. **Les seuls vrais tests indépendants sont BTTS, O/U 1.5 et
+O/U 3.5.** Les conclusions de l'étape 2 ne changent pas (elles reposaient sur ces
+trois marchés), mais toute ligne « dérivés » qui agrège la DC doit être relue en la
+retirant.
+
+À faire à l'étape 4 : sortir la DC de la famille « dérivés » dans le backtest et dans
+le résumé de calibration, sans recalculer les runs passés (la famille est une
+étiquette, les prédictions stockées restent valides).
+
+---
+
+## 2026-09-14 — Pages restantes du terminal
+
+- **Correctif avant migration** : `analyzeExistingMatch` (bouton de calcul de
+  `/analysis`) calculait et écrivait les prédictions sans vérifier le coup d'envoi, et
+  « Recalculer tous les matchs » aurait écrasé des prédictions d'avant-match par un
+  calcul d'après-match. `predictions:compute` filtrait, pas ce chemin. La garde est
+  désormais dans `PredictionService::computeAndStore`, pour tous les appelants
+  (`KickoffPassedException`, 409 côté contrôleur). Vérifié en base : aucune
+  prédiction dont `computed_at` dépasse le coup d'envoi.
+- **Alertes « sharp money » retirées de `/market`.** L'ancienne page affichait un
+  score de mouvement, rouge au-delà de 80 : un score qui désigne quoi suivre est une
+  décision à la place de l'utilisateur (règle 4). Le calcul existe toujours dans
+  `CLVTrackerService` et remplit `odds_movements` ; à supprimer ou garder comme donnée
+  brute, à décider.
+- **CLV sans couleur.** La couleur de signe est réservée à l'écart du modèle sur un
+  marché dérivé ; colorer le CLV par match reviendrait à hiérarchiser les matchs.
+- **Bouton de suppression d'un match retiré de l'historique.** Un clic détruisait un
+  match, ses prédictions et sa clôture : donnée irremplaçable pour toute mesure. La
+  route `DELETE /history/{match}` reste en place, sans interface, en attendant une
+  décision.
+- **`/analysis/results` redirige** vers le détail du match : la page doublonnait
+  `/history/{id}`.
+- **Fin des CDN** : Tailwind, Alpine et Chart.js par CDN disparaissent avec
+  `layouts.pro` ; la connexion passe au terminal ; les polices Bunny de Breeze sont
+  retirées (repli sur la pile système).
+- **Lettres grecques en capitales** : sur le détail d'un match et dans le pied de
+  page commun, « ρ Dixon-Coles » s'affichait « P DIXON-COLES » et « λ » en « Λ ».
+  Corrigé, et l'audit de développement signale désormais toute minuscule grecque
+  rendue en capitales (il a aussi trouvé les deux occurrences de la page de
+  démonstration).
+
+---
+
+## 2026-09-14 — Score « sharp money » et route de suppression supprimés
+
+**Score et alerte supprimés, variations brutes gardées.** `CLVTrackerService` calculait
+un score de 0 à 100 à partir de pondérations écrites à la main (mouvement ≥ 5 % : 30
+points, ≥ 8 % : 20 de plus, asymétrie : 25, O/U : 15, ≥ 15 bookmakers : 10) et levait
+une alerte à 60 (l'ancienne page `/market` colorait en rouge au-delà de 80). C'est un
+verdict, et jamais mesuré : personne n'a vérifié qu'un score élevé prédisait quoi que
+ce soit. Dernier reste de l'ancien système. Supprimés : `detectSharpScore`, l'alerte,
+leur affichage dans `market:track`. Gardé : chaque relevé et ses variations signées
+contre le précédent (`move_home_pct`, `move_draw_pct`, `move_away_pct`,
+`move_over_pct`, `snapshot_at`), matière première du test de mouvement de ligne de
+l'étape 4 (161 relevés dont 55 avec variation au 14/09/2026). Si ce test montre un
+signal, un indicateur mesuré sera construit à ce moment-là.
+
+Les colonnes `sharp_alert` et `sharp_score` ne sont pas supprimées (aucune suppression
+de colonne) : elles restent orphelines et ne doivent jamais être lues.
+
+**Route `DELETE /history/{match}` supprimée**, avec `deleteMatch`. Elle détruisait un
+match, ses prédictions et sa clôture en un clic. L'intérêt du système est
+d'accumuler un historique fiable ; retirer une donnée erronée passera, le jour venu,
+par une commande explicite avec confirmation.
+
+**Tests Feature** : `pdo_sqlite` manque toujours sur cette machine, 23 tests sur 24
+échouent sur « could not find driver ». Le 24ᵉ était faux depuis l'initialisation du
+projet (il attendait un 200 sur `/`, qui redirige vers la connexion) : corrigé, il
+passe. Fusion de l'étape 3 faite sans les autres.

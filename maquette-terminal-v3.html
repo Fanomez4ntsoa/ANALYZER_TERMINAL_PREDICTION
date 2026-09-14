@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal — Prédiction football</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=VT323&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#040705; --panel:#080d0a; --panel-2:#0b120e;
+  --line:#14281d; --line-hi:#1e3d2b;
+  --p-dead:#2e5240; --p-dim:#4e7d63; --p-mid:#86c9a3;
+  --p-live:#1cff87; --p-hot:#b8ffd8;
+  --red:#ff2f4d;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --crt:"VT323","JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--p-mid);
+  font-family:var(--mono); font-size:12px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  padding:8px; display:flex; flex-direction:column; gap:7px; overflow:hidden;
+}
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:90;
+  background:repeating-linear-gradient(180deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.22) 3px 4px);
+  mix-blend-mode:multiply; opacity:.5;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:radial-gradient(ellipse 80% 55% at 50% 35%,rgba(28,255,135,.05),transparent 70%);
+}
+
+.lab{font-size:9px;letter-spacing:.17em;text-transform:uppercase;color:var(--p-dim);font-weight:500}
+.num{font-variant-numeric:tabular-nums}
+.up{color:var(--p-live)} .down{color:var(--red)}
+.glow{text-shadow:0 0 12px rgba(28,255,135,.45),0 0 2px rgba(28,255,135,.7)}
+.sp{flex:1}
+
+.panel{
+  border:1px solid var(--line); background:var(--panel);
+  display:flex; flex-direction:column; min-height:0; min-width:0;
+  position:relative; z-index:1;
+}
+.hd{display:flex;align-items:center;gap:7px;flex:none;
+  padding:6px 9px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+.hd .lab{color:var(--p-dead)} .hd .lab.on{color:var(--p-dim)}
+.bd{padding:10px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+
+.dot{width:5px;height:5px;background:var(--p-live);flex:none}
+.dot.live{animation:pulse 2.4s steps(2,end) infinite}
+@keyframes pulse{0%,60%{opacity:1}61%,100%{opacity:.25}}
+
+.top{flex:none;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  border:1px solid var(--line-hi);background:var(--panel-2);padding:8px 11px;position:relative;z-index:1}
+.mark{width:24px;height:24px;flex:none;border:1px solid var(--p-dead);
+  display:grid;place-items:center;font-family:var(--crt);font-size:19px;line-height:1;color:var(--p-live)}
+.title{font-size:13px;font-weight:700;color:var(--p-hot);letter-spacing:.04em}
+.sub{font-size:9px;letter-spacing:.15em;color:var(--p-dead);text-transform:uppercase}
+.kv{display:flex;flex-direction:column;gap:1px}
+.kv b{font-weight:500;font-size:11px;color:var(--p-mid)}
+.clock{font-family:var(--crt);font-size:24px;line-height:.9;color:var(--p-live)}
+
+.tape{flex:none;border:1px solid var(--line);border-top:0;background:var(--panel);
+  overflow:hidden;white-space:nowrap;padding:4px 0;position:relative;z-index:1}
+.tape-in{display:inline-block;animation:slide 70s linear infinite}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.tape span{font-size:10px;letter-spacing:.07em;padding:0 13px;color:var(--p-dim)}
+.tape span i{font-style:normal;color:var(--p-mid)}
+
+.stage{flex:1 1 auto;min-height:0;display:grid;gap:7px;
+  grid-template-columns:210px minmax(0,1.25fr) minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) minmax(0,1.1fr)}
+.a1{grid-column:1;grid-row:1} .a2{grid-column:2;grid-row:1} .a3{grid-column:3;grid-row:1}
+.b1{grid-column:1 / span 2;grid-row:2}
+.b2{grid-column:3;grid-row:2;display:flex;flex-direction:column;gap:7px;min-height:0}
+
+.big{font-family:var(--crt);font-size:58px;line-height:.8;color:var(--p-live)}
+.big small{font-size:20px;color:var(--p-dim)}
+.rows{border-top:1px solid var(--line);margin-top:auto}
+.row{display:flex;justify-content:space-between;align-items:baseline;
+  padding:5px 0;border-bottom:1px solid var(--line)}
+.row b{font-weight:400;font-size:12px;color:var(--p-mid)}
+
+.mc{flex:1 1 auto;min-height:0;display:flex;gap:10px}
+.mc-grid{flex:1 1 auto;min-width:0;min-height:0;position:relative}
+.mc-grid canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.mc-side{width:128px;flex:none;display:flex;flex-direction:column;min-height:0}
+.conv{height:38px;flex:none;position:relative;margin-top:6px;border:1px solid var(--line)}
+.conv canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.readout{font-family:var(--crt);font-size:34px;line-height:.85;color:var(--p-live)}
+.readout.sm{font-size:26px;color:var(--p-mid)}
+
+.plotwrap{flex:1 1 auto;min-height:0}
+.plot{width:100%;height:100%;display:block}
+.gridline{stroke:var(--line);stroke-width:1}
+.axis{stroke:var(--line-hi);stroke-width:1}
+.ref{stroke:var(--p-dead);stroke-width:1;stroke-dasharray:3 4;fill:none}
+.curve{stroke:var(--p-live);stroke-width:1.6;fill:none;filter:drop-shadow(0 0 4px rgba(28,255,135,.55))}
+.pt{fill:var(--p-hot)}
+.band{fill:rgba(28,255,135,.07)}
+.tick{font-family:var(--mono);font-size:9px;fill:var(--p-dead);letter-spacing:.1em}
+.draw{stroke-dasharray:820;stroke-dashoffset:820;animation:draw 1.5s .4s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.fade{opacity:0;animation:fade .5s 1.7s ease-out forwards}
+@keyframes fade{to{opacity:1}}
+
+.tbl{flex:1 1 auto;min-height:0;overflow-y:auto;margin:0 -10px -10px}
+.tbl::-webkit-scrollbar{width:6px}
+.tbl::-webkit-scrollbar-thumb{background:var(--line-hi)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+thead th{position:sticky;top:0;background:var(--panel);
+  font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--p-dead);
+  font-weight:500;text-align:right;padding:0 10px 6px;border-bottom:1px solid var(--line-hi)}
+thead th:first-child,thead th:nth-child(2){text-align:left}
+tbody td{padding:5px 10px;border-bottom:1px solid var(--line);text-align:right;font-size:11.5px}
+tbody td:first-child,tbody td:nth-child(2){text-align:left}
+tbody tr:hover{background:rgba(28,255,135,.04)}
+.team{color:var(--p-mid);white-space:nowrap}
+.team em{font-style:normal;color:var(--p-dead)}
+.mk{font-size:9.5px;letter-spacing:.07em;color:var(--p-dim);
+  border:1px solid var(--line-hi);padding:0 5px;white-space:nowrap}
+.pm{color:var(--p-live);font-weight:500}
+.bar{display:inline-block;height:3px;vertical-align:middle;margin-left:7px}
+
+.hist{display:flex;align-items:flex-end;gap:3px;flex:1 1 auto;min-height:0}
+.hist div{flex:1;background:var(--p-dead)}
+.hist div.hi{background:var(--p-live);box-shadow:0 0 9px rgba(28,255,135,.4)}
+.hist-x{display:flex;gap:3px;margin-top:5px;flex:none}
+.hist-x span{flex:1;text-align:center;font-size:8px;color:var(--p-dead)}
+
+.foot{flex:none;display:flex;gap:16px;flex-wrap:wrap;align-items:center;
+  border:1px solid var(--line);background:var(--panel-2);padding:6px 11px;position:relative;z-index:1}
+.foot .lab{color:var(--p-dead)}
+.cur{display:inline-block;width:6px;height:11px;background:var(--p-live);
+  vertical-align:-1px;animation:blink 1.1s steps(2,end) infinite}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+#err{color:var(--red);font-size:10px}
+
+@media(max-width:1000px){
+  body{overflow:auto;height:auto}
+  .stage{grid-template-columns:1fr;grid-template-rows:none}
+  .a1,.a2,.a3,.b1,.b2{grid-column:1;grid-row:auto}
+  .mc-grid{height:230px} .plotwrap{height:220px} .tbl{max-height:300px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important}
+  .draw{stroke-dashoffset:0}.fade{opacity:1}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="mark">▚</div>
+  <div>
+    <div class="title">TERMINAL PRÉDICTION</div>
+    <div class="sub">Poisson · cotes Bet365 · 11 championnats</div>
+  </div>
+  <div class="sp"></div>
+  <div class="kv"><span class="lab">Échantillon</span><b class="num">4 812</b></div>
+  <div class="kv"><span class="lab">Marchés</span><b>DC · O/U · BTTS</b></div>
+  <div class="kv"><span class="lab">Dernier import</span><b class="num">13/09 06:02</b></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <span class="dot live"></span>
+    <div class="clock num" id="clk">00:00:00</div>
+    <span class="lab">UTC</span>
+  </div>
+</div>
+
+<div class="tape"><div class="tape-in" id="tape"></div></div>
+
+<div class="stage">
+
+  <div class="panel a1">
+    <div class="hd"><span class="dot"></span><span class="lab on">Score de Brier</span></div>
+    <div class="bd">
+      <div class="big glow num">0<small>.</small>198</div>
+      <div class="lab" style="margin-top:7px;line-height:1.6">0.250 = pile ou face</div>
+      <div class="rows">
+        <div class="row"><span class="lab">Écart moyen</span><b class="num up">+0,9</b></div>
+        <div class="row"><span class="lab">Tranches</span><b class="num">8</b></div>
+        <div class="row"><span class="lab">Période</span><b class="num">21 → 26</b></div>
+        <div class="row"><span class="lab">vs Pinnacle</span><b class="num down">−0,4</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel a2">
+    <div class="hd">
+      <span class="dot live"></span><span class="lab on">Monte-Carlo · Bayern – Leipzig</span>
+      <div class="sp"></div>
+      <span class="lab">λ 1.62 / 1.18</span>
+    </div>
+    <div class="bd">
+      <div class="mc">
+        <div class="mc-grid"><canvas id="mx"></canvas></div>
+        <div class="mc-side">
+          <span class="lab">Tirages</span>
+          <div class="readout num glow" id="n">0</div>
+          <span class="lab" style="margin-top:9px">Under 2.5 simulé</span>
+          <div class="readout num" id="pu">—</div>
+          <span class="lab" style="margin-top:2px">Poisson exact <b class="num" id="pex" style="color:var(--p-dim);font-weight:400">—</b></span>
+          <div class="conv"><canvas id="cv"></canvas></div>
+          <span class="lab" style="margin-top:6px;line-height:1.6">La courbe se resserre à mesure que l'échantillon grandit</span>
+          <div class="sp"></div>
+          <span class="lab">Double chance 1X</span>
+          <div class="readout sm num" id="pd">—</div>
+          <div id="err"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel a3">
+    <div class="hd">
+      <span class="dot"></span><span class="lab on">Calibration</span>
+      <div class="sp"></div><span class="lab">Annoncé → observé</span>
+    </div>
+    <div class="bd">
+      <div class="plotwrap">
+        <svg class="plot" viewBox="0 0 460 250" preserveAspectRatio="xMidYMid meet"
+             role="img" aria-label="Courbe de calibration">
+          <g>
+            <line class="gridline" x1="46" y1="30"  x2="440" y2="30"/>
+            <line class="gridline" x1="46" y1="95"  x2="440" y2="95"/>
+            <line class="gridline" x1="46" y1="160" x2="440" y2="160"/>
+            <line class="gridline" x1="145" y1="30" x2="145" y2="216"/>
+            <line class="gridline" x1="243" y1="30" x2="243" y2="216"/>
+            <line class="gridline" x1="341" y1="30" x2="341" y2="216"/>
+          </g>
+          <polygon class="band fade" points="46,226 440,20 440,38 46,244"/>
+          <line class="ref" x1="46" y1="216" x2="440" y2="30"/>
+          <line class="axis" x1="46" y1="216" x2="440" y2="216"/>
+          <line class="axis" x1="46" y1="30"  x2="46"  y2="216"/>
+          <polyline class="curve draw"
+            points="70,209 119,196 168,158 217,148 266,113 315,96 364,55 413,47"/>
+          <g class="fade">
+            <circle class="pt" cx="70"  cy="209" r="2.6"/><circle class="pt" cx="119" cy="196" r="2.6"/>
+            <circle class="pt" cx="168" cy="158" r="2.6"/><circle class="pt" cx="217" cy="148" r="2.6"/>
+            <circle class="pt" cx="266" cy="113" r="2.6"/><circle class="pt" cx="315" cy="96"  r="2.6"/>
+            <circle class="pt" cx="364" cy="55"  r="2.6"/><circle class="pt" cx="413" cy="47"  r="2.6"/>
+          </g>
+          <g class="tick">
+            <text x="70"  y="232" text-anchor="middle">52</text>
+            <text x="168" y="232" text-anchor="middle">62</text>
+            <text x="266" y="232" text-anchor="middle">72</text>
+            <text x="364" y="232" text-anchor="middle">82</text>
+            <text x="40"  y="219" text-anchor="end">50</text>
+            <text x="40"  y="163" text-anchor="end">70</text>
+            <text x="40"  y="34"  text-anchor="end">90</text>
+            <text x="440" y="246" text-anchor="end">ANNONCÉ %</text>
+            <text x="46"  y="20">OBSERVÉ %</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel b1">
+    <div class="hd">
+      <span class="dot live"></span><span class="lab on">Sélections du 13 septembre</span>
+      <div class="sp"></div><span class="lab">10 lignes · triées par écart</span>
+    </div>
+    <div class="bd">
+      <div class="tbl">
+        <table>
+          <thead><tr>
+            <th>Rencontre</th><th>Marché</th>
+            <th>Modèle</th><th>Cote</th><th>Implicite</th><th>Écart</th>
+          </tr></thead>
+          <tbody id="tb"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="b2">
+    <div class="panel" style="flex:1 1 0">
+      <div class="hd"><span class="dot"></span><span class="lab on">Volume par tranche</span></div>
+      <div class="bd">
+        <div class="hist">
+          <div style="height:86%"></div><div style="height:77%"></div>
+          <div style="height:70%"></div><div style="height:85%"></div>
+          <div style="height:93%" class="hi"></div><div style="height:83%"></div>
+          <div style="height:100%" class="hi"></div><div style="height:83%"></div>
+        </div>
+        <div class="hist-x">
+          <span>50</span><span>55</span><span>60</span><span>65</span>
+          <span>70</span><span>75</span><span>80</span><span>85</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="flex:none">
+      <div class="hd"><span class="dot"></span><span class="lab on">Écart de clôture</span></div>
+      <div class="bd" style="flex-direction:row;align-items:center;gap:14px">
+        <div class="big glow num" style="font-size:42px">+1<small>,</small>3<small>%</small></div>
+        <div style="flex:1">
+          <div class="row" style="border-top:1px solid var(--line)"><span class="lab">Positif</span><b class="num up">61 %</b></div>
+          <div class="row"><span class="lab">Lignes</span><b class="num">1 204</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="foot">
+  <span class="lab">Poisson v1 · λ estimés sur cotes d'ouverture</span>
+  <span class="lab">Aucune décision automatique</span>
+  <span class="lab">Données factices — maquette</span>
+  <div class="sp"></div>
+  <span class="lab">Prêt<span class="cur"></span></span>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------- sélections ---------- */
+var sel=[
+ ["Atlético Madrid","Alavés","Under 2.5",59.4,1.78,56.2,3.2],
+ ["Bayern Munich","RB Leipzig","DC 1X",83.1,1.24,80.6,2.5],
+ ["Juventus","Empoli","Under 3.5",77.6,1.33,75.2,2.4],
+ ["PSV Eindhoven","Twente","Under 3.5",71.3,1.45,69.0,2.3],
+ ["Arsenal","Fulham","DC 1X",85.9,1.18,84.7,1.2],
+ ["Real Madrid","Getafe","DC 1X",90.4,1.12,89.3,1.1],
+ ["Inter Milan","Cagliari","DC 1X",86.2,1.15,87.0,-0.8],
+ ["Manchester City","Brentford","Under 3.5",69.8,1.40,71.4,-1.6],
+ ["Lille","Nantes","DC 1X",75.1,1.30,76.9,-1.8],
+ ["Dortmund","Union Berlin","BTTS Non",46.1,2.05,48.8,-2.7]
+];
+function f1(n){return n.toFixed(1).replace(".",",");}
+function f2(n){return n.toFixed(2).replace(".",",");}
+
+document.getElementById("tb").innerHTML=sel.map(function(r){
+  var h=r[0],a=r[1],m=r[2],p=r[3],c=r[4],i=r[5],e=r[6];
+  var cl=e>0?"up":"down", sg=e>0?"+":"−";
+  return '<tr><td class="team">'+h+' <em>·</em> '+a+'</td>'+
+    '<td><span class="mk">'+m+'</span></td>'+
+    '<td class="num pm">'+f1(p)+'</td><td class="num">'+f2(c)+'</td>'+
+    '<td class="num" style="color:var(--p-dim)">'+f1(i)+'</td>'+
+    '<td class="num '+cl+'">'+sg+f1(Math.abs(e))+
+    '<span class="bar" style="width:'+(Math.abs(e)*8)+'px;background:'+
+    (e>0?"var(--p-live)":"var(--red)")+'"></span></td></tr>';
+}).join("");
+
+var tp=sel.map(function(r){
+  return '<span>'+r[0].toUpperCase()+' · '+r[2].toUpperCase()+
+         ' <i>'+f1(r[3])+'</i> @ <i>'+f2(r[4])+'</i></span>';
+}).join("");
+document.getElementById("tape").innerHTML=tp+tp;
+
+var clk=document.getElementById("clk");
+function tick(){clk.textContent=new Date().toISOString().slice(11,19);}
+tick(); setInterval(tick,1000);
+
+/* ---------- Monte-Carlo ---------- */
+var LH=1.62, LA=1.18, N=7;
+
+function pois(k,l){var p=Math.exp(-l);for(var i=1;i<=k;i++)p*=l/i;return p;}
+var exUnder=0, exDC=0;
+for(var h=0;h<14;h++)for(var a=0;a<14;a++){
+  var pp=pois(h,LH)*pois(a,LA);
+  if(h+a<=2) exUnder+=pp;
+  if(h>=a)   exDC+=pp;
+}
+document.getElementById("pex").textContent=f1(exUnder*100);
+
+function sample(l){var L=Math.exp(-l),k=0,p=1;do{k++;p*=Math.random();}while(p>L);return k-1;}
+
+var cvs=document.getElementById("mx"), ctx=cvs.getContext("2d");
+var spk=document.getElementById("cv"), sctx=spk.getContext("2d");
+var $n=document.getElementById("n"), $pu=document.getElementById("pu"),
+    $pd=document.getElementById("pd"), $err=document.getElementById("err");
+
+var cell,flash,tot,under,dc,hist;
+function reset(){
+  cell=[];flash=[];
+  for(var i=0;i<N;i++){
+    cell.push(new Array(N).fill(0));
+    flash.push(new Array(N).fill(0));
+  }
+  tot=0;under=0;dc=0;hist=[];
+}
+reset();
+
+/* Mesure à chaque image : aucun problème de timing possible */
+function sized(c){
+  var p=c.parentElement, w=p.clientWidth, hh=p.clientHeight;
+  if(!w||!hh) return null;
+  var d=window.devicePixelRatio||1;
+  if(c._w!==w||c._h!==hh||c._d!==d){
+    c.width=Math.round(w*d); c.height=Math.round(hh*d);
+    c._w=w; c._h=hh; c._d=d;
+    c.getContext("2d").setTransform(d,0,0,d,0,0);
+  }
+  return {w:w,h:hh};
+}
+
+var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+
+function drawMatrix(W,H){
+  var pad=20, s=Math.min((W-pad)/N,(H-pad)/N);
+  var ox=(W-s*N)/2+4, oy=(H-s*N)/2-3;
+  ctx.clearRect(0,0,W,H);
+
+  var max=1,i,j;
+  for(i=0;i<N;i++)for(j=0;j<N;j++) if(cell[i][j]>max) max=cell[i][j];
+
+  for(i=0;i<N;i++)for(j=0;j<N;j++){
+    var x=ox+j*s, y=oy+i*s, k=cell[i][j]/max;
+    ctx.fillStyle="rgba(28,255,135,"+(0.05+k*0.62)+")";
+    ctx.fillRect(x+1,y+1,s-2,s-2);
+    if(i+j<=2){
+      ctx.strokeStyle="rgba(28,255,135,.28)"; ctx.lineWidth=1;
+      ctx.strokeRect(x+1.5,y+1.5,s-3,s-3);
+    }
+    if(flash[i][j]>0){
+      ctx.save(); ctx.shadowColor="#1cff87"; ctx.shadowBlur=14;
+      ctx.fillStyle="rgba(184,255,216,"+flash[i][j]+")";
+      ctx.fillRect(x+1,y+1,s-2,s-2); ctx.restore();
+      flash[i][j]-=0.055;
+    }
+  }
+
+  ctx.strokeStyle="rgba(28,255,135,.5)"; ctx.lineWidth=1.2;
+  ctx.beginPath();
+  ctx.moveTo(ox,oy+3*s); ctx.lineTo(ox+3*s,oy+3*s); ctx.lineTo(ox+3*s,oy);
+  ctx.stroke();
+
+  ctx.font='9px "JetBrains Mono", monospace';
+  ctx.fillStyle="#2e5240";
+  for(i=0;i<N;i++){
+    ctx.textAlign="center"; ctx.fillText(String(i),ox+i*s+s/2,oy+N*s+13);
+    ctx.textAlign="right";  ctx.fillText(String(i),ox-6,oy+i*s+s/2+3);
+  }
+}
+
+function drawSpark(W,H){
+  sctx.clearRect(0,0,W,H);
+  if(hist.length<2) return;
+  var lo=exUnder*100-9, hi=exUnder*100+9;
+  function yy(v){return H-((v-lo)/(hi-lo))*H;}
+  sctx.strokeStyle="#2e5240"; sctx.setLineDash([2,3]); sctx.lineWidth=1;
+  sctx.beginPath(); sctx.moveTo(0,yy(exUnder*100)); sctx.lineTo(W,yy(exUnder*100)); sctx.stroke();
+  sctx.setLineDash([]);
+  sctx.strokeStyle="#1cff87"; sctx.lineWidth=1.2; sctx.beginPath();
+  for(var i=0;i<hist.length;i++){
+    var x=(i/(hist.length-1))*W, y=Math.max(1,Math.min(H-1,yy(hist[i])));
+    if(i) sctx.lineTo(x,y); else sctx.moveTo(x,y);
+  }
+  sctx.stroke();
+}
+
+$pd.textContent=f1(exDC*100);
+
+function frame(){
+  try{
+    if(!reduce && !document.hidden){
+      var batch = tot<400?3 : tot<3000?14 : 40;
+      for(var b=0;b<batch;b++){
+        var gh=sample(LH), ga=sample(LA);
+        var hi=gh<N?gh:N-1, ai=ga<N?ga:N-1;
+        cell[hi][ai]++; flash[hi][ai]=1;
+        tot++;
+        if(gh+ga<=2) under++;
+        if(gh>=ga)   dc++;
+      }
+      if(tot%40<batch) hist.push(under/tot*100);
+      if(hist.length>160) hist.shift();
+      $n.textContent=tot.toLocaleString("fr-FR");
+      $pu.textContent=f1(under/tot*100);
+      $pd.textContent=f1(dc/tot*100);
+      if(tot>26000) reset();
+    }
+    var m=sized(cvs); if(m) drawMatrix(m.w,m.h);
+    var k=sized(spk); if(k) drawSpark(k.w,k.h);
+  }catch(e){
+    $err.textContent="ERR "+e.message;
+    return;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

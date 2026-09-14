@@ -222,7 +222,37 @@ celle de Bet365 en particulier.
 
 ---
 
-## Étape 3 — Interface ⬜ à faire
+## Étape 3 — Interface ✅ 14/09/2026 (branche `feat/terminal-ui`, tag `etape-3-terminee`)
+
+Fait le 14/09/2026 :
+
+- Prérequis : production en marché seul, `pipeline_runs`, calibration du run de
+  référence.
+- Système de design (`docs/design-system.md`), deux revues sur la page de
+  démonstration : vidéo inverse unique, vert vif rationné, compteur de lueurs sur
+  l'effet rendu, principe 3 (écart mécanique des marchés d'ajustement).
+- Socle : jetons CSS, polices locales, entrée Vite du terminal, layout avec
+  fraîcheur du pipeline et états système, composants Blade
+  (`docs/architecture.md`).
+
+- Signes de l'écart à poids égal (`--p-hot` / `--neg`), résidu d'ajustement
+  documenté comme contrainte de marché non satisfaite.
+- Page principale (`/dashboard`) : sélections et combiné, Monte-Carlo, calibration
+  du run #8 sur 1X2, O/U 2.5 et BTTS, Brier, écart de clôture.
+
+- Tri par heure, championnat, marché et filtre par marché ; tri par écart retiré.
+- Pages matchs, historique, détail, marché, réglages et connexion migrées ; anciens
+  gabarits et CDN supprimés.
+- Correctif : le bouton de calcul écrivait des prédictions sur un match commencé
+  (aucune ligne touchée en base, vérifié).
+
+- Score et alerte « sharp money » supprimés (variations brutes conservées pour
+  l'étape 4) ; route web de suppression d'un match supprimée.
+- Tests Feature non exécutables sur cette machine : `pdo_sqlite` absent (23 tests sur
+  24 échouent sur « could not find driver »). Le test par défaut, faux depuis
+  l'initialisation (`/` redirige vers la connexion), est corrigé.
+
+Reporté à l'étape 4 : sortir la DC de la famille « dérivés » du backtest.
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart

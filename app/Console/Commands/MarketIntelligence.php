@@ -14,7 +14,7 @@ class MarketIntelligence extends Command
                             {--date= : Date cible (YYYY-MM-DD, défaut: aujourd\'hui)}
                             {--match-id= : Match spécifique}';
 
-    protected $description = 'Intelligence de marché — snapshots de cotes, CLV, mouvements, sharp money';
+    protected $description = 'Relevés de cotes Pinnacle, clôtures, écart de clôture et variations brutes';
 
     public function handle(CLVTrackerService $clvTracker): int
     {
@@ -39,27 +39,6 @@ class MarketIntelligence extends Command
 
         $count = $clvTracker->snapshotOdds($date);
         $this->info("{$count} snapshot(s) créé(s).");
-
-        // Afficher les alertes sharp money
-        $alerts = OddsMovement::where('sharp_alert', true)
-            ->where('snapshot_at', '>=', now()->subHours(4))
-            ->with('match')
-            ->get();
-
-        if ($alerts->isNotEmpty()) {
-            $this->newLine();
-            $this->warn("ALERTES SHARP MONEY :");
-            foreach ($alerts as $alert) {
-                $this->line(sprintf(
-                    "  [score:%d] %s — Home:%.1f%% Draw:%.1f%% Away:%.1f%%",
-                    $alert->sharp_score,
-                    $alert->match->full_name,
-                    $alert->move_home_pct ?? 0,
-                    $alert->move_draw_pct ?? 0,
-                    $alert->move_away_pct ?? 0,
-                ));
-            }
-        }
 
         return self::SUCCESS;
     }
@@ -205,11 +184,10 @@ class MarketIntelligence extends Command
                     $m->move_draw_pct !== null ? $this->formatPct($m->move_draw_pct) : '-',
                     $m->odds_away,
                     $m->move_away_pct !== null ? $this->formatPct($m->move_away_pct) : '-',
-                    $m->sharp_alert ? "!! {$m->sharp_score}" : '-',
                 ];
             }
 
-            $this->table(['Heure', '1', 'Δ1', 'X', 'ΔX', '2', 'Δ2', 'Sharp'], $rows);
+            $this->table(['Heure', '1', 'Δ1', 'X', 'ΔX', '2', 'Δ2'], $rows);
             $this->newLine();
         }
 
@@ -233,12 +211,6 @@ class MarketIntelligence extends Command
         // Snapshots
         $snapshots = OddsMovement::whereHas('match', fn($q) => $q->whereDate('match_date', $date))->count();
         $this->line("Snapshots enregistrés : {$snapshots}");
-
-        // Alertes sharp
-        $sharpAlerts = OddsMovement::whereHas('match', fn($q) => $q->whereDate('match_date', $date))
-            ->where('sharp_alert', true)
-            ->count();
-        $this->line("Alertes sharp money : {$sharpAlerts}");
 
         // Matchs avec prédiction
         $predicted = $matches->whereNotNull('odds_at_pred_home')->count();
