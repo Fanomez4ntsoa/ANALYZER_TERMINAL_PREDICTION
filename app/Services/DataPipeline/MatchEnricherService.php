@@ -335,24 +335,20 @@ class MatchEnricherService
 
     /**
      * Normaliser les compositions (lineups) → données tactiques.
+     *
+     * Formation seule, null si absente. Le style était déduit de
+     * FormationProfiles, supprimée à l'étape 1 : l'appel levait une exception
+     * dès qu'une composition était publiée, et les cotes du match n'étaient
+     * plus récupérées.
      */
     private function normalizeLineups(array $lineups, ?int $homeTeamId): array
     {
-        $home = ['formation' => '4-4-2', 'style' => 'balanced'];
-        $away = ['formation' => '4-4-2', 'style' => 'balanced'];
+        $home = ['formation' => null];
+        $away = ['formation' => null];
 
         foreach ($lineups as $lineup) {
-            $formation = $lineup['formation'] ?? '4-4-2';
             $teamId = $lineup['team']['id'] ?? null;
-
-            // Déterminer le style depuis FormationProfiles
-            $profile = \App\Services\Betting\FormationProfiles::get($formation);
-            $style = $profile['style'] ?? 'balanced';
-
-            $data = [
-                'formation' => $formation,
-                'style' => $style,
-            ];
+            $data = ['formation' => $lineup['formation'] ?? null];
 
             if ($teamId === $homeTeamId) {
                 $home = $data;
