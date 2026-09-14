@@ -11,19 +11,26 @@ réellement, pas ce qui est prévu.
 Planificateur (routes/console.php, cron `schedule:run` requis)
   ├─ pipeline:daily, chaque jour à config pipeline.schedule_time (10:00 UTC)
   │    pipeline:run-sync → context:enrich → predictions:compute → market:track snapshot
-  │    chaque étape journalisée dans storage/logs/pipeline-*.log ; import en échec = arrêt
+  │    chaque étape journalisée dans storage/logs/pipeline-*.log
+  │    import en exception = arrêt ; import incomplet (code non nul) = étapes suivantes lancées
   └─ toutes les 5 min : market:track closing, puis market:track close
 
-pipeline:run-sync {date}
-  └─ FetchMatchDataJob
+pipeline:run-sync {date}          code de sortie non nul si cotes ou scores incomplets
+  └─ FetchMatchDataJob              ordre imposé par le budget : indispensable d'abord
        │  match commencé, reporté ou terminé : score seul, rien d'autre n'est écrit
-       ├─ ApiFootballService::getFixturesByDate      fixtures du jour
-       ├─ MatchEnricherService::upsertFromApiFootball → table matches
-       ├─ ApiFootballService::getFullMatchData        H2H, stats, blessures,
-       │                                              prédictions, lineups, classement
-       ├─ MatchEnricherService::enrichWithAdvancedData → table advanced_data
-       ├─ ApiFootballService::getFixtureOdds          cotes Bet365
-       └─ MatchEnricherService::enrichWithApiFootballOdds → colonnes odds_* de matches
+       ├─ ApiFootballService::getDailyUsage           /status, budget du jour (non décompté)
+       ├─ ApiFootballService::getFixturesByDate       1 requête → upsert dans matches
+       ├─ ApiFootballService::getOddsByDate           /odds?date=&bookmaker=8, TOUTES les pages
+       │    └─ enrichWithApiFootballOdds               odds_* + odds_fetched_at + odds_bookmaker
+       │       budget insuffisant : avertissement, matchs non couverts listés, passage incomplet
+       ├─ scores de la veille                         1 requête au plus
+       ├─ ApiFootballService::getOptionalMatchData    prédictions + blessures, 2 requêtes/match,
+       │    └─ enrichWithAdvancedData                  abandonné sous api-football.budget.optional_reserve
+       └─ FetchOddsJob                                liaison The Odds API, championnats du CLV seulement
+
+Toute erreur API-Football (débit, quota, refus de l'offre, HTTP, réseau) lève
+ApiFootballException : jamais confondue avec une absence de donnée. Appels espacés
+de 6,5 s (10/minute), une seule nouvelle tentative après un 429.
 
 /analysis → bouton Analyser → MatchAnalysisController::analyzeExistingMatch
   (ou predictions:compute {date} : matchs à venir, non contaminés, avec cotes 1X2)
@@ -89,7 +96,7 @@ marché dépasse les 40 % affichés.
 | `implied_probability` | `1 / cote`, marge incluse. Le seuil réel à battre. |
 | `fair_probability` | Après retrait de la marge, par normalisation de l'ensemble de marché |
 | `edge` | `model_probability − fair_probability` |
-| `bookmaker` | Source de la cote. `legacy_max` = maximum multi-bookmakers, inexploitable. |
+| `bookmaker` | Bookmaker unique de la cote, repris de `matches.odds_bookmaker` (bet365). `legacy_max` = maximum multi-bookmakers, inexploitable. |
 | `odds_taken_at`, `computed_at` | Horodatages |
 
 ---
@@ -105,8 +112,8 @@ marché dépasse les 40 % affichés.
 | `PredictionService` | Persistance des probabilités |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
 | `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
-| `Api/ApiFootballService` | Fixtures, stats, cotes |
-| `Api/OddsApiService` | Snapshots pour le CLV **uniquement** |
+| `Api/ApiFootballService` | Fixtures, cotes Bet365 par date, prédictions et blessures ; `ApiFootballException` |
+| `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
 | `Market/CLVTrackerService` | Snapshots de cotes, snapshot de clôture sans cache, écart de clôture |
@@ -130,6 +137,15 @@ contexte, modèles `AIAnalysis`, `DailyCombo`, `BacktestRun`, `BacktestPredictio
 `Referee`.
 
 ## Planificateur et clôture
+
+**Deux bookmakers, deux usages.** Les prédictions utilisent Bet365 via API-Football
+(`api-football.preferred_bookmaker`). Le CLV utilise Pinnacle via The Odds API
+(`odds-api.clv_bookmaker`) : **il mesure le mouvement de Pinnacle entre la prédiction
+et la clôture, pas celui du prix Bet365.** Bet365 n'existe pas sur The Odds API.
+Chaque snapshot enregistre son bookmaker (`odds_movements.bookmaker`) ; cote de
+prédiction et clôture viennent du même bookmaker, sinon pas de clôture. Pinnacle ne
+publie en `totals` que sa ligne principale (2.5 sur 18 événements sur 81 le
+14/09/2026) : le CLV Over 2.5 est partiel, le CLV 1X2 complet.
 
 `config/pipeline.php` : heure et fuseau de `pipeline:daily`, créneau horaire des
 matchs, clôture (`window_minutes` 10, `leagues` Top 5, `quota_reserve` 50).
@@ -210,6 +226,45 @@ Coût : 0,08 s par `predict`, deux passes par match, soit environ 4 minutes pour
 
 ---
 
+## Limites de l'offre gratuite
+
+API-Football gratuit : **100 requêtes par jour, 10 par minute**, et refus de la
+saison en cours sur `standings`, `teams/statistics` et `/odds?league=&season=`, ainsi
+que du paramètre `last` de `headtohead`. The Odds API gratuit : **500 crédits par
+mois**.
+
+Coût d'un passage quotidien API-Football après optimisation (14/09/2026) :
+
+| Poste | Requêtes |
+|---|---|
+| `/status` | 0 (non décompté) |
+| Matchs de la date | 1 |
+| Cotes par date | 1 par page ; 13 pages le lundi 14/09/2026, tous championnats du monde |
+| Scores de la veille | 0 ou 1 |
+| Facultatif (prédictions, blessures) | 2 par match |
+
+- **11 matchs coûtent environ 35 requêtes** (1 + 13 + 1 + 22). Les cotes seules en
+  coûtent environ 15.
+- **Un samedi à 50 matchs dépasserait les 100 requêtes quotidiennes** : cotes
+  environ 15 à 30 selon le nombre de pages ce jour-là (non mesuré), plus 100 pour le
+  facultatif. Le garde-fou garde les cotes et abandonne le facultatif ; il n'y a pas
+  de place pour un second passage le même jour, ni pour des analyses manuelles.
+- Les cotes par date coûtent le même nombre de pages quel que soit le nombre de
+  matchs suivis : plus rentables que `/odds?fixture=` dès que les matchs du jour
+  dépassent le nombre de pages (ce n'était pas le cas le 14/09 : 11 matchs, 13 pages).
+- The Odds API : clôture limitée au Top 5 (environ 260 crédits/mois) et snapshot du
+  jour aux mêmes championnats (2 crédits par championnat ayant un match). Marge
+  estimée faible sur 500 crédits, à surveiller dans le journal.
+
+**Décision à prendre plus tard**, documentée ici pour ne pas être oubliée :
+
+1. **Offre supérieure** API-Football (et éventuellement The Odds API) : tous les
+   championnats suivis, facultatif compris, et les dimensions de contexte bloquées
+   (enjeux, pression) redeviennent collectables.
+2. **Périmètre restreint** à quelques championnats : le budget gratuit tient, mais
+   les cotes par date lisent toujours toutes les pages mondiales ; il faudrait alors
+   repasser à `/odds?fixture=` pour que le coût suive le périmètre.
+
 ## Pièges connus
 
 - 913 matchs contiennent des données collectées **après** le coup d'envoi (791
@@ -222,7 +277,10 @@ Coût : 0,08 s par `predict`, deux passes par match, soit environ 4 minutes pour
   14/09/2026). Ne pas en réintroduire ailleurs.
 - Le quota The Odds API (500 crédits/mois) ne couvre pas la clôture de tous les
   championnats suivis : voir `pipeline.closing.leagues`.
-- Les compositions d'équipe sont rarement disponibles avant le coup d'envoi.
+- Les compositions d'équipe ne sont pas collectées : jamais publiées à l'heure du
+  passage quotidien.
+- Contexte : enjeux et pression entraîneur toujours indisponibles avec l'offre
+  gratuite ; fatigue indisponible tant que l'import filtre par créneau horaire.
 - Dans `CalibrationBacktestService`, les issues `'1'` et `'2'` deviennent des
   entiers quand elles servent de clé de tableau PHP : toujours les recaster en
   chaîne avant comparaison stricte (bug rencontré et corrigé en validation).
