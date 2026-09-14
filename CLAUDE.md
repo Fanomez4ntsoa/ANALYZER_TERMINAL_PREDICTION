@@ -57,10 +57,12 @@ qui ne veut rien dire sans la cote associée.
 ## Commandes
 
 ```bash
-php artisan pipeline:run-sync {date}     # Import matchs + cotes
+php artisan pipeline:daily [date]        # Passage quotidien : import, contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
+php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
 php artisan pipeline:backfill --from= --to=
 php artisan context:enrich --date=       # Fatigue, enjeux, météo
-php artisan market:track snapshot|close|clv
+php artisan market:track snapshot|closing|close|clv
 php artisan app:reset [--force]
 ```
 
