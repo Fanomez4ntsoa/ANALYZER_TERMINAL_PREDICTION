@@ -5,6 +5,7 @@ namespace App\Services\Market;
 use App\Models\FootballMatch;
 use App\Models\OddsMovement;
 use App\Services\Api\OddsApiService;
+use App\Services\DataPipeline\PipelineLog;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -77,47 +78,12 @@ class CLVTrackerService
                 $leagueId
             );
 
-            if (!$odds) {
+            // Bookmaker configuré absent : aucune cote, pas de snapshot vide
+            if (!$odds || $odds['odds_home'] === null) {
                 continue;
             }
 
-            // Récupérer le snapshot précédent pour calculer le mouvement
-            $previousSnapshot = OddsMovement::where('match_id', $match->id)
-                ->orderBy('snapshot_at', 'desc')
-                ->first();
-
-            // Calculer les mouvements
-            $movements = $this->calculateMovements($odds, $previousSnapshot);
-
-            // Créer le snapshot
-            OddsMovement::create([
-                'match_id' => $match->id,
-                'odds_home' => $odds['odds_home'],
-                'odds_draw' => $odds['odds_draw'],
-                'odds_away' => $odds['odds_away'],
-                'odds_over_2_5' => $odds['odds_over_2_5'],
-                'odds_under_2_5' => $odds['odds_under_2_5'],
-                'bookmaker_count' => $odds['bookmaker_count'] ?? 0,
-                'move_home_pct' => $movements['home'],
-                'move_draw_pct' => $movements['draw'],
-                'move_away_pct' => $movements['away'],
-                'move_over_pct' => $movements['over'],
-                'sharp_alert' => $movements['sharp_alert'],
-                'sharp_score' => $movements['sharp_score'],
-                'snapshot_at' => now(),
-            ]);
-
-            // Premier snapshot = cote au moment de la prédiction
-            if (!$match->odds_at_pred_home) {
-                $match->update([
-                    'odds_at_pred_home' => $odds['odds_home'],
-                    'odds_at_pred_draw' => $odds['odds_draw'],
-                    'odds_at_pred_away' => $odds['odds_away'],
-                    'odds_at_pred_over' => $odds['odds_over_2_5'],
-                    'predicted_at' => now(),
-                ]);
-            }
-
+            $this->storeSnapshot($match, $odds);
             $count++;
         }
 
@@ -129,49 +95,144 @@ class CLVTrackerService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // CLÔTURE — Marquer les cotes de clôture
+    // CLÔTURE — Snapshot juste avant le coup d'envoi, puis marquage
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Marquer le dernier snapshot comme cote de clôture pour les matchs
-     * qui ont déjà commencé ou sont terminés.
+     * Snapshot de clôture : matchs dont le coup d'envoi tombe dans les
+     * `pipeline.closing.window_minutes` prochaines minutes, sans cache (une réponse
+     * en cache peut avoir 2 h), un appel par championnat (2 crédits).
+     *
+     * Limité aux championnats `pipeline.closing.leagues` et arrêté quand le quota
+     * restant passe sous `pipeline.closing.quota_reserve` : le quota mensuel ne
+     * couvre pas la clôture de tous les championnats suivis.
+     *
+     * @return int Nombre de snapshots de clôture créés
+     */
+    public function snapshotClosingOdds(): int
+    {
+        $window = (int) config('pipeline.closing.window_minutes');
+        $leagues = config('pipeline.closing.leagues');
+        $reserve = (int) config('pipeline.closing.quota_reserve');
+
+        $candidates = FootballMatch::where('data_source', 'api')
+            ->measurable()
+            ->where('completed', false)
+            ->whereIn('league_id', $leagues)
+            ->whereNotNull('odds_api_event_id')
+            ->whereNotNull('odds_at_pred_home')
+            ->where('match_date', '>', now())
+            ->where('match_date', '<=', now()->addMinutes($window))
+            ->get();
+
+        // Déjà un snapshot dans la fenêtre de clôture : pas de second appel
+        $matches = $candidates->reject(fn (FootballMatch $m) => OddsMovement::where('match_id', $m->id)
+            ->whereNotNull('odds_home')
+            ->where('snapshot_at', '>=', $m->match_date->copy()->subMinutes($window))
+            ->exists());
+
+        if ($matches->isEmpty()) {
+            return 0;
+        }
+
+        $count = 0;
+        $missing = [];
+
+        foreach ($matches->groupBy('league_id') as $leagueId => $leagueMatches) {
+            $usage = $this->oddsApi->getMonthlyUsage();
+            if ($usage['remaining'] < $reserve) {
+                Log::channel('pipeline')->warning("CLV clôture : quota restant {$usage['remaining']} sous la réserve {$reserve}, clôture non relevée", [
+                    'matches' => $matches->pluck('id')->all(),
+                ]);
+                break;
+            }
+
+            $events = $this->oddsApi->getFreshOddsByLeagueId((int) $leagueId);
+            if (!$events) {
+                Log::channel('pipeline')->warning("CLV clôture : aucune réponse The Odds API pour la ligue #{$leagueId}", [
+                    'matches' => $leagueMatches->pluck('id')->all(),
+                ]);
+                continue;
+            }
+
+            foreach ($leagueMatches as $match) {
+                try {
+                    $odds = $this->oddsApi->findEventOdds($events, $match->home_team, $match->away_team, $match->match_date->format('Y-m-d'));
+                    if (!$odds || $odds['odds_home'] === null) {
+                        $missing[] = $match->id;
+                        continue;
+                    }
+                    $this->storeSnapshot($match, $odds);
+                    $count++;
+                } catch (\Exception $e) {
+                    PipelineLog::caught('CLV snapshot de clôture', $e, ['match_id' => $match->id]);
+                }
+            }
+        }
+
+        Log::channel('pipeline')->log($missing ? 'warning' : 'info', "CLV clôture : {$count} snapshot(s) de clôture", [
+            'matches_without_odds' => $missing,
+        ]);
+
+        return $count;
+    }
+
+    /**
+     * Cote de clôture = dernier snapshot pris avant le coup d'envoi, dans la
+     * fenêtre de clôture. Sans snapshot dans cette fenêtre, la clôture reste vide :
+     * aucun repli sur une cote plus ancienne ni sur une autre source (les cotes
+     * odds_* de matches viennent d'API-Football, relevées des heures plus tôt).
      *
      * @return int Nombre de matchs clôturés
      */
     public function markClosingOdds(): int
     {
+        $window = (int) config('pipeline.closing.window_minutes');
+
+        // Plus aucun snapshot n'est pris après le coup d'envoi : au-delà d'un jour,
+        // un match sans clôture n'en aura jamais.
         $matches = FootballMatch::where('data_source', 'api')
             ->measurable()
             ->whereNotNull('odds_at_pred_home')
             ->whereNull('odds_closing_home')
             ->where('match_date', '<=', now())
+            ->where('match_date', '>=', now()->subDay())
             ->get();
 
         $count = 0;
+        $missing = [];
 
         foreach ($matches as $match) {
-            $lastSnapshot = OddsMovement::where('match_id', $match->id)
+            $closing = OddsMovement::where('match_id', $match->id)
+                ->whereNotNull('odds_home')
+                ->where('snapshot_at', '<=', $match->match_date)
+                ->where('snapshot_at', '>=', $match->match_date->copy()->subMinutes($window))
                 ->orderBy('snapshot_at', 'desc')
                 ->first();
 
-            if (!$lastSnapshot) {
-                // Pas de snapshot → utiliser les cotes actuelles comme clôture
-                $match->update([
-                    'odds_closing_home' => $match->odds_home,
-                    'odds_closing_draw' => $match->odds_draw,
-                    'odds_closing_away' => $match->odds_away,
-                    'odds_closing_over' => $match->odds_over_2_5,
-                ]);
-            } else {
-                $match->update([
-                    'odds_closing_home' => $lastSnapshot->odds_home,
-                    'odds_closing_draw' => $lastSnapshot->odds_draw,
-                    'odds_closing_away' => $lastSnapshot->odds_away,
-                    'odds_closing_over' => $lastSnapshot->odds_over_2_5,
-                ]);
+            if (!$closing) {
+                // Signalé une fois, au premier passage après le coup d'envoi
+                if ($match->match_date->gte(now()->subMinutes($window))) {
+                    $missing[] = $match->id;
+                }
+                continue;
             }
 
+            $match->update([
+                'odds_closing_home' => $closing->odds_home,
+                'odds_closing_draw' => $closing->odds_draw,
+                'odds_closing_away' => $closing->odds_away,
+                'odds_closing_over' => $closing->odds_over_2_5,
+            ]);
+
             $count++;
+        }
+
+        if ($missing) {
+            Log::channel('pipeline')->warning('CLV : clôture manquante, aucun snapshot dans la fenêtre avant le coup d\'envoi', [
+                'window_minutes' => $window,
+                'matches' => $missing,
+            ]);
         }
 
         Log::info("CLV: {$count} matchs clôturés");
@@ -285,6 +346,49 @@ class CLVTrackerService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MOUVEMENTS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /**
+     * Enregistrer un snapshot (mouvement calculé contre le précédent). Le premier
+     * snapshot d'un match fixe la cote au moment de la prédiction.
+     */
+    private function storeSnapshot(FootballMatch $match, array $odds): OddsMovement
+    {
+        $previousSnapshot = OddsMovement::where('match_id', $match->id)
+            ->whereNotNull('odds_home')
+            ->orderBy('snapshot_at', 'desc')
+            ->first();
+
+        $movements = $this->calculateMovements($odds, $previousSnapshot);
+
+        $snapshot = OddsMovement::create([
+            'match_id' => $match->id,
+            'odds_home' => $odds['odds_home'],
+            'odds_draw' => $odds['odds_draw'],
+            'odds_away' => $odds['odds_away'],
+            'odds_over_2_5' => $odds['odds_over_2_5'],
+            'odds_under_2_5' => $odds['odds_under_2_5'],
+            'bookmaker_count' => $odds['bookmaker_count'] ?? 0,
+            'move_home_pct' => $movements['home'],
+            'move_draw_pct' => $movements['draw'],
+            'move_away_pct' => $movements['away'],
+            'move_over_pct' => $movements['over'],
+            'sharp_alert' => $movements['sharp_alert'],
+            'sharp_score' => $movements['sharp_score'],
+            'snapshot_at' => now(),
+        ]);
+
+        if (!$match->odds_at_pred_home) {
+            $match->update([
+                'odds_at_pred_home' => $odds['odds_home'],
+                'odds_at_pred_draw' => $odds['odds_draw'],
+                'odds_at_pred_away' => $odds['odds_away'],
+                'odds_at_pred_over' => $odds['odds_over_2_5'],
+                'predicted_at' => now(),
+            ]);
+        }
+
+        return $snapshot;
+    }
 
     /**
      * Calculer les mouvements de cotes par rapport au snapshot précédent.

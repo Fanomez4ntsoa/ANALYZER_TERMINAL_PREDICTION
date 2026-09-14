@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 class MarketIntelligence extends Command
 {
     protected $signature = 'market:track
-                            {action : snapshot|close|clv|movements|summary}
+                            {action : snapshot|closing|close|clv|movements|summary}
                             {--date= : Date cible (YYYY-MM-DD, défaut: aujourd\'hui)}
                             {--match-id= : Match spécifique}';
 
@@ -20,11 +20,12 @@ class MarketIntelligence extends Command
     {
         return match ($this->argument('action')) {
             'snapshot' => $this->snapshot($clvTracker),
+            'closing' => $this->closing($clvTracker),
             'close' => $this->close($clvTracker),
             'clv' => $this->showCLV($clvTracker),
             'movements' => $this->showMovements(),
             'summary' => $this->showSummary($clvTracker),
-            default => $this->error("Action inconnue. Utilisez: snapshot|close|clv|movements|summary") ?? self::FAILURE,
+            default => $this->error("Action inconnue. Utilisez: snapshot|closing|close|clv|movements|summary") ?? self::FAILURE,
         };
     }
 
@@ -63,6 +64,14 @@ class MarketIntelligence extends Command
         return self::SUCCESS;
     }
 
+    private function closing(CLVTrackerService $clvTracker): int
+    {
+        $count = $clvTracker->snapshotClosingOdds();
+        $this->info("{$count} snapshot(s) de clôture créé(s).");
+
+        return self::SUCCESS;
+    }
+
     private function close(CLVTrackerService $clvTracker): int
     {
         $this->info("Clôture des cotes pour les matchs commencés...");
@@ -83,8 +92,7 @@ class MarketIntelligence extends Command
         if ($summary['total_matches'] === 0) {
             $this->warn("Aucun match avec données CLV. Lancez d'abord :");
             $this->line("  php artisan market:track snapshot");
-            $this->line("  (attendre que les matchs commencent)");
-            $this->line("  php artisan market:track close");
+            $this->line("  (clôture automatique par le planificateur : market:track closing puis close)");
             return self::SUCCESS;
         }
 

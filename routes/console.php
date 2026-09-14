@@ -21,6 +21,11 @@ Schedule::command('pipeline:daily')
     ->timezone(config('pipeline.schedule_timezone'))
     ->withoutOverlapping();
 
+// Clôture automatique : snapshot sans cache juste avant le coup d'envoi, puis
+// report du snapshot en cote de clôture une fois le match commencé.
+Schedule::command('market:track closing')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('market:track close')->everyFiveMinutes()->withoutOverlapping();
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // COMMANDE MANUELLE — Lancer le pipeline à la demande
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
