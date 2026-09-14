@@ -27,13 +27,22 @@ return new class extends Migration
             $table->index('post_kickoff_data');
         });
 
-        DB::statement(<<<'SQL'
-            UPDATE matches m
-            LEFT JOIN advanced_data a ON a.match_id = m.id
-            SET m.post_kickoff_data = 1
-            WHERE m.created_at >= m.match_date
-               OR a.updated_at >= m.match_date
-        SQL);
+        // Constructeur de requêtes plutôt que UPDATE … JOIN (syntaxe MySQL) : même
+        // résultat sur MariaDB et SQLite. La sous-requête EXISTS reproduit la
+        // jointure gauche : une ligne advanced_data réécrite après le coup d'envoi
+        // suffit, une absence de ligne ne marque rien. Vérifié le 14/09/2026 sur
+        // MariaDB : mêmes 913 identifiants que l'ancienne requête.
+        DB::table('matches')
+            ->where(function ($query) {
+                $query->whereColumn('matches.created_at', '>=', 'matches.match_date')
+                    ->orWhereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('advanced_data')
+                            ->whereColumn('advanced_data.match_id', 'matches.id')
+                            ->whereColumn('advanced_data.updated_at', '>=', 'matches.match_date');
+                    });
+            })
+            ->update(['post_kickoff_data' => true]);
     }
 
     public function down(): void
