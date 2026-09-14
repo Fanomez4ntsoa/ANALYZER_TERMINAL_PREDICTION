@@ -268,18 +268,4 @@ class MatchAnalysisController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
-
-    /**
-     * Supprimer un match
-     */
-    public function deleteMatch(FootballMatch $match)
-    {
-        try {
-            $match->delete(); // Cascade delete via foreign keys
-            return back()->with('success', 'Match supprimé !');
-        } catch (\Exception $e) {
-            Log::warning("Suppression du match #{$match->id} echouee", ['error' => $e->getMessage()]);
-            return back()->with('error', 'Erreur lors de la suppression');
-        }
-    }
 }

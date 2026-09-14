@@ -61,10 +61,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Voir détail d'un match
         Route::get('/{id}', [MatchAnalysisController::class, 'show'])
             ->name('show');
-
-        // Supprimer un match
-        Route::delete('/{match}', [MatchAnalysisController::class, 'deleteMatch'])
-            ->name('delete');
     });
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
