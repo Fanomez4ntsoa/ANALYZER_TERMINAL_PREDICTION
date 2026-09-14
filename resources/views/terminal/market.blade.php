@@ -53,8 +53,13 @@
             <div class="rows">
                 <x-terminal.row label="Bookmaker du CLV">{{ $bookmaker }}</x-terminal.row>
                 <x-terminal.row label="Championnats">{{ implode(', ', $leagues) }}</x-terminal.row>
-                <x-terminal.row label="Quota The Odds API">{{ $quota['used'] }} / {{ $quota['limit'] }} · {{ $quota['month'] }}</x-terminal.row>
-                <x-terminal.row label="Restant">{{ $quota['remaining'] }} requêtes</x-terminal.row>
+                <x-terminal.row label="Quota The Odds API">
+                    @if ($quota['used'] !== null)
+                        {{ $quota['used'] }} / {{ $quota['limit'] }} · {{ $quota['remaining'] }} restantes
+                    @else
+                        non synchronisé
+                    @endif
+                </x-terminal.row>
             </div>
             <x-terminal.note>Les cotes des prédictions viennent d'API-Football (Bet365). The Odds API ne sert qu'à ces relevés.</x-terminal.note>
         </x-terminal.panel>

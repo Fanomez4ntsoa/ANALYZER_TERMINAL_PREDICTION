@@ -58,7 +58,7 @@ class TestOddsApi extends Command
             ['Seuil alerte', $usage['alert_threshold']],
         ]);
 
-        if ($usage['used'] >= $usage['alert_threshold']) {
+        if ($usage['used'] !== null && $usage['used'] >= $usage['alert_threshold']) {
             $this->warn("ATTENTION : quota proche de la limite !");
         }
 

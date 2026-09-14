@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Log;
 
 class OddsApiService
 {
+    private const QUOTA_KEY = 'odds_api_quota_state';
+
     private string $baseUrl;
     private string $apiKey;
     private string $regions;
@@ -238,8 +240,9 @@ class OddsApiService
     }
 
     /**
-     * Cotes 1X2 et totals d'une ligue, SANS cache : pour la cote de clôture, une
-     * réponse en cache (jusqu'à 2 h) serait périmée. Coût : 2 crédits par appel
+     * Cotes 1X2 et totals d'une ligue, SANS cache : tout relevé du CLV (prédiction
+     * et clôture) passe par ici. Une réponse en cache (jusqu'à 2 h) recyclée sous
+     * un horodatage récent n'est pas une observation. Coût : 2 crédits par appel
      * (h2h + totals, une région). Pas de marchés extras.
      */
     public function getFreshOddsByLeagueId(int $leagueId): ?array
@@ -256,6 +259,21 @@ class OddsApiService
             'markets' => implode(',', config('odds-api.default_markets')),
             'oddsFormat' => $this->oddsFormat,
         ]);
+    }
+
+    /**
+     * Événement d'une liste par son identifiant The Odds API, normalisé ; null s'il
+     * n'y figure pas.
+     */
+    public function findEventOddsById(array $events, string $eventId): ?array
+    {
+        foreach ($events as $event) {
+            if (($event['id'] ?? null) === $eventId) {
+                return $this->normalizeOdds($event);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -374,6 +392,7 @@ class OddsApiService
     {
         $bookmakers = $event['bookmakers'] ?? [];
         $selectedBookmaker = (string) config('odds-api.clv_bookmaker', 'pinnacle');
+        $quotedAt = null;
         $result = [
             'event_id' => $event['id'],
             'home_team' => $event['home_team'],
@@ -381,6 +400,9 @@ class OddsApiService
             'commence_time' => $event['commence_time'],
             'bookmaker_count' => count($bookmakers),
             'bookmaker' => $selectedBookmaker,
+            // Heure de la cote retenue : last_update le plus ancien des marchés 1X2 et
+            // totals du bookmaker du CLV (null si absent)
+            'quoted_at' => null,
             // Cotes 1X2 (bookmaker configuré uniquement)
             'odds_home' => null,
             'odds_draw' => null,
@@ -413,6 +435,14 @@ class OddsApiService
         foreach ($bookmakers as $bookmaker) {
             $bookmakerKey = $bookmaker['key'];
             $bookmakerOdds = [];
+
+            if ($bookmakerKey === $selectedBookmaker) {
+                $updates = array_filter(array_map(
+                    fn (array $m) => in_array($m['key'] ?? null, ['h2h', 'totals'], true) ? ($m['last_update'] ?? null) : null,
+                    $bookmaker['markets'] ?? []
+                ));
+                $quotedAt = $updates === [] ? ($bookmaker['last_update'] ?? null) : min($updates);
+            }
 
             foreach ($bookmaker['markets'] ?? [] as $market) {
                 $marketKey = $market['key'];
@@ -492,13 +522,13 @@ class OddsApiService
         }
 
         // Cotes retenues : uniquement celles du bookmaker configuré
+        // Absence du bookmaker : signalée par l'appelant (CLVTrackerService, canal pipeline)
         $selectedOdds = $result['bookmakers_detail'][$selectedBookmaker] ?? null;
-        if ($selectedOdds === null) {
-            Log::info("OddsApi: bookmaker '{$selectedBookmaker}' absent pour {$event['home_team']} vs {$event['away_team']} — aucune cote retenue");
-        } else {
+        if ($selectedOdds !== null) {
             foreach ($selectedOdds as $key => $price) {
                 $result["odds_{$key}"] = $price;
             }
+            $result['quoted_at'] = $quotedAt;
         }
 
         // Cotes moyennes tous bookmakers (information uniquement)
@@ -576,57 +606,79 @@ class OddsApiService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Obtenir le compteur de requêtes du mois en cours.
+     * Quota tel que l'API l'a annoncé dans sa dernière réponse (en-têtes
+     * x-requests-used et x-requests-remaining), jamais un compteur local : un
+     * compteur additionné par ce serveur ignore les appels faits ailleurs avec la
+     * même clé et avait 7 crédits de retard le 14/09/2026.
+     *
+     * used et remaining sont null tant qu'aucune réponse n'a été reçue ; syncQuota()
+     * les relit gratuitement.
+     *
+     * @return array{used: ?int, remaining: ?int, limit: int, alert_threshold: int, month: string, synced_at: ?string}
      */
     public function getMonthlyUsage(): array
     {
-        $monthKey = $this->getMonthKey();
+        $state = Cache::get(self::QUOTA_KEY);
+        $used = $state['used'] ?? null;
+        $remaining = $state['remaining'] ?? null;
 
         return [
-            'used' => (int) Cache::get("odds_api_quota_{$monthKey}", 0),
-            'limit' => $this->quota['monthly_limit'],
-            'alert_threshold' => $this->quota['alert_threshold'],
-            'remaining' => $this->quota['monthly_limit'] - (int) Cache::get("odds_api_quota_{$monthKey}", 0),
-            'month' => $monthKey,
+            'used' => $used,
+            'remaining' => $remaining,
+            'limit' => $used !== null && $remaining !== null ? $used + $remaining : (int) $this->quota['monthly_limit'],
+            'alert_threshold' => (int) $this->quota['alert_threshold'],
+            'month' => isset($state['synced_at']) ? substr($state['synced_at'], 0, 7) : $this->getMonthKey(),
+            'synced_at' => $state['synced_at'] ?? null,
         ];
     }
 
     /**
-     * Vérifier si le quota mensuel est épuisé.
+     * Quota épuisé selon la dernière réponse de l'API. Inconnu : non bloquant, la
+     * première réponse le renseigne (et une requête refusée par l'API échoue).
      */
     public function isQuotaExhausted(): bool
     {
-        $used = (int) Cache::get("odds_api_quota_{$this->getMonthKey()}", 0);
-        return $used >= $this->quota['monthly_limit'];
+        $remaining = Cache::get(self::QUOTA_KEY)['remaining'] ?? null;
+
+        return $remaining !== null && $remaining <= 0;
     }
 
     /**
-     * Incrémenter le compteur de requêtes et vérifier le seuil d'alerte.
+     * Relit le quota sur /sports, qui ne coûte aucun crédit.
      */
-    private function trackRequest(int $cost = 1): void
+    public function syncQuota(): array
     {
-        $monthKey = $this->getMonthKey();
-        $cacheKey = "odds_api_quota_{$monthKey}";
+        $this->request('/sports', [], false);
 
-        // Incrémenter (TTL = fin du mois)
-        $current = (int) Cache::get($cacheKey, 0);
-        $new = $current + $cost;
+        return $this->getMonthlyUsage();
+    }
 
-        // Cache jusqu'au 1er du mois prochain
-        $endOfMonth = now()->endOfMonth()->addDay();
-        Cache::put($cacheKey, $new, $endOfMonth);
+    /**
+     * Enregistre le quota annoncé par une réponse. Toutes les réponses le portent,
+     * y compris les gratuites.
+     */
+    private function syncQuotaFromHeaders(\Illuminate\Http\Client\Response $response, bool $countsAsQuota): void
+    {
+        $used = $response->header('x-requests-used');
+        $remaining = $response->header('x-requests-remaining');
+        if ($used === '' || $remaining === '' || !is_numeric($used) || !is_numeric($remaining)) {
+            return;
+        }
 
-        // Log chaque requête
-        Log::info("OddsApi: requête #{$new}/{$this->quota['monthly_limit']} (coût: {$cost})", [
-            'month' => $monthKey,
+        $previous = Cache::get(self::QUOTA_KEY)['used'] ?? null;
+        Cache::forever(self::QUOTA_KEY, [
+            'used' => (int) $used,
+            'remaining' => (int) $remaining,
+            'synced_at' => now()->toIso8601String(),
         ]);
 
-        // Alerte si seuil dépassé
-        if ($new >= $this->quota['alert_threshold'] && $current < $this->quota['alert_threshold']) {
-            Log::warning("OddsApi: ALERTE QUOTA — {$new}/{$this->quota['monthly_limit']} requêtes utilisées ce mois", [
-                'month' => $monthKey,
-                'remaining' => $this->quota['monthly_limit'] - $new,
-            ]);
+        if ($countsAsQuota) {
+            Log::info("OddsApi: quota {$used} utilisés, {$remaining} restants (coût: {$response->header('x-requests-last')})");
+        }
+
+        $threshold = (int) $this->quota['alert_threshold'];
+        if ((int) $used >= $threshold && ($previous === null || $previous < $threshold)) {
+            Log::channel('pipeline')->warning("OddsApi : seuil d'alerte du quota atteint, {$used} crédits utilisés, {$remaining} restants");
         }
     }
 
@@ -683,6 +735,10 @@ class OddsApiService
             $response = Http::timeout(15)
                 ->get($this->baseUrl . $endpoint, $params);
 
+            if ($response->status() !== 200) {
+                $this->syncQuotaFromHeaders($response, false);
+            }
+
             if ($response->status() === 429) {
                 Log::error('OddsApi: rate limit atteint (HTTP 429)');
                 return null;
@@ -695,18 +751,7 @@ class OddsApiService
                 return null;
             }
 
-            // Tracker la requête si elle coûte du quota
-            if ($countsAsQuota) {
-                $cost = (int) ($response->header('x-requests-last') ?? 1);
-                $this->trackRequest($cost);
-
-                // Log les headers de quota
-                Log::debug('OddsApi: quota headers', [
-                    'used' => $response->header('x-requests-used'),
-                    'remaining' => $response->header('x-requests-remaining'),
-                    'last_cost' => $response->header('x-requests-last'),
-                ]);
-            }
+            $this->syncQuotaFromHeaders($response, $countsAsQuota);
 
             return $response->json();
 

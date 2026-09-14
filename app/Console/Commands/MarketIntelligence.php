@@ -31,31 +31,55 @@ class MarketIntelligence extends Command
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    /**
+     * Relevé de prédiction. Échec (code 1) si un match attendu n'a pas de relevé :
+     * pipeline:daily enregistre alors un passage incomplet, visible dans l'interface.
+     */
     private function snapshot(CLVTrackerService $clvTracker): int
     {
         $date = $this->option('date') ?? now()->format('Y-m-d');
+        $this->info("Relevé des cotes pour le {$date}...");
 
-        $this->info("Snapshot des cotes pour le {$date}...");
-
-        $count = $clvTracker->snapshotOdds($date);
-        $this->info("{$count} snapshot(s) créé(s).");
-
-        return self::SUCCESS;
+        return $this->report($clvTracker->snapshotOdds($date), 'relevé(s) de prédiction');
     }
 
+    /** Relevé de clôture, même règle d'échec. */
     private function closing(CLVTrackerService $clvTracker): int
     {
-        $count = $clvTracker->snapshotClosingOdds();
-        $this->info("{$count} snapshot(s) de clôture créé(s).");
-
-        return self::SUCCESS;
+        return $this->report($clvTracker->snapshotClosingOdds(), 'relevé(s) de clôture');
     }
 
+    private function report(array $report, string $label): int
+    {
+        $this->info("{$report['stored']} {$label} sur {$report['expected']} attendu(s).");
+
+        foreach ($report['missing'] as $m) {
+            $detail = match ($m['reason']) {
+                CLVTrackerService::MISSING_EVENT_NOT_FOUND => "événement introuvable ({$m['events_in_response']} événements dans la réponse)",
+                CLVTrackerService::MISSING_BOOKMAKER_ABSENT => "événement trouvé, bookmaker absent ({$m['bookmakers_present']} bookmakers présents)",
+                CLVTrackerService::MISSING_STALE_QUOTE => 'cote trop ancienne (' . ($m['quote_age_minutes'] ?? '?') . " min, maximum {$m['max_quote_age_minutes']})",
+                CLVTrackerService::MISSING_NO_RESPONSE => 'aucune réponse de The Odds API',
+                CLVTrackerService::MISSING_QUOTA => 'quota insuffisant',
+                default => $m['reason'],
+            };
+            $this->warn("  {$m['match']} : {$detail}");
+        }
+
+        return $report['missing'] === [] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /** Report de la clôture. Échec si un match commencé n'a pas de relevé de clôture fiable. */
     private function close(CLVTrackerService $clvTracker): int
     {
         $this->info("Clôture des cotes pour les matchs commencés...");
-        $count = $clvTracker->markClosingOdds();
-        $this->info("{$count} match(s) clôturé(s).");
+        $result = $clvTracker->markClosingOdds();
+        $this->info("{$result['closed']} match(s) clôturé(s).");
+
+        if ($result['missing'] !== []) {
+            $this->warn('Sans clôture fiable : matchs #' . implode(', #', $result['missing']));
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

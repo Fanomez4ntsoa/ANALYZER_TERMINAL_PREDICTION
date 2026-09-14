@@ -49,9 +49,16 @@
                         illisible
                     @endif
                 </x-terminal.row>
-                <x-terminal.row label="The Odds API, {{ $oddsQuota['month'] }}">{{ $oddsQuota['used'] }} / {{ $oddsQuota['limit'] }} · {{ $oddsQuota['remaining'] }} restantes</x-terminal.row>
+                <x-terminal.row label="The Odds API">
+                    @if ($oddsQuota['used'] !== null)
+                        {{ $oddsQuota['used'] }} / {{ $oddsQuota['limit'] }} · {{ $oddsQuota['remaining'] }} restantes
+                    @else
+                        non synchronisé
+                    @endif
+                </x-terminal.row>
+                <x-terminal.row label="Relu sur l'API">{{ $oddsQuota['synced_at'] ? \Carbon\Carbon::parse($oddsQuota['synced_at'])->utc()->format('d/m H:i') . ' UTC' : 'jamais' }}</x-terminal.row>
             </div>
-            <x-terminal.note>API-Football : le plus pessimiste de /status et du compteur local, les compteurs de l'API étant en retard.</x-terminal.note>
+            <x-terminal.note>API-Football : le plus pessimiste de /status et du compteur local, les compteurs de l'API étant en retard. The Odds API : valeurs annoncées par l'API à sa dernière réponse, aucun compteur local.</x-terminal.note>
         </x-terminal.panel>
 
         <x-terminal.panel title="Bookmakers et périmètre">

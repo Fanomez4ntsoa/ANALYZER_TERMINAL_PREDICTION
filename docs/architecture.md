@@ -120,7 +120,7 @@ marché dépasse les 40 % affichés.
 | `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
-| `Market/CLVTrackerService` | Snapshots de cotes, snapshot de clôture sans cache, écart de clôture |
+| `Market/CLVTrackerService` | Relevés de prédiction et de clôture sans cache, cote datée et récente, écart de clôture |
 | `Backtesting/FootballData/CsvParser` | CSV football-data → lignes normalisées (liste blanche de colonnes) |
 | `Backtesting/FootballData/TeamNameAudit` | Graphies d'équipes qui ne diffèrent que par un caractère non-ASCII |
 | `Backtesting/FootballData/CalibrationBacktestService` | Backtest de calibration du modèle de production, mode marché seul |
@@ -152,14 +152,36 @@ publie en `totals` que sa ligne principale (2.5 sur 18 événements sur 81 le
 14/09/2026) : le CLV Over 2.5 est partiel, le CLV 1X2 complet.
 
 `config/pipeline.php` : heure et fuseau de `pipeline:daily`, créneau horaire des
-matchs, clôture (`window_minutes` 10, `leagues` Top 5, `quota_reserve` 50).
+matchs, clôture (`window_minutes` 10, `leagues` Top 5, `quota_reserve` 50), âge
+maximal d'une cote relevée (`odds_snapshot.max_quote_age_minutes` 10).
+
+**Relevés fiables (depuis le 14/09/2026).** Tout relevé du CLV, de prédiction ou de
+clôture, appelle The Odds API sans cache (2 crédits par championnat). Le match est
+retrouvé par son `odds_api_event_id`, les noms d'équipe en repli. Un relevé n'est
+enregistré que si le bookmaker du CLV est présent et que sa cote a moins de
+`max_quote_age_minutes` : `odds_movements.quoted_at` = `last_update` le plus ancien de
+ses marchés 1X2 et totals, `reliable` = vrai. Les variations sont calculées contre le
+dernier relevé fiable ; la clôture ne vient que d'un relevé fiable. **Les relevés
+antérieurs à cette correction ont `reliable` faux : non fiables, exclus du test de
+mouvement de ligne.**
+
+Chaque match attendu sans relevé est journalisé dans le canal `pipeline` avec sa
+raison : `event_not_found` (nombre d'événements dans la réponse), `bookmaker_absent`
+(nombre de bookmakers présents), `stale_quote` (âge de la cote), `no_response`,
+`quota_exhausted`. `market:track snapshot`, `closing` et `close` sortent alors en
+échec : `pipeline:daily` enregistre un passage incomplet, visible dans l'interface.
+
+**Quota The Odds API** : lu dans les en-têtes `x-requests-used` et
+`x-requests-remaining` de chaque réponse, plus aucun compteur local.
+`OddsApiService::syncQuota()` le relit sur `/sports`, gratuit.
 
 - `market:track closing` : matchs non contaminés dont le coup d'envoi tombe dans
-  la fenêtre, déjà dotés d'un premier snapshot, sans snapshot dans la fenêtre. Un
-  appel The Odds API sans cache par championnat (h2h + totals, 2 crédits).
-- `market:track close` : cote de clôture = dernier snapshot pris avant le coup
-  d'envoi et dans la fenêtre. Sinon clôture vide, signalée dans le journal. Aucun
+  la fenêtre, déjà dotés d'une cote de prédiction, sans relevé fiable dans la fenêtre.
+- `market:track close` : cote de clôture = dernier relevé fiable pris avant le coup
+  d'envoi et dans la fenêtre. Sinon clôture vide, journalisée, et échec. Aucun
   repli sur les cotes `odds_*` de `matches` (API-Football).
+- `FetchOddsJob` (liaison des événements) utilise encore le cache : il n'enregistre
+  que `odds_api_event_id`, jamais une cote.
 
 ---
 
