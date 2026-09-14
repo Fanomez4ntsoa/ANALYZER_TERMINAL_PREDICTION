@@ -299,18 +299,6 @@ class MatchAnalysisController extends Controller
         $analyzedMatches = FootballMatch::whereHas('predictions')->count();
         $matchesToday = FootballMatch::whereDate('match_date', now()->format('Y-m-d'))->count();
 
-        // Stats depuis le backtest le plus récent
-        $latestBacktest = \App\Models\BacktestRun::where('status', 'completed')
-            ->orderByDesc('created_at')
-            ->first();
-
-        $marketPerf = [];
-        if ($latestBacktest && $latestBacktest->by_market) {
-            foreach ($latestBacktest->by_market as $row) {
-                $marketPerf[] = ['label' => $row['label'], 'rate' => $row['win_rate']];
-            }
-        }
-
         $oddsQuota = ['used' => 0, 'limit' => 500, 'remaining' => 500];
         try {
             $oddsQuota = app(\App\Services\Api\OddsApiService::class)->getMonthlyUsage();
@@ -321,13 +309,6 @@ class MatchAnalysisController extends Controller
             'completedMatches'  => $completedMatches,
             'analyzedMatches'   => $analyzedMatches,
             'matchesToday'      => $matchesToday,
-            'backtestRun'       => $latestBacktest,
-            'backtestWinRate'   => $latestBacktest?->win_rate ?? 0,
-            'backtestROI'       => $latestBacktest?->roi ?? 0,
-            'backtestYield'     => $latestBacktest?->yield_pct ?? 0,
-            'backtestDrawdown'  => $latestBacktest?->max_drawdown ?? 0,
-            'bankrollCurve'     => $latestBacktest?->bankroll_curve ?? [],
-            'marketPerf'        => $marketPerf,
             'recentMatches'     => FootballMatch::withCount('predictions')
                                     ->orderBy('created_at', 'desc')
                                     ->take(8)

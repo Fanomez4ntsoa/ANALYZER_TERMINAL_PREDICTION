@@ -65,14 +65,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // BACKTEST
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    Route::get('/backtest', [\App\Http\Controllers\BacktestController::class, 'index'])->name('backtest.index');
-    Route::post('/backtest/run', [\App\Http\Controllers\BacktestController::class, 'run'])->name('backtest.run');
-    Route::get('/backtest/{run}', [\App\Http\Controllers\BacktestController::class, 'show'])->name('backtest.show');
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARCHÉ (CLV + Sharp money)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
