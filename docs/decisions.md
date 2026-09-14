@@ -930,3 +930,46 @@ s'affiche sans couleur, comme le zéro.
   l'écart, exception pour un marché non classé), `Fmt` (jamais « −0,0 », valeur
   absente = vide), `SystemState::arrange`, `PipelineFreshness::evaluate`
   (délai de grâce 30 min après 10:00 UTC, passage en cours jugé interrompu après 2 h).
+
+---
+
+## 2026-09-14 — Troisième revue du design : signes de l'écart, résidu d'ajustement
+
+**Le résidu d'ajustement est un résultat, pas du bruit.** Une fois le total calé sur
+l'O/U 2.5, un seul paramètre de partage ne peut pas reproduire exactement les trois
+issues du 1X2 : le résidu mesure ce que deux lois de Poisson corrélées ne savent pas
+représenter, le défaut structurel du backtest vu au niveau d'un match. À l'écran, un
+écart sur un marché d'ajustement ne signale jamais une opportunité ; il mesure une
+contrainte de marché que le modèle n'a pas pu satisfaire. Il reste sans couleur.
+
+**Signes à poids égal.** Un négatif rouge vif face à un positif indistinct fait
+ressortir un côté. L'utilisateur a refusé le vert vif dans le tableau et proposé
+`--p-hot`. Comparaison à l'écran de quatre paires : contre `--p-hot` (L* 95), le rouge
+`#ff2f4d` (L* 56, chroma 84) écrase le positif ; un rose de même luminosité et même
+chroma est hors gamut sRGB ; `#ffbab6` (L* 82, chroma 27) est le plus proche qui reste
+lisiblement rose, les teintes plus pâles se confondent avec `--p-hot`. Retenu :
+`--p-hot` et `--neg` = `#ffbab6`. Le jeton `--red` disparaît.
+
+## 2026-09-14 — Page principale
+
+- **`/dashboard` devient la page principale du terminal** : la route garde son nom
+  (redirections de Breeze), l'ancien tableau de bord (compteurs, quota) est supprimé ;
+  le quota reste dans `/settings`.
+- **Combiné limité à une ligne par match.** Le produit des probabilités n'est juste
+  que pour des issues indépendantes ; 1X2 · 1 et DC · 1X, ou BTTS · Oui et Over 2.5,
+  ne le sont pas. Afficher leur produit serait afficher une probabilité fausse.
+- **Double Chance retirée de la calibration.** Sur le run #8, son Brier est identique
+  à celui du 1X2 (0,19173, Pinnacle 0,19103) : chaque probabilité DC est le
+  complément d'une issue 1X2, l'erreur quadratique est la même ligne à ligne. Le
+  backtest la range dans la famille « dérivés », à tort : ce n'est pas un test
+  indépendant. À corriger dans `CalibrationBacktestService` et `ReferenceCalibration`
+  à l'étape 4 (rien n'est recalculé ici).
+- **« Hors périmètre » exige l'absence de cotes.** Un match de mai 2026 relevé quand le
+  périmètre couvrait 21 ligues a des cotes : il est « non calculé », pas hors
+  périmètre. Le premier rendu du 02/05 en étiquetait 45 à tort.
+- **Monte-Carlo sur la matrice exacte du modèle** (0 à 6 buts, λ et ρ enregistrés).
+  L'Over enregistré compte la masse au-delà de 6 buts, les tirages non : l'écart
+  simulé / enregistré n'est pas que du bruit, c'est dit en infobulle.
+- **Tri par écart au clic non livré.** Le design le permet, mais trier des écarts de
+  marchés d'ajustement classerait des résidus mécaniques : à trancher avant de
+  l'ajouter (dérivés seulement, ou pas du tout).

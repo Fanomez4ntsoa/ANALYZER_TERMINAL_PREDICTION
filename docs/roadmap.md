@@ -235,9 +235,13 @@ Fait le 14/09/2026 :
   fraîcheur du pipeline et états système, composants Blade
   (`docs/architecture.md`).
 
-Reste : pages Sélections et combiné, calibration, Monte-Carlo, `/analysis`,
-`/history`, `/settings`, `/market` (CLV Pinnacle), puis retrait des CDN de
-`layouts.pro`.
+- Signes de l'écart à poids égal (`--p-hot` / `--neg`), résidu d'ajustement
+  documenté comme contrainte de marché non satisfaite.
+- Page principale (`/dashboard`) : sélections et combiné, Monte-Carlo, calibration
+  du run #8 sur 1X2, O/U 2.5 et BTTS, Brier, écart de clôture.
+
+Reste : `/analysis`, `/history`, `/settings`, `/market` (CLV Pinnacle), puis retrait
+des CDN de `layouts.pro` et de `layouts.dashboard` (sans usage).
 
 Elle dépendait de l'étape 2, qui pouvait changer ce que le modèle produit. Le modèle
 est maintenant stabilisé. L'interface affiche une probabilité, une cote et l'écart

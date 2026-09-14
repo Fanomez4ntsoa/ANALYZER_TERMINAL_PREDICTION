@@ -290,9 +290,20 @@ par défaut.
 
 ## Interface du terminal (étape 3, socle)
 
-Règles visuelles : `docs/design-system.md`. Aucune page ne l'utilise encore ; les
-pages actuelles restent sur `layouts.pro` (Tailwind, Alpine et Chart.js par CDN) et
-Breeze sur `app.css`.
+Règles visuelles : `docs/design-system.md`. Page migrée : `/dashboard` (page
+principale). Les autres restent sur `layouts.pro` (Tailwind, Alpine et Chart.js par
+CDN), Breeze sur `app.css`.
+
+```
+GET /dashboard?date=Y-m-d → TerminalController@index → terminal/index.blade.php
+  ├─ SelectionsBoard::forDate       matchs du jour triés par heure, prédictions dans l'ordre
+  │                                 du catalogue (MarketLabel), statut de chaque match sans
+  │                                 prédiction, paramètres Monte-Carlo (λ, ρ, matrice exacte)
+  ├─ ReferenceCalibration::summary  Brier et courbes 1X2, O/U 2.5, BTTS du run de référence
+  └─ CLVTrackerService::getSummary  écart de clôture Pinnacle
+resources/js/terminal/home.js       Alpine terminalHome : marché choisi, match simulé, combiné
+resources/js/terminal/monte-carlo.js tirages dans la matrice, pause onglet caché, repos exact
+```
 
 ```
 vite.config.js                         entrées terminal.css + terminal.js, à côté de Breeze
@@ -308,8 +319,9 @@ app/View/Components/TerminalLayout.php <x-terminal-layout title= :states=> → l
   └─ Support/Terminal/SystemState        gravité ; arrange() : un seul critique en vidéo inverse
 app/Support/Terminal/Fmt.php           format français (virgule, U+2212), valeur absente = chaîne vide
 app/Support/Terminal/MarketNature.php  ajustement (1X2, DC, O/U 2.5) / dérivé (BTTS) ; couleur de l'écart
-resources/views/components/terminal/   panel, row, kv, figure, readout, tag, nature, edge, scope,
-                                       state, measure, note, dot, clock, motion-toggle
+resources/views/components/terminal/   panel, row, kv, figure, readout, tag, nature, nature-note, edge,
+                                       scope, state, measure, note, dot, clock, motion-toggle,
+                                       calibration-plot
 ```
 
 Un marché absent de `MarketNature` lève une exception : il doit être classé avant

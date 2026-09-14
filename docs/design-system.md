@@ -44,7 +44,13 @@ Et leurs corollaires :
 - Une cote absente laisse la cellule vide : aucune estimation.
 - Un match hors périmètre des cotes est affiché et étiqueté, jamais omis.
 - Le calculateur de combiné affiche le produit des probabilités et le produit des
-  cotes. Aucun score, aucune recommandation, aucun commentaire.
+  cotes. Aucun score, aucune recommandation, aucun commentaire. **Une ligne par match,
+  trois au plus** : le produit suppose des issues indépendantes, deux issues d'un même
+  match ne le sont pas (1X2 · 1 et DC · 1X, BTTS · Oui et Over 2.5). Un produit
+  faux serait une information fausse.
+- La calibration n'affiche pas la Double Chance : ses probabilités sont des sommes de
+  celles du 1X2, sa courbe en est le miroir et son Brier est identique au millième
+  (0,192 sur le run #8). Le motif est donné en infobulle.
 
 ---
 
@@ -148,6 +154,20 @@ indistinct ferait ressortir un côté : ce n'est pas neutre.
 | `--page` | 8 px | Marge de page |
 | `--bd`, `--cell-x` | 10 px | Corps de panneau, cellules (horizontal) |
 | `--group` | 14 px | Groupes dans une barre |
+
+## Page principale
+
+Grille de la maquette v3, tenue dans la hauteur de l'écran à partir de 1100 px :
+colonne étroite des chiffres (Brier du marché choisi, combiné, écart de clôture),
+Monte-Carlo et calibration en haut, sélections en bas sur deux colonnes. En dessous de
+1100 px, un panneau par ligne.
+
+- Le Brier suit le marché choisi dans la calibration : un seul état partagé.
+- Monte-Carlo par défaut sur le prochain coup d'envoi calculé, jamais sur un écart.
+  Clic sur une rencontre pour la simuler. La frontière tracée sur la matrice est
+  l'Under 2.5 exact, en escalier (la maquette traçait le carré 0-2 × 0-2, qui compte
+  2-1, 1-2 et 2-2).
+- λ et ρ ne passent jamais en capitales : `text-transform` change ρ en Ρ, qui se lit P.
 
 ## Mouvement
 
