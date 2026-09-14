@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\FetchMatchDataJob;
+use App\Models\PipelineRun;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
@@ -15,6 +17,8 @@ use Symfony\Component\Console\Output\BufferedOutput;
  * Si l'import lève une exception (rien d'importé), les étapes suivantes ne
  * tournent pas. S'il se termine incomplet (code non nul : cotes partielles),
  * l'étape est en échec mais les suivantes tournent sur ce qui a été relevé.
+ *
+ * Chaque passage est enregistré dans pipeline_runs (indicateur de fraîcheur).
  */
 class PipelineDaily extends Command
 {
@@ -37,6 +41,14 @@ class PipelineDaily extends Command
 
         $log->info("pipeline:daily démarré pour le {$date}");
         $failures = 0;
+        $stepsRecord = [];
+
+        $run = PipelineRun::create([
+            'run_date' => $date,
+            'status' => PipelineRun::RUNNING,
+            'started_at' => now(),
+        ]);
+        FetchMatchDataJob::$lastSummary = null;
 
         foreach ($steps as [$command, $arguments, $blocking]) {
             $started = microtime(true);
@@ -60,6 +72,12 @@ class PipelineDaily extends Command
                 $context['exception'] = $error;
             }
 
+            $stepsRecord[$command] = array_diff_key($context, ['output' => true]);
+            $run->update([
+                'steps' => $stepsRecord,
+                'fetch_summary' => FetchMatchDataJob::$lastSummary,
+            ]);
+
             if ($exitCode === self::SUCCESS) {
                 $log->info("Étape {$command} : terminée", $context);
                 $this->info("{$command} : OK ({$context['duration_s']} s)");
@@ -72,9 +90,15 @@ class PipelineDaily extends Command
 
             if ($blocking && $error !== null) {
                 $log->error("pipeline:daily interrompu : {$command} a échoué, étapes suivantes non lancées");
+                $run->update(['status' => PipelineRun::FAILED, 'finished_at' => now()]);
                 return self::FAILURE;
             }
         }
+
+        $run->update([
+            'status' => $failures > 0 ? PipelineRun::INCOMPLETE : PipelineRun::SUCCESS,
+            'finished_at' => now(),
+        ]);
 
         $log->log($failures > 0 ? 'warning' : 'info', "pipeline:daily terminé pour le {$date}", ['failures' => $failures]);
 
