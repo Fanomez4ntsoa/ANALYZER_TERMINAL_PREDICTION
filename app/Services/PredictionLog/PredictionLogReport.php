@@ -30,7 +30,12 @@ class PredictionLogReport
 {
     public function build(?string $market = null, ?int $leagueId = null): array
     {
-        $threshold = (int) config('prediction-log.min_matches');
+        // Configuration absente (cache antérieur au fichier) : un seuil nul
+        // déclarerait tous les effectifs suffisants
+        $threshold = config('prediction-log.min_matches');
+        if (!is_int($threshold) || $threshold < 1 || !is_array(config('prediction-log.groups'))) {
+            throw new \RuntimeException('Configuration prediction-log absente ou invalide : relancer php artisan config:cache');
+        }
         $filter = function ($query, string $table = 'prediction_log') use ($market, $leagueId) {
             if ($market !== null) {
                 $query->where("{$table}.market", $market);

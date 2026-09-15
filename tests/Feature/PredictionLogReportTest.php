@@ -187,4 +187,12 @@ class PredictionLogReportTest extends TestCase
 
         $this->artisan('log:report', ['--market' => 'edge'])->assertExitCode(1);
     }
+
+    public function test_missing_threshold_configuration_is_refused(): void
+    {
+        config(['prediction-log.min_matches' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        app(PredictionLogReport::class)->build();
+    }
 }
