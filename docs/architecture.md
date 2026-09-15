@@ -1,6 +1,6 @@
 # Architecture
 
-État au 14/09/2026, après le nettoyage qui suit l'étape 2. Décrit ce qui existe
+État au 15/09/2026, après l'étape 5 (journal des sélections). Décrit ce qui existe
 réellement, pas ce qui est prévu.
 
 ---
@@ -10,7 +10,7 @@ réellement, pas ce qui est prévu.
 ```
 Planificateur (routes/console.php, cron `schedule:run` requis)
   ├─ pipeline:daily, chaque jour à config pipeline.schedule_time (10:00 UTC)
-  │    pipeline:run-sync → context:enrich → predictions:compute → market:track snapshot
+  │    pipeline:run-sync → log:settle (veille) → context:enrich → predictions:compute → market:track snapshot
   │    chaque étape journalisée dans storage/logs/pipeline-*.log
   │    import en exception = arrêt ; import incomplet (code non nul) = étapes suivantes lancées
   └─ toutes les 5 min : market:track closing, puis market:track close
@@ -43,7 +43,8 @@ de 6,5 s (10/minute), une seule nouvelle tentative après un 429.
   │                                                  jamais après le coup d'envoi)
   ├─ XGModelService::predict                         estimation des λ
   │    └─ PoissonModelService::fullAnalysis          matrice de scores
-  └─ PredictionService                               → table predictions
+  └─ PredictionService                               → table predictions (remplacée)
+                                                     → table prediction_log (ajoutée, même transaction)
 ```
 
 Dix lignes par match : 1, X, 2, 1X, X2, 12, Over 2.5, Under 2.5, BTTS Oui,
@@ -105,6 +106,37 @@ marché dépasse les 40 % affichés.
 
 ---
 
+## Journal des sélections (`prediction_log`, étape 5)
+
+Une ligne figée par prédiction jouable, ajoutée à chaque calcul (`predictions`, elle,
+est remplacée). N'entrent que les lignes avec cote d'un bookmaker identifié (jamais
+`legacy_max`) et probabilité équitable : 8 à 10 lignes par match.
+
+| Colonnes | Contenu |
+|---|---|
+| `match_id` | Suppression du match refusée |
+| `league_id`, `home_team`, `away_team`, `kickoff_at` | Copies au calcul ; la clôture refuse un match changé |
+| `trigger` | `pipeline` (`predictions:compute`) ou `manual` (bouton) |
+| `market`, `outcome`, `model_probability`, `full_model_probability`, `full_model_signals` | Marché seul et modèle complet, signaux réellement utilisés |
+| `model_mode`, `lambda_home`, `lambda_away`, `rho` | Paramètres du calcul |
+| `odds`, `bookmaker`, `fair_probability`, `odds_taken_at`, `computed_at` | Cote Bet365 et horodatages |
+| `score_home`, `score_away`, `outcome_occurred`, `settled_at` | Clôture ; `outcome_occurred` nul = en attente |
+| `closing_bookmaker`, `closing_odds`, `closing_fair_probability`, `closing_quoted_at`, `closing_odds_movement_id` | Clôture Pinnacle (relevé fiable), nulles sans clôture ou marché non coté |
+| `closing_edge` | `odds × closing_fair_probability − 1`. **Pas le CLV de `/market`** : lire sa variation entre segments, pas son signe |
+
+`PredictionLogEntry` refuse suppression et modification, sauf des colonnes de clôture
+encore nulles (événements Eloquent : aucune mise à jour de masse sur cette table).
+Non vidée par `app:reset`.
+
+- `log:settle --date=` (`PredictionLog/PredictionLogSettler`) : la veille par défaut,
+  étape de `pipeline:daily`. Échec si un match terminé ne peut pas être clôturé (sans
+  score, notamment AET/PEN ; changé ; absent).
+- `log:report [--market=] [--league=]` (`PredictionLog/PredictionLogReport`) : premier
+  calcul du pipeline de chaque match seul, matchs mesurables. Seuil et familles dans
+  `config/prediction-log.php` (200 matchs clôturés par marché).
+
+---
+
 ## Services actifs
 
 | Service | Rôle |
@@ -113,14 +145,17 @@ marché dépasse les 40 % affichés.
 | `Probability/PoissonModelService` | Matrice de scores et probabilités |
 | `Probability/DixonColesRho` | ρ de Dixon-Coles par population, maximum de vraisemblance sur les scores (saisons antérieures) |
 | `Probability/LeagueGoalAverages` | Buts par match par championnat, saisons de travail (ancre du total sans O/U) |
-| `PredictionService` | Persistance des probabilités |
+| `PredictionService` | Persistance des probabilités et écriture du journal |
+| `Probability/FairProbabilities` | Probabilités équitables d'un ensemble de cotes, double chance dérivée du 1X2 |
+| `PredictionLog/PredictionLogSettler` | Clôture du journal : issue, clôture Pinnacle, `closing_edge` |
+| `PredictionLog/PredictionLogReport` | Mesure du journal : Brier, écart apparié, tranches, seuil |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
 | `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
 | `Api/ApiFootballService` | Fixtures, cotes Bet365 par match, prédictions et blessures ; `ApiFootballException` ; budget du jour |
 | `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
 | `Context/ContextEnricherService` | Fatigue, enjeux, météo, pression coach |
-| `Market/CLVTrackerService` | Relevés de prédiction et de clôture sans cache, cote datée et récente, écart de clôture |
+| `Market/CLVTrackerService` | Relevés de prédiction et de clôture sans cache, cote datée et récente, écart de clôture ; `closingSnapshot`, règle de clôture commune avec le journal |
 | `Backtesting/FootballData/CsvParser` | CSV football-data → lignes normalisées (liste blanche de colonnes) |
 | `Backtesting/FootballData/TeamNameAudit` | Graphies d'équipes qui ne diffèrent que par un caractère non-ASCII |
 | `Backtesting/FootballData/CalibrationBacktestService` | Backtest de calibration du modèle de production, mode marché seul |
@@ -187,7 +222,7 @@ raison : `event_not_found` (nombre d'événements dans la réponse), `bookmaker_
 
 ## Tables
 
-**Actives** : `matches`, `advanced_data`, `predictions`, `odds_movements`,
+**Actives** : `matches`, `advanced_data`, `predictions`, `prediction_log`, `odds_movements`,
 `historical_matches`, `backtest_fd_runs`, `backtest_fd_predictions`.
 
 **Conservées mais orphelines** : `recommendations`, `sources`,

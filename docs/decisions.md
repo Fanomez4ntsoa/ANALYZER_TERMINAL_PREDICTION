@@ -1185,3 +1185,115 @@ test de mouvement de ligne. Aucune donnée n'est modifiée.
 
 Cette entrée précise celle qui précède : « cotes Pinnacle réelles de 06:19 » y désigne
 l'heure de la réponse de l'API, pas une heure de cote mesurée.
+
+---
+
+## 2026-09-15 — Journal des sélections : une ligne figée par calcul
+
+**Le système calcule des probabilités, mais rien ne vérifiait si elles étaient justes
+sur les matchs réels.** Le backtest mesure le modèle sur football-data ; le journal le
+mesure en production, avec les cotes Bet365 et le périmètre réel.
+
+Table `prediction_log`, une ligne par prédiction, écrite au moment du calcul :
+
+- **Toutes les lignes calculées**, pas seulement celles que l'utilisateur regarde : un
+  journal limité aux sélections remarquées serait biaisé par l'attention. Écrites par
+  `PredictionService::computeAndStore` dans la même transaction que `predictions` : un
+  calcul affiché mais absent du journal serait un trou silencieux, donc l'échec de l'un
+  annule l'autre.
+- **Exclues** : les lignes sans cote ou sans probabilité équitable (ensemble de marché
+  incomplet), et celles dont la cote est `legacy_max`. Les matchs commencés ou
+  contaminés sont refusés par la garde existante ; le modèle revérifie que le calcul
+  précède le coup d'envoi.
+- **Figée** : `PredictionLogEntry` refuse toute suppression et toute modification, sauf
+  les colonnes de clôture encore nulles. Une valeur de clôture ne se réécrit pas.
+- **Déclencheur** enregistré : `pipeline` (`predictions:compute`, tous les matchs d'une
+  date) ou `manual` (bouton Calculer).
+- **Copie de l'identité du match** (équipes, coup d'envoi, championnat) : la clôture
+  refuse un match qui n'est plus celui du calcul (reprogrammé, base remise à zéro par
+  `app:reset`, qui ne vide jamais le journal).
+- **Aucun remplissage rétroactif** depuis `predictions` : ces lignes sont écrasées à
+  chaque recalcul et leur déclencheur est inconnu. Le journal démarre vide au premier
+  calcul après la migration `2026_09_15_000001`.
+
+Clôture par `log:settle --date=` (la veille par défaut), étape de `pipeline:daily`
+juste après `pipeline:run-sync` qui met à jour les scores de la veille. Issue
+déterminée par le score final ; **une ligne sans résultat reste en attente, jamais
+résolue par défaut**. Match terminé sans score ou changé : échec de la commande. Match
+non terminé : avertissement. Limite connue : le score n'est écrit que pour un statut
+FT, les matchs AET/PEN restent en attente (non corrigé dans cette étape,
+`docs/roadmap.md`).
+
+La règle de clôture Pinnacle (dernier relevé fiable dans les 10 minutes avant le coup
+d'envoi) est extraite en `CLVTrackerService::closingSnapshot`, commune au CLV de
+`/market` et au journal.
+
+---
+
+## 2026-09-15 — `closing_edge` : le prix jouable contre la clôture Pinnacle équitable
+
+**`closing_edge = cote Bet365 du calcul × probabilité équitable Pinnacle à la clôture − 1`.**
+Nommé ainsi pour ne jamais être confondu avec le CLV de `/market`, qui mesure Pinnacle
+contre Pinnacle (décision du 14/09/2026, toujours valable pour ce CLV-là).
+
+Ce qui compte pour l'utilisateur est de savoir si le prix qu'il aurait réellement joué
+battait la meilleure estimation disponible de la vraie probabilité. Un CLV Pinnacle
+contre Pinnacle mesure le mouvement du marché, pas cette performance. Décision de
+l'utilisateur.
+
+**Réserve, à relire avant toute lecture des chiffres.** Cet indicateur mélange deux
+choses. Bet365 est structurellement moins généreux que Pinnacle, marge retirée : une
+valeur systématiquement négative ne prouvera pas que les sélections sont mauvaises, elle
+reflétera d'abord l'écart de tarification entre les deux maisons. **Ce qui sera
+informatif, c'est la variation de `closing_edge` entre segments, pas son signe
+absolu.**
+
+Chaque bookmaker reste unique et identifié (`bookmaker`, `closing_bookmaker`), jamais un
+maximum ni une moyenne. Probabilité équitable de clôture : 1X2 normalisé ; double chance
+dérivée du 1X2 (pas de cote Pinnacle brute, `closing_odds` nul) ; O/U 2.5 seulement si
+Pinnacle publie la ligne 2.5 ; BTTS jamais relevé. **Sans clôture fiable, ou marché non
+coté, `closing_edge` reste nul, jamais 0.** Il n'est pas agrégé par `log:report`.
+
+---
+
+## 2026-09-15 — Mesure du journal : premier calcul du pipeline, seuil de 200 matchs
+
+`log:report` mesure les lignes clôturées, sur matchs mesurables.
+
+**Le premier calcul du pipeline de chaque match, et lui seul.** Un match recalculé avec
+le bouton compterait double, et les matchs regardés pèseraient plus : exactement le
+biais d'attention que le journal doit éviter. Le rapport ne dépend en rien de ce que
+l'utilisateur consulte. Les lignes du bouton restent enregistrées et clôturées, mais
+hors mesure ; les matchs qui n'ont que des lignes du bouton sont comptés à part, pour
+savoir ce qu'on écarte. Décision de l'utilisateur.
+
+**Seuil : 200 matchs clôturés par marché, pas 200 lignes** (`config/prediction-log.php`).
+Les trois issues d'un 1X2 ne sont pas indépendantes (elles somment à 1) : les compter
+séparément gonflerait l'effectif d'un facteur trois. Toute sortie affiche l'effectif
+total ; sous le seuil, chaque bloc dit explicitement que ses chiffres ne permettent
+aucune conclusion. Au-dessus, le rapport ne conclut pas davantage : seuil nécessaire,
+pas suffisant. **Avec une dizaine de matchs par jour, il faudra des mois. Empêcher de
+conclure trop tôt est la principale valeur du journal au début.**
+
+Métriques, par marché puis par championnat, familles séparées comme dans le backtest
+(ajustement : 1X2 et O/U 2.5 ; recombinaison du 1X2 : DC, décision du 14/09/2026 ;
+dérivé indépendant : BTTS) :
+
+- effectif en matchs et en lignes ;
+- Brier du modèle, Brier de la probabilité équitable Bet365 sur les mêmes lignes ;
+- différence de Brier appariée, erreur type groupée par match (les lignes d'un match
+  sont liées : les traiter comme indépendantes sous-estimerait l'erreur) ;
+- fréquence observée par tranche de 5 points, avec effectif.
+
+**Mêmes métriques pour `full_model_probability`** : seule voie pour savoir un jour si les
+signaux comparaison et blessures apportent quelque chose, puisque football-data ne les
+contient pas. Mesuré sur les seules lignes où l'un des deux a servi : sans eux, le
+modèle complet reproduit exactement le marché seul (vérifié dans
+`XGModelService::fuseLambdas`), et les inclure diluerait l'écart. Comparé au marché seul
+sur les mêmes lignes. **Ces signaux étant souvent sacrifiés au budget d'API-Football,
+cet effectif grandira beaucoup plus lentement que le reste** : le rapport affiche sa
+propre progression vers le seuil, à côté de celle du marché seul, pour qu'on ne croie
+pas dans six mois avoir de quoi trancher.
+
+Tests : 21 tests Feature sur l'enregistrement, la clôture et le rapport (Brier, écart
+groupé et tranches calculés à la main), suite complète 111 tests verts.
