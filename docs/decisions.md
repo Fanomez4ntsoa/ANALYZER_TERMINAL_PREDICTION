@@ -1359,3 +1359,34 @@ pas contre un incident découvert tard.
 **Règle générale : `config:cache` et les tests ne cohabitent jamais.** Avant toute
 exécution de la suite, `php artisan config:clear`. Écrite aussi dans `CLAUDE.md`, lu à
 chaque session.
+
+---
+
+## 2026-09-15 — Sauvegardes : rotation gardée contre une base rétrécie, vérifiées par restauration
+
+**Limite corrigée.** Avec une rotation sur sept jours seule, une semaine de sauvegardes
+d'une base vidée évinçait les bonnes : le scénario du 15/09/2026, avec sept jours de
+délai. Règle de l'utilisateur : une base qui rétrécit brutalement est une anomalie, pas
+une rotation normale.
+
+Mise en œuvre : **aucune sauvegarde n'est supprimée si la nouvelle fait moins de la
+moitié de sa taille** (`pipeline.backup.shrink_ratio`, 0,5). La comparaison porte sur
+chaque sauvegarde candidate à la suppression, pas seulement sur la précédente :
+comparée à la seule veille, la garde ne protégeait que le premier jour, puisque dès le
+deuxième la veille est elle-même la petite sauvegarde. Refus journalisé dans le canal
+`pipeline` et `db:backup` en échec, donc passage incomplet visible, à chaque passage
+tant que les grosses sauvegardes restent. Conséquence assumée : après une réduction
+voulue de la base, les anciennes sauvegardes restent jusqu'à suppression manuelle.
+
+**Une sauvegarde jamais restaurée n'est pas une sauvegarde.** `db:backup --verify`
+restaure la dernière sauvegarde dans une base temporaire
+(`<base>_verify_AAAAMMJJHHMMSS`, nom dérivé et contrôlé, jamais la base réelle, refus
+si elle existe déjà), compte les lignes des tables principales
+(`pipeline.backup.verify_tables`) dans la sauvegarde et dans la base réelle, puis
+supprime la base temporaire même en cas d'échec et vérifie sa disparition. Échec si une
+table manque ou si la base temporaire subsiste.
+
+Premier passage le 15/09/2026, sur la sauvegarde de la base reconstruite : restauration
+en 8 secondes, effectifs identiques à la base réelle (`historical_matches` 38 780,
+`backtest_fd_predictions` 86 434, `backtest_fd_runs` 1, `users` 1, tables du pipeline
+vides), base temporaire supprimée.

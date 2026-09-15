@@ -151,7 +151,7 @@ Non vidée par `app:reset`.
 | `PredictionLog/PredictionLogReport` | Mesure du journal : Brier, écart apparié, tranches, seuil |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
 | `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
-| `DataPipeline/DatabaseBackup` | mysqldump compressé, rotation sur sept jours (`config/pipeline.php`, `backup`) |
+| `DataPipeline/DatabaseBackup` | mysqldump compressé, rotation sur sept jours refusée si la base a rétréci de moitié, vérification par restauration dans une base temporaire (`config/pipeline.php`, `backup`) |
 | `Api/ApiFootballService` | Fixtures, cotes Bet365 par match, prédictions et blessures ; `ApiFootballException` ; budget du jour |
 | `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |

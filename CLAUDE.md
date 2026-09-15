@@ -65,7 +65,7 @@ qui ne veut rien dire sans la cote associée.
 
 ```bash
 php artisan pipeline:daily [date]        # Passage quotidien : sauvegarde, import, clôture du journal (veille), contexte, probabilités, snapshot (planifié 10:00 UTC)
-php artisan db:backup                    # mysqldump compressé, storage/app/private/backups, sept derniers jours
+php artisan db:backup [--verify]         # mysqldump compressé, sept derniers jours ; --verify restaure la dernière dans une base temporaire
 php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
 php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
 php artisan pipeline:backfill --from= --to=
