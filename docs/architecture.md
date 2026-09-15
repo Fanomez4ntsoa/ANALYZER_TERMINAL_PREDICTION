@@ -1,6 +1,6 @@
 # Architecture
 
-État au 15/09/2026, après l'étape 5 (journal des sélections). Décrit ce qui existe
+État au 15/09/2026, après l'étape 5 (journal des sélections) et la reconstruction de la base. Décrit ce qui existe
 réellement, pas ce qui est prévu.
 
 ---
@@ -10,7 +10,7 @@ réellement, pas ce qui est prévu.
 ```
 Planificateur (routes/console.php, cron `schedule:run` requis)
   ├─ pipeline:daily, chaque jour à config pipeline.schedule_time (10:00 UTC)
-  │    pipeline:run-sync → log:settle (veille) → context:enrich → predictions:compute → market:track snapshot
+  │    db:backup → pipeline:run-sync → log:settle (veille) → context:enrich → predictions:compute → market:track snapshot
   │    chaque étape journalisée dans storage/logs/pipeline-*.log
   │    import en exception = arrêt ; import incomplet (code non nul) = étapes suivantes lancées
   └─ toutes les 5 min : market:track closing, puis market:track close
@@ -151,6 +151,7 @@ Non vidée par `app:reset`.
 | `PredictionLog/PredictionLogReport` | Mesure du journal : Brier, écart apparié, tranches, seuil |
 | `DataPipeline/MatchEnricherService` | Normalisation API-Football → base ; `isBeforeKickoff` |
 | `DataPipeline/PipelineLog` | Avertissement pour toute exception interceptée dans le pipeline |
+| `DataPipeline/DatabaseBackup` | mysqldump compressé, rotation sur sept jours (`config/pipeline.php`, `backup`) |
 | `Api/ApiFootballService` | Fixtures, cotes Bet365 par match, prédictions et blessures ; `ApiFootballException` ; budget du jour |
 | `Api/OddsApiService` | Snapshots Pinnacle pour le CLV **uniquement** |
 | `Api/WeatherService` | Météo |
@@ -221,6 +222,15 @@ raison : `event_not_found` (nombre d'événements dans la réponse), `bookmaker_
 ---
 
 ## Tables
+
+**Sauvegardes** : `storage/app/private/backups/<base>_AAAA-MM-JJ_HHMMSS.sql.gz`, une par
+passage de `pipeline:daily`, sept derniers jours distincts. Aucune avant le 15/09/2026 :
+la base a été vidée ce jour-là et reconstruite (`docs/decisions.md`). Backtest en base :
+le run #1 seul (référence) ; les runs #2 à #9 cités dans la documentation n'existent plus
+qu'en exports JSON dans `storage/app/private/backtest`.
+
+**Tests** : SQLite en mémoire uniquement. `tests/TestCase.php` refuse de démarrer si la
+configuration est en cache ou si la connexion n'est pas SQLite.
 
 **Actives** : `matches`, `advanced_data`, `predictions`, `prediction_log`, `odds_movements`,
 `historical_matches`, `backtest_fd_runs`, `backtest_fd_predictions`.

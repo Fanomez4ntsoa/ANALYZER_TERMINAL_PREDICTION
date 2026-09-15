@@ -388,10 +388,9 @@ Fait le 15/09/2026 (`docs/decisions.md`) :
   complet.
 - Rien dans l'interface : on l'ajoutera quand il y aura de quoi montrer.
 
-Reste à faire par l'utilisateur : lancer la migration
-`2026_09_15_000001_create_prediction_log_table`, puis `php artisan config:cache`
-(nouveau fichier `config/prediction-log.php` ; `log:report` refuse de tourner sans
-lui). L'enregistrement commence au premier calcul qui suit.
+Migration lancée et 30 premières lignes enregistrées le 15/09/2026, puis perdues le
+même jour avec toute la base (incident, `docs/decisions.md`). Le journal repart de zéro
+le 15/09/2026. `log:report` refuse de tourner sans `config/prediction-log.php`.
 
 Laissé ouvert :
 
@@ -405,6 +404,28 @@ Laissé ouvert :
   tarification Bet365 / Pinnacle).
 - Les lignes en attente des jours précédents sont signalées par `log:settle` mais pas
   reprises automatiquement : relancer `log:settle --date=` sur leur date.
+
+---
+
+## Incident du 15/09/2026 — base vidée, reconstruite (branche `fix/incident-base-videe`)
+
+Base MariaDB vidée par la suite de tests lancée sur une configuration en cache
+(`docs/decisions.md`). Fait le 15/09/2026 :
+
+- Garde dans `tests/TestCase.php` : cache de configuration ou connexion non SQLite =
+  suite refusée.
+- `db:backup` : sauvegarde quotidienne, première étape de `pipeline:daily`, rotation
+  sur sept jours.
+- Reconstruction : schéma, compte, `football-data:import` (38 780 matchs), backtest de
+  référence relancé (run #1, Top 5, identique au run #8 par division),
+  `football-data.reference_run` = 1. Aucun match passé réimporté.
+
+Perdu définitivement : `recommendations` (235), `match_validations` (33), les matchs et
+leurs cotes d'avant-match, les relevés Pinnacle, les 30 lignes du journal.
+
+Reste à faire par l'utilisateur : ajouter la ligne cron `schedule:run` (aucune crontab
+installée le 15/09/2026 : sans elle, ni `pipeline:daily`, ni la sauvegarde, ni la clôture
+ne tournent), changer le mot de passe du compte recréé.
 
 ---
 

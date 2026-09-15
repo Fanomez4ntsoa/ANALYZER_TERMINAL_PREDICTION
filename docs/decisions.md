@@ -1297,3 +1297,65 @@ pas dans six mois avoir de quoi trancher.
 
 Tests : 21 tests Feature sur l'enregistrement, la clôture et le rapport (Brier, écart
 groupé et tranches calculés à la main), suite complète 111 tests verts.
+
+---
+
+## 2026-09-15 — Incident : la base réelle vidée par la suite de tests
+
+**Le 15/09/2026 à 09:17:46, la base MariaDB `football-analyzer` a été entièrement vidée.**
+Toutes les tables ont été supprimées puis recréées vides, les 37 migrations rejouées en
+un seul lot.
+
+**Cause.** Après la fusion de `feat/prediction-log`, Claude a lancé `php artisan test`
+sur `main` alors que l'utilisateur venait d'exécuter `config:cache`. Avec une
+configuration en cache, Laravel ignore les variables de `phpunit.xml` (SQLite en
+mémoire) : les tests ont tourné sur la connexion MariaDB en cache, et `RefreshDatabase`
+a lancé `migrate:fresh` sur la vraie base. Le signal était dans le message de
+l'utilisateur ; les tests ont été lancés sans vérifier `bootstrap/cache/config.php`.
+
+**Perdu, sans retour possible** (binlog MariaDB désactivé, aucune sauvegarde, pas de
+récupération sur disque tentée, décision de l'utilisateur) :
+
+- `recommendations` (235 analyses) et `match_validations` (33 matchs validés à la main),
+  seule vérité terrain humaine du projet ;
+- `matches` (environ 1 140 matchs, dont les cotes Bet365 d'avant-match), `advanced_data`,
+  `predictions`, `odds_movements` (relevés Pinnacle, dont les premiers relevés fiables
+  du 14/09), `pipeline_runs` ;
+- les 30 premières lignes du journal des sélections (3 matchs) ;
+- les runs de backtest #1 à #9 en base (`backtest_fd_runs`, `backtest_fd_predictions`).
+  Leurs exports JSON et rapports par population restent dans
+  `storage/app/private/backtest` : les chiffres documentés ici restent vérifiables ;
+- le compte utilisateur.
+
+**Garde** (`tests/TestCase.php`) : la suite s'arrête avant tout trait, donc avant
+`RefreshDatabase`, si un cache de configuration existe (fichier par défaut ou
+`APP_CONFIG_CACHE`) ou si la connexion de test n'est pas SQLite. Message explicite,
+code de sortie 1. Vérifiée sans risque : connexion MariaDB forcée sur une base
+inexistante, puis faux cache SQLite hors du projet ; les deux refusent.
+
+**Sauvegarde** : le projet n'en avait aucune, c'est la vraie leçon. `db:backup`, première
+étape de `pipeline:daily` : mysqldump compressé dans `storage/app/private/backups`,
+fichier horodaté jamais écrasé, mot de passe dans un fichier d'options temporaire et
+jamais sur la ligne de commande, vidage incomplet refusé, rotation sur les sept derniers
+jours distincts seulement après une sauvegarde réussie. Limite : une semaine de
+sauvegardes d'une base vidée finirait par évincer les bonnes ; la rotation ne protège
+pas contre un incident découvert tard.
+
+**Reconstruction** :
+
+- schéma à jour, compte recréé ;
+- `football-data:import` : 38 780 matchs, 7 822 / 7 830 / 7 800 / 7 681 / 7 647 par
+  saison de 2122 à 2526, identique à l'import du 13/09 ;
+- backtest de référence relancé : **run #1** (`--sample=work --input=b365
+  --divisions=E0,D1,I1,SP1,F1`, Dixon-Coles, ρ unique). ρ estimés identiques au run #8
+  (−0,07008 sur 2122, −0,04711 sur 2122-2223) ; par division du Top 5, effectifs, Brier
+  et tranches identiques à ceux du run #8. `football-data.reference_run` passe de 8 à 1 ;
+  le panneau lit 1X2 Top 5 2223-2324 à 0,19173 contre 0,19103 pour Pinnacle clôture,
+  comme avant. **Les numéros #2 à #9 cités dans ce fichier désignent désormais les
+  exports JSON, plus des lignes en base.**
+- **aucun match passé réimporté** : ils seraient marqués `post_kickoff_data` et exclus de
+  toute mesure. Le journal des sélections repart de zéro le 15/09/2026.
+
+**Règle générale : `config:cache` et les tests ne cohabitent jamais.** Avant toute
+exécution de la suite, `php artisan config:clear`. Écrite aussi dans `CLAUDE.md`, lu à
+chaque session.

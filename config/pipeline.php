@@ -36,4 +36,16 @@ return [
         'max_quote_age_minutes' => (int) env('PIPELINE_MAX_QUOTE_AGE_MINUTES', 10),
     ],
 
+    // Sauvegarde quotidienne de la base (db:backup, première étape de pipeline:daily).
+    // Le projet n'en avait aucune quand la base a été vidée le 15/09/2026.
+    // Un fichier horodaté par passage, jamais écrasé ; après une sauvegarde réussie,
+    // seules les sauvegardes des `keep_days` derniers jours distincts sont gardées.
+    'backup' => [
+        'connection' => env('PIPELINE_BACKUP_CONNECTION', env('DB_CONNECTION', 'mariadb')),
+        'path' => storage_path('app/private/backups'),
+        'keep_days' => (int) env('PIPELINE_BACKUP_KEEP_DAYS', 7),
+        'dump_binary' => env('PIPELINE_BACKUP_DUMP_BINARY', 'mysqldump'),
+        'timeout_seconds' => (int) env('PIPELINE_BACKUP_TIMEOUT', 900),
+    ],
+
 ];
