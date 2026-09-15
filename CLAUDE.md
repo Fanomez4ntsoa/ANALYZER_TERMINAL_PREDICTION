@@ -39,6 +39,12 @@ qui ne veut rien dire sans la cote associée.
 7. **Documenter à la fin de chaque étape** : une entrée dans `docs/decisions.md`,
    mise à jour de `docs/roadmap.md`. Ne touche pas à ce fichier sauf si une
    règle change.
+8. **`config:cache` et les tests ne cohabitent jamais.** Avec une configuration en
+   cache, `phpunit.xml` est ignoré et `RefreshDatabase` vide la vraie base : c'est
+   arrivé le 15/09/2026, tout a été perdu. Avant de lancer la suite, vérifier
+   l'absence de `bootstrap/cache/config.php` (sinon `php artisan config:clear`).
+   `tests/TestCase.php` refuse de démarrer dans ce cas : ne jamais contourner
+   cette garde.
 
 ---
 
@@ -58,7 +64,8 @@ qui ne veut rien dire sans la cote associée.
 ## Commandes
 
 ```bash
-php artisan pipeline:daily [date]        # Passage quotidien : import, clôture du journal (veille), contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan pipeline:daily [date]        # Passage quotidien : sauvegarde, import, clôture du journal (veille), contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan db:backup                    # mysqldump compressé, storage/app/private/backups, sept derniers jours
 php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
 php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
 php artisan pipeline:backfill --from= --to=
@@ -88,4 +95,8 @@ Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après
   plus aucun CDN, score « sharp money » et route de suppression d'un match supprimés.
 - Étape 5 terminée le 15/09/2026 : journal des sélections (`prediction_log`), clôture
   et rapport en commande, rien dans l'interface.
+- Incident du 15/09/2026 : base vidée par les tests lancés sur une configuration en
+  cache (règle 8). Recommandations, validations manuelles, matchs et relevés perdus ;
+  historique football-data réimporté, backtest de référence relancé (run #1), journal
+  reparti de zéro. Sauvegarde quotidienne depuis.
 - Aucune mesure fiable de performance en conditions réelles n'existe à ce jour.
