@@ -366,13 +366,45 @@ l'échantillon réservé l'use : on ne le lance pas avant.
 
 ---
 
-## Étape 5 — Journal des sélections ⬜ à faire
+## Étape 5 — Journal des sélections ✅ 15/09/2026 (branche `feat/prediction-log`)
 
-Une table qui enregistre chaque sélection affichée avec sa probabilité, sa cote
-et son horodatage, puis la clôture avec le résultat réel.
+Ce qui rend le système mesurable en conditions réelles, et la seule voie pour savoir
+un jour si les signaux autres que le marché apportent quelque chose. Menée avant
+l'étape 4 : l'enregistrement doit commencer tôt, l'effectif mettra des mois à venir.
 
-C'est ce qui rend le système mesurable en conditions réelles, et la seule voie
-pour savoir un jour si les signaux autres que le marché apportent quelque chose.
+Fait le 15/09/2026 (`docs/decisions.md`) :
+
+- Table `prediction_log` : une ligne figée par prédiction jouable, à chaque calcul,
+  dans la même transaction que `predictions`. Pipeline et bouton enregistrés, avec
+  leur déclencheur. Modification refusée hors clôture, table préservée par
+  `app:reset`, aucun remplissage rétroactif.
+- `log:settle --date=` : issue sur le score final, jamais par défaut ; `closing_edge`
+  (cote Bet365 × probabilité équitable Pinnacle à la clôture − 1), nul sans clôture
+  fiable. Étape de `pipeline:daily` sur la veille, après `pipeline:run-sync`.
+- `log:report [--market=] [--league=]` : premier calcul du pipeline seul ; Brier du
+  modèle marché seul, du modèle complet (lignes à signal hors marché seulement) et de
+  Bet365 équitable ; écart apparié à erreur type groupée par match ; tranches de 5
+  points. Seuil de 200 matchs clôturés par marché, progression propre du modèle
+  complet.
+- Rien dans l'interface : on l'ajoutera quand il y aura de quoi montrer.
+
+Reste à faire par l'utilisateur : lancer la migration
+`2026_09_15_000001_create_prediction_log_table`, puis `php artisan config:cache`
+(nouveau fichier `config/prediction-log.php` ; `log:report` refuse de tourner sans
+lui). L'enregistrement commence au premier calcul qui suit.
+
+Laissé ouvert :
+
+- **Matchs AET/PEN sans score** : `MatchEnricherService` n'écrit le score que pour un
+  statut FT, alors que `completed` est vrai aussi pour AET et PEN. Leurs lignes restent
+  en attente et `log:settle` sort en échec. Problème connu depuis l'audit, non corrigé
+  dans cette étape. Si beaucoup de matchs de coupe sont concernés, ce sera un trou
+  permanent dans le journal. À corriger avec le score du temps réglementaire (les
+  marchés du journal se règlent sur 90 minutes), jamais le score après prolongation.
+- `closing_edge` : lire sa variation entre segments, jamais son signe absolu (écart de
+  tarification Bet365 / Pinnacle).
+- Les lignes en attente des jours précédents sont signalées par `log:settle` mais pas
+  reprises automatiquement : relancer `log:settle --date=` sur leur date.
 
 ---
 

@@ -39,7 +39,7 @@ class AppReset extends Command
         $total = collect($counts)->filter(fn($c) => is_int($c))->sum();
         $this->newLine();
         $this->warn("Cela va supprimer {$total} lignes au total.");
-        $this->line('Tables preservees : users, password_reset_tokens, sessions, cache, jobs, migrations');
+        $this->line('Tables preservees : users, password_reset_tokens, sessions, cache, jobs, migrations, prediction_log (journal des selections, jamais vide)');
 
         if (!$this->option('force') && !$this->confirm('Confirmer la suppression ?')) {
             $this->info('Annule.');

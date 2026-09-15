@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\FetchMatchDataJob;
 use App\Models\PipelineRun;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -12,8 +13,10 @@ use Symfony\Component\Console\Output\BufferedOutput;
 /**
  * Passage quotidien du pipeline, lancé par le planificateur (routes/console.php).
  *
- * Quatre étapes dans l'ordre, chacune journalisée dans le canal `pipeline`
+ * Cinq étapes dans l'ordre, chacune journalisée dans le canal `pipeline`
  * (storage/logs/pipeline-AAAA-MM-JJ.log) : début, durée, code de sortie, sortie.
+ * La clôture du journal des sélections (log:settle) porte sur la veille, juste
+ * après l'import qui en met à jour les scores.
  * Si l'import lève une exception (rien d'importé), les étapes suivantes ne
  * tournent pas. S'il se termine incomplet (code non nul : cotes partielles),
  * l'étape est en échec mais les suivantes tournent sur ce qui a été relevé.
@@ -25,7 +28,7 @@ class PipelineDaily extends Command
     protected $signature = 'pipeline:daily
                             {date? : Date cible (YYYY-MM-DD, défaut : aujourd\'hui)}';
 
-    protected $description = 'Passage quotidien : import, contexte, probabilités, snapshot de cotes';
+    protected $description = 'Passage quotidien : import, clôture du journal, contexte, probabilités, snapshot de cotes';
 
     public function handle(): int
     {
@@ -34,6 +37,7 @@ class PipelineDaily extends Command
 
         $steps = [
             ['pipeline:run-sync', ['date' => $date], true],
+            ['log:settle', ['--date' => Carbon::parse($date)->subDay()->format('Y-m-d')], false],
             ['context:enrich', ['--date' => $date], false],
             ['predictions:compute', ['date' => $date], false],
             ['market:track', ['action' => 'snapshot', '--date' => $date], false],

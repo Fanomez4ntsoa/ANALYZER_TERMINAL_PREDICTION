@@ -58,12 +58,14 @@ qui ne veut rien dire sans la cote associée.
 ## Commandes
 
 ```bash
-php artisan pipeline:daily [date]        # Passage quotidien : import, contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan pipeline:daily [date]        # Passage quotidien : import, clôture du journal (veille), contexte, probabilités, snapshot (planifié 10:00 UTC)
 php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
 php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
 php artisan pipeline:backfill --from= --to=
 php artisan context:enrich --date=       # Fatigue, enjeux, météo
 php artisan market:track snapshot|closing|close|clv
+php artisan log:settle --date=           # Clôture du journal des sélections (défaut : la veille)
+php artisan log:report [--market=] [--league=]  # Calibration sur matchs réels, seuil 200 matchs par marché
 php artisan app:reset [--force]
 ```
 
@@ -84,4 +86,6 @@ Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après
   mesure.
 - Étape 3 terminée le 14/09/2026 : interface terminal (`docs/design-system.md`),
   plus aucun CDN, score « sharp money » et route de suppression d'un match supprimés.
+- Étape 5 terminée le 15/09/2026 : journal des sélections (`prediction_log`), clôture
+  et rapport en commande, rien dans l'interface.
 - Aucune mesure fiable de performance en conditions réelles n'existe à ce jour.
