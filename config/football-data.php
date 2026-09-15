@@ -64,13 +64,16 @@ return [
         'N1' => 88, 'B1' => 144, 'P1' => 94, 'T1' => 203, 'G1' => 197,
     ],
 
-    // Run de référence du panneau de calibration de l'interface : le run #8, seul run
-    // dont la configuration est celle de la production (entrée Bet365 ouverture,
-    // mode marché seul, Dixon-Coles à ρ unique). Jamais « le dernier run » : le #9,
-    // plus récent, prend Pinnacle en entrée. Lu sur la population Top 5 et les saisons
+    // Run de référence du panneau de calibration de l'interface : le run #1, seul run
+    // en base dont la configuration est celle de la production (entrée Bet365
+    // ouverture, mode marché seul, Dixon-Coles à ρ unique, Top 5, échantillon de
+    // travail). Jamais « le dernier run ». Lu sur la population Top 5 et les saisons
     // 2223-2324 (2122 n'a pas de saison antérieure pour estimer ρ).
+    // Le run #8 d'origine (22 divisions) a disparu avec la base le 15/09/2026 ; le #1,
+    // relancé le même jour, reproduit à l'identique ses résultats Top 5 par division
+    // (docs/decisions.md). Son export JSON reste dans storage/app/private/backtest.
     'reference_run' => [
-        'id' => (int) env('BACKTEST_REFERENCE_RUN', 8),
+        'id' => (int) env('BACKTEST_REFERENCE_RUN', 1),
         'population' => 'top5',
         'seasons' => ['2223', '2324'],
     ],
