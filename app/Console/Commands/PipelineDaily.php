@@ -13,8 +13,10 @@ use Symfony\Component\Console\Output\BufferedOutput;
 /**
  * Passage quotidien du pipeline, lancé par le planificateur (routes/console.php).
  *
- * Cinq étapes dans l'ordre, chacune journalisée dans le canal `pipeline`
+ * Six étapes dans l'ordre, chacune journalisée dans le canal `pipeline`
  * (storage/logs/pipeline-AAAA-MM-JJ.log) : début, durée, code de sortie, sortie.
+ * La sauvegarde de la base (db:backup) vient en premier, avant l'import du jour ;
+ * son échec n'arrête pas le passage mais le rend incomplet.
  * La clôture du journal des sélections (log:settle) porte sur la veille, juste
  * après l'import qui en met à jour les scores.
  * Si l'import lève une exception (rien d'importé), les étapes suivantes ne
@@ -28,7 +30,7 @@ class PipelineDaily extends Command
     protected $signature = 'pipeline:daily
                             {date? : Date cible (YYYY-MM-DD, défaut : aujourd\'hui)}';
 
-    protected $description = 'Passage quotidien : import, clôture du journal, contexte, probabilités, snapshot de cotes';
+    protected $description = 'Passage quotidien : sauvegarde, import, clôture du journal, contexte, probabilités, snapshot de cotes';
 
     public function handle(): int
     {
@@ -36,6 +38,7 @@ class PipelineDaily extends Command
         $log = Log::channel('pipeline');
 
         $steps = [
+            ['db:backup', [], false],
             ['pipeline:run-sync', ['date' => $date], true],
             ['log:settle', ['--date' => Carbon::parse($date)->subDay()->format('Y-m-d')], false],
             ['context:enrich', ['--date' => $date], false],
