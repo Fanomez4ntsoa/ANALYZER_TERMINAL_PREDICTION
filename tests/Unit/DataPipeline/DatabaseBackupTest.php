@@ -125,6 +125,65 @@ class DatabaseBackupTest extends TestCase
         $this->assertFileExists("{$this->dir}/notes.txt");
     }
 
+    public function test_rotation_never_deletes_backups_when_the_database_shrank(): void
+    {
+        mkdir($this->dir, 0700, true);
+        // Huit jours de sauvegardes saines (100 Ko), puis une base vidée
+        foreach (['05', '06', '07', '08', '09', '10', '11', '12'] as $day) {
+            file_put_contents("{$this->dir}/football-analyzer_2026-09-{$day}_100000.sql.gz", random_bytes(100_000));
+        }
+        $this->fakeDump();
+
+        $result = app(DatabaseBackup::class)->run();
+
+        $this->assertSame([], $result['deleted']);
+        $this->assertSame(['football-analyzer_2026-09-06_100000.sql.gz', 'football-analyzer_2026-09-05_100000.sql.gz'], array_column($result['kept_shrunk'], 'file'));
+        $this->assertCount(9, glob("{$this->dir}/*.sql.gz"));
+    }
+
+    public function test_shrunk_database_keeps_old_backups_on_every_later_run(): void
+    {
+        mkdir($this->dir, 0700, true);
+        file_put_contents("{$this->dir}/football-analyzer_2026-09-01_100000.sql.gz", random_bytes(100_000));
+        // Sept jours de sauvegardes d'une base vide : la saine a quitté la fenêtre
+        foreach (['09', '10', '11', '12', '13', '14'] as $day) {
+            file_put_contents("{$this->dir}/football-analyzer_2026-09-{$day}_100000.sql.gz", 'vide');
+        }
+        $this->fakeDump();
+
+        $this->artisan('db:backup')->assertExitCode(1);
+
+        $this->assertFileExists("{$this->dir}/football-analyzer_2026-09-01_100000.sql.gz");
+    }
+
+    public function test_normal_growth_rotates_without_warning(): void
+    {
+        mkdir($this->dir, 0700, true);
+        foreach (['01', '02', '03', '04', '05', '06', '07', '08'] as $day) {
+            file_put_contents("{$this->dir}/football-analyzer_2026-09-{$day}_100000.sql.gz", 'x');
+        }
+        $this->fakeDump();
+
+        $this->artisan('db:backup')->assertExitCode(0);
+
+        $this->assertFileDoesNotExist("{$this->dir}/football-analyzer_2026-09-01_100000.sql.gz");
+        $this->assertFileDoesNotExist("{$this->dir}/football-analyzer_2026-09-02_100000.sql.gz");
+        $this->assertCount(7, glob("{$this->dir}/*.sql.gz"));
+    }
+
+    public function test_temporary_database_name_is_derived_and_never_the_real_one(): void
+    {
+        $this->assertSame('football-analyzer_verify_20260915100000', DatabaseBackup::temporaryDatabaseName('football-analyzer', '20260915100000'));
+
+        foreach ([['football`; DROP DATABASE x; --', '20260915100000'], ['football-analyzer', 'now'], [str_repeat('a', 60), '20260915100000']] as [$db, $stamp]) {
+            try {
+                DatabaseBackup::temporaryDatabaseName($db, $stamp);
+                $this->fail("Nom accepté : {$db}");
+            } catch (\RuntimeException) {
+            }
+        }
+    }
+
     public function test_non_mysql_connection_is_refused(): void
     {
         config(['pipeline.backup.connection' => 'sqlite']);

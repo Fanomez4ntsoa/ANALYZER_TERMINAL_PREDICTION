@@ -45,7 +45,20 @@ return [
         'path' => storage_path('app/private/backups'),
         'keep_days' => (int) env('PIPELINE_BACKUP_KEEP_DAYS', 7),
         'dump_binary' => env('PIPELINE_BACKUP_DUMP_BINARY', 'mysqldump'),
+        'client_binary' => env('PIPELINE_BACKUP_CLIENT_BINARY', 'mysql'),
         'timeout_seconds' => (int) env('PIPELINE_BACKUP_TIMEOUT', 900),
+
+        // Jamais de suppression d'une sauvegarde si la nouvelle fait moins de cette
+        // fraction de sa taille : une base qui rétrécit brutalement est une anomalie.
+        'shrink_ratio' => (float) env('PIPELINE_BACKUP_SHRINK_RATIO', 0.5),
+
+        // Tables comptées par db:backup --verify après restauration
+        'verify_tables' => [
+            'users', 'matches', 'advanced_data', 'predictions', 'prediction_log',
+            'odds_movements', 'pipeline_runs', 'historical_matches',
+            'backtest_fd_runs', 'backtest_fd_predictions',
+            'recommendations', 'match_validations',
+        ],
     ],
 
 ];

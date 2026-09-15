@@ -415,7 +415,8 @@ Base MariaDB vidée par la suite de tests lancée sur une configuration en cache
 - Garde dans `tests/TestCase.php` : cache de configuration ou connexion non SQLite =
   suite refusée.
 - `db:backup` : sauvegarde quotidienne, première étape de `pipeline:daily`, rotation
-  sur sept jours.
+  sur sept jours, refusée quand la base a rétréci de moitié ; `db:backup --verify`
+  restaure la dernière sauvegarde dans une base temporaire (vérifiée le 15/09/2026).
 - Reconstruction : schéma, compte, `football-data:import` (38 780 matchs), backtest de
   référence relancé (run #1, Top 5, identique au run #8 par division),
   `football-data.reference_run` = 1. Aucun match passé réimporté.
@@ -425,7 +426,8 @@ leurs cotes d'avant-match, les relevés Pinnacle, les 30 lignes du journal.
 
 Reste à faire par l'utilisateur : ajouter la ligne cron `schedule:run` (aucune crontab
 installée le 15/09/2026 : sans elle, ni `pipeline:daily`, ni la sauvegarde, ni la clôture
-ne tournent), changer le mot de passe du compte recréé.
+ne tournent ; systemd, cron et MariaDB sont déjà activés au démarrage de WSL, mais WSL
+lui-même ne démarre pas avec Windows), changer le mot de passe du compte recréé.
 
 ---
 
