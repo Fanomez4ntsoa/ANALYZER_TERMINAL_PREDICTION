@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AdvancedData;
 use App\Models\FootballMatch;
 use App\Models\Prediction;
+use App\Models\PredictionLogEntry;
 use App\Services\Context\ContextEnricherService;
 use App\Services\Probability\KickoffPassedException;
 use App\Services\Probability\PredictionService;
@@ -107,7 +108,7 @@ class MatchAnalysisController extends Controller
                 }
             }
 
-            $predictions = $this->predictionService->computeAndStore($match);
+            $predictions = $this->predictionService->computeAndStore($match, PredictionLogEntry::TRIGGER_MANUAL);
 
             return response()->json([
                 'success' => true,

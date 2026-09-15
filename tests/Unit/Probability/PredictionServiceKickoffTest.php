@@ -3,6 +3,7 @@
 namespace Tests\Unit\Probability;
 
 use App\Models\FootballMatch;
+use App\Models\PredictionLogEntry;
 use App\Services\Probability\KickoffPassedException;
 use App\Services\Probability\PredictionService;
 use Tests\TestCase;
@@ -23,12 +24,12 @@ class PredictionServiceKickoffTest extends TestCase
     public function test_kicked_off_match_is_refused_before_any_computation(): void
     {
         $this->expectException(KickoffPassedException::class);
-        app(PredictionService::class)->computeAndStore($this->match('-1 minute'));
+        app(PredictionService::class)->computeAndStore($this->match('-1 minute'), PredictionLogEntry::TRIGGER_MANUAL);
     }
 
     public function test_contaminated_match_is_refused_even_before_kickoff(): void
     {
         $this->expectException(KickoffPassedException::class);
-        app(PredictionService::class)->computeAndStore($this->match('+2 hours', contaminated: true));
+        app(PredictionService::class)->computeAndStore($this->match('+2 hours', contaminated: true), PredictionLogEntry::TRIGGER_PIPELINE);
     }
 }

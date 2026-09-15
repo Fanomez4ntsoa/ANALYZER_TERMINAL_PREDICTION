@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\FootballMatch;
+use App\Models\PredictionLogEntry;
 use App\Services\DataPipeline\PipelineLog;
 use App\Services\Probability\PredictionService;
 use Illuminate\Console\Command;
@@ -32,12 +33,17 @@ class PredictionsCompute extends Command
 
         $computed = 0;
         $failed = 0;
+        $logged = 0;
 
         foreach ($withOdds as $match) {
             try {
-                $rows = $predictions->computeAndStore($match);
+                // Déclencheur pipeline : tous les matchs de la date, indépendamment de ce
+                // que l'utilisateur consulte. log:report ne lit que le premier de ces calculs.
+                $rows = $predictions->computeAndStore($match, PredictionLogEntry::TRIGGER_PIPELINE);
+                $matchLogged = $rows->filter(fn ($row) => PredictionLogEntry::admits($row->toArray()))->count();
                 $computed++;
-                $this->line("  {$match->full_name} : {$rows->count()} lignes");
+                $logged += $matchLogged;
+                $this->line("  {$match->full_name} : {$rows->count()} lignes, {$matchLogged} journalisées");
             } catch (\Exception $e) {
                 $failed++;
                 PipelineLog::caught('predictions:compute', $e, ['match_id' => $match->id, 'match' => $match->full_name]);
@@ -52,6 +58,7 @@ class PredictionsCompute extends Command
             'without_1x2_odds' => $upcoming->count() - $withOdds->count(),
             'computed' => $computed,
             'failed' => $failed,
+            'logged_lines' => $logged,
         ];
 
         Log::channel('pipeline')->log($failed > 0 ? 'warning' : 'info', 'predictions:compute terminé', $summary);

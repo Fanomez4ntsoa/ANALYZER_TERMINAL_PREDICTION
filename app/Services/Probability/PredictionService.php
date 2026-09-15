@@ -4,6 +4,7 @@ namespace App\Services\Probability;
 
 use App\Models\FootballMatch;
 use App\Models\Prediction;
+use App\Models\PredictionLogEntry;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,10 +28,17 @@ class PredictionService
      * écrite après le coup d'envoi, et les prédictions d'avant-match ne sont jamais
      * écrasées. Garde unique pour tous les appelants (bouton Analyser, commande).
      *
+     * Chaque calcul ajoute aussi ses lignes admissibles au journal des sélections
+     * (prediction_log), dans la même transaction : un calcul affiché mais absent du
+     * journal serait un trou silencieux. `predictions` est remplacée, le journal
+     * jamais.
+     *
+     * @param string $trigger PredictionLogEntry::TRIGGER_PIPELINE (predictions:compute,
+     *                        tous les matchs d'une date) ou TRIGGER_MANUAL (bouton)
      * @return Collection<Prediction>
      * @throws KickoffPassedException
      */
-    public function computeAndStore(FootballMatch $match): Collection
+    public function computeAndStore(FootballMatch $match, string $trigger): Collection
     {
         if ($match->hasKickedOff() || $match->post_kickoff_data) {
             throw new KickoffPassedException(
@@ -40,10 +48,35 @@ class PredictionService
 
         $rows = $this->compute($match);
 
-        DB::transaction(function () use ($match, $rows) {
+        DB::transaction(function () use ($match, $rows, $trigger) {
             $match->predictions()->delete();
             foreach ($rows as $row) {
                 $match->predictions()->create($row);
+            }
+
+            foreach (array_filter($rows, [PredictionLogEntry::class, 'admits']) as $row) {
+                PredictionLogEntry::create([
+                    'match_id' => $match->id,
+                    'league_id' => $match->league_id,
+                    'home_team' => $match->home_team,
+                    'away_team' => $match->away_team,
+                    'kickoff_at' => $match->match_date,
+                    'trigger' => $trigger,
+                    'market' => $row['market'],
+                    'outcome' => $row['outcome'],
+                    'model_probability' => $row['model_probability'],
+                    'full_model_probability' => $row['full_model_probability'],
+                    'full_model_signals' => $row['full_model_signals'],
+                    'model_mode' => $row['model_mode'],
+                    'lambda_home' => $row['lambda_home'],
+                    'lambda_away' => $row['lambda_away'],
+                    'rho' => $row['rho'],
+                    'odds' => $row['odds'],
+                    'bookmaker' => $row['bookmaker'],
+                    'fair_probability' => $row['fair_probability'],
+                    'odds_taken_at' => $row['odds_taken_at'],
+                    'computed_at' => $row['computed_at'],
+                ]);
             }
         });
 
@@ -121,16 +154,11 @@ class PredictionService
         // Probabilités fair : chaque ensemble complet normalisé à 1.
         // La double chance se dérive du 1X2 fair, pas de ses propres cotes.
         $fair = [
-            Prediction::MARKET_WINNER => $this->fairSet($odds[Prediction::MARKET_WINNER]),
-            Prediction::MARKET_OVER_UNDER_25 => $this->fairSet($odds[Prediction::MARKET_OVER_UNDER_25]),
-            Prediction::MARKET_BTTS => $this->fairSet($odds[Prediction::MARKET_BTTS]),
+            Prediction::MARKET_WINNER => FairProbabilities::fromOdds($odds[Prediction::MARKET_WINNER]),
+            Prediction::MARKET_OVER_UNDER_25 => FairProbabilities::fromOdds($odds[Prediction::MARKET_OVER_UNDER_25]),
+            Prediction::MARKET_BTTS => FairProbabilities::fromOdds($odds[Prediction::MARKET_BTTS]),
         ];
-        $fair1x2 = $fair[Prediction::MARKET_WINNER];
-        $fair[Prediction::MARKET_DOUBLE_CHANCE] = $fair1x2 === null ? null : [
-            '1X' => $fair1x2['1'] + $fair1x2['X'],
-            'X2' => $fair1x2['X'] + $fair1x2['2'],
-            '12' => $fair1x2['1'] + $fair1x2['2'],
-        ];
+        $fair[Prediction::MARKET_DOUBLE_CHANCE] = FairProbabilities::doubleChance($fair[Prediction::MARKET_WINNER]);
 
         $rows = [];
         foreach ($model as $market => $outcomes) {
@@ -187,28 +215,6 @@ class PredictionService
                 'No' => $analysis['btts']['no'] / 100,
             ],
         ];
-    }
-
-    /**
-     * Normalise un ensemble de cotes complet en probabilités sommant à 1.
-     * Retourne null si une cote de l'ensemble manque.
-     */
-    private function fairSet(array $oddsSet): ?array
-    {
-        foreach ($oddsSet as $odd) {
-            if ($odd === null) {
-                return null;
-            }
-        }
-
-        $raw = array_map(fn (float $odd) => 1 / $odd, $oddsSet);
-        $overround = array_sum($raw);
-
-        if ($overround <= 0) {
-            return null;
-        }
-
-        return array_map(fn (float $p) => $p / $overround, $raw);
     }
 
     private function odd(mixed $value): ?float
