@@ -284,14 +284,7 @@ class CLVTrackerService
                 continue;
             }
 
-            $closing = OddsMovement::where('match_id', $match->id)
-                ->where('bookmaker', $reference)
-                ->reliable()
-                ->whereNotNull('odds_home')
-                ->where('snapshot_at', '<=', $match->match_date)
-                ->where('snapshot_at', '>=', $match->match_date->copy()->subMinutes($window))
-                ->orderBy('snapshot_at', 'desc')
-                ->first();
+            $closing = $this->closingSnapshot($match);
 
             if (!$closing) {
                 // Signalé une fois, au premier passage après le coup d'envoi
@@ -321,6 +314,26 @@ class CLVTrackerService
         Log::channel('pipeline')->info("CLV : {$count} match(s) clôturé(s)");
 
         return ['closed' => $count, 'missing' => $missing];
+    }
+
+    /**
+     * Relevé de clôture d'un match : dernier relevé fiable du bookmaker du CLV pris
+     * dans les `pipeline.closing.window_minutes` avant le coup d'envoi. Règle unique
+     * pour le CLV de /market et pour le journal des sélections : aucun repli sur un
+     * relevé plus ancien ni sur une autre source.
+     */
+    public function closingSnapshot(FootballMatch $match): ?OddsMovement
+    {
+        $window = (int) config('pipeline.closing.window_minutes');
+
+        return OddsMovement::where('match_id', $match->id)
+            ->where('bookmaker', config('odds-api.clv_bookmaker'))
+            ->reliable()
+            ->whereNotNull('odds_home')
+            ->where('snapshot_at', '<=', $match->match_date)
+            ->where('snapshot_at', '>=', $match->match_date->copy()->subMinutes($window))
+            ->orderBy('snapshot_at', 'desc')
+            ->first();
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
