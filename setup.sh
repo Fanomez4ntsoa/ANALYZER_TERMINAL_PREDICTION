@@ -153,13 +153,18 @@ if ! php artisan tinker --execute='DB::connection()->getPdo(); echo "connexion-o
 fi
 ok "connexion à « ${db} »"
 
-# Fuseau de la session MariaDB de Laravel : fixé à +00:00 par DB_TIMEZONE, quel
-# que soit le réglage global du serveur (lu, jamais modifié). Les colonnes
-# TIMESTAMP sont converties selon lui ; Laravel y écrit de l'UTC.
-session_tz="$(php artisan tinker --execute='echo "tz=".DB::selectOne("SELECT @@session.time_zone s, @@global.time_zone g, @@system_time_zone y")->s;' 2>/dev/null | grep -o 'tz=.*' | cut -d= -f2 || true)"
-[ "$session_tz" = "+00:00" ] || fail "fuseau de session MariaDB « ${session_tz} », +00:00 attendu (DB_TIMEZONE dans .env)." \
+# Fuseau de la session MariaDB de Laravel, mesuré AVANT toute écriture en base
+# (migrate vient après) : décalage effectif entre NOW() et UTC_TIMESTAMP(), quel
+# que soit le nom du fuseau. DB_TIMEZONE=+00:00 le fixe pour chaque connexion de
+# Laravel, sans toucher au réglage global du serveur (lu, affiché, jamais modifié).
+# C'est la faute du portable (session en EAT, TIMESTAMP stockés décalés de 3 h) :
+# elle ne peut pas se reproduire ici sans que ce contrôle arrête le script.
+tz_probe="$(php artisan tinker --execute='$r = DB::selectOne("SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) o, @@session.time_zone s, @@global.time_zone g, @@system_time_zone y"); echo "tz=".$r->o."|".$r->s."|".$r->g."|".$r->y;' 2>/dev/null | grep -o 'tz=.*' | cut -d= -f2 || true)"
+IFS='|' read -r tz_offset tz_session tz_global tz_system <<<"$tz_probe"
+[ "$tz_offset" = "0" ] || fail "session MariaDB décalée de « ${tz_offset:-?} » minute(s) sur UTC (session ${tz_session:-?}, global ${tz_global:-?}, système ${tz_system:-?})." \
+    "Les heures du journal (TIMESTAMP) seraient stockées décalées. Vérifier DB_TIMEZONE=+00:00 dans .env." \
     "Voir docs/deploiement.md, « Heures et fuseaux »."
-ok "session MariaDB en UTC (DB_TIMEZONE=+00:00), configuration globale non touchée"
+ok "session MariaDB en UTC, décalage 0 (session ${tz_session}, global ${tz_global}, système ${tz_system} : réglage global non touché)"
 
 php artisan migrate --force
 ok "schéma à jour"

@@ -37,6 +37,10 @@ class LogReport extends Command
         $threshold = $data['threshold'];
 
         $this->line('<options=bold>JOURNAL DES SÉLECTIONS — calibration sur matchs réels</>');
+        $host = gethostname() ?: '?';
+        $this->line(config('pipeline.enabled') === true
+            ? "Base : celle de {$host}, qui collecte : base de référence."
+            : "Base : copie de lecture sur {$host} (collecte désactivée) ; la base de référence est " . config('pipeline.reference_host') . '.');
         $this->line('Lignes mesurées : premier calcul du pipeline de chaque match, clôturé, match non contaminé.');
         $this->line("Seuil : {$threshold} matchs clôturés par marché. En dessous, les chiffres ne permettent aucune conclusion.");
         if ($market !== null || $league !== null) {

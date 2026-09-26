@@ -8,6 +8,7 @@ use App\Services\Api\ApiFootballService;
 use App\Services\Api\OddsApiService;
 use App\Services\DataPipeline\DatabaseBackup;
 use App\Services\DataPipeline\PipelineGaps;
+use App\Services\DataPipeline\TimeZoneCheck;
 use App\Support\Terminal\PipelineFreshness;
 use App\Support\Terminal\SystemState;
 use Illuminate\Console\Command;
@@ -40,6 +41,7 @@ class SystemStatus extends Command
     {
         $enabled = config('pipeline.enabled') === true;
 
+        $this->collection($enabled);
         $this->heartbeat($enabled);
         $this->pipeline();
         $this->gaps();
@@ -53,11 +55,12 @@ class SystemStatus extends Command
         }
         $this->backup($enabled);
         $this->reference();
+        $this->timeZones();
 
         // Machine qui ne collecte pas (copie de lecture) : rien n'y est attendu,
-        // aucun voyant n'y est une panne
+        // aucun voyant n'y est une panne. Sauf des heures corrompues : fausses partout.
         if (!$enabled) {
-            $this->lines = array_map(fn ($l) => [min($l[0], SystemState::NOTICE), $l[1], $l[2]], $this->lines);
+            $this->lines = array_map(fn ($l) => $l[1] === 'Fuseaux' ? $l : [min($l[0], SystemState::NOTICE), $l[1], $l[2]], $this->lines);
         }
 
         $worst = max(array_map(fn ($l) => $l[0], $this->lines) ?: [0]);
@@ -67,12 +70,7 @@ class SystemStatus extends Command
             default => 'OK',
         };
 
-        $this->line(sprintf('football-analyzer · %s · %s · %s UTC · %s',
-            gethostname() ?: '?',
-            $enabled ? 'collecte ACTIVÉE' : 'collecte désactivée (base de référence : ' . config('pipeline.reference_host') . ')',
-            now('UTC')->format('Y-m-d H:i'),
-            $verdict,
-        ));
+        $this->line(sprintf('football-analyzer · %s · %s UTC · %s', gethostname() ?: '?', now('UTC')->format('Y-m-d H:i'), $verdict));
         foreach ($this->lines as [$severity, $label, $message]) {
             $level = match (true) {
                 $severity >= SystemState::CRITICAL => 'CRITIQUE',
@@ -90,6 +88,15 @@ class SystemStatus extends Command
     private function add(int $severity, string $label, string $message): void
     {
         $this->lines[] = [$severity, $label, $message];
+    }
+
+    /** Quelle machine fait foi : un coup d'œil doit suffire. */
+    private function collection(bool $enabled): void
+    {
+        $host = gethostname() ?: '?';
+        $this->add(SystemState::NOTICE, 'Collecte', $enabled
+            ? "ACTIVE sur cette machine ({$host}) : c'est la base de référence"
+            : "désactivée sur cette machine ({$host}), copie de lecture ; la base de référence est " . config('pipeline.reference_host'));
     }
 
     /** Sans battement récent, la crontab ne tourne pas : ni passage, ni clôture. */
@@ -253,6 +260,49 @@ class SystemStatus extends Command
             $enabled && $hours > self::BACKUP_MAX_HOURS ? SystemState::WARNING : SystemState::NOTICE,
             'Sauvegarde',
             sprintf('%s, il y a %d h, %s Ko', $latest['file'], $hours, number_format($latest['bytes'] / 1024, 0, ',', ' ')),
+        );
+    }
+
+    /**
+     * Heures du journal : session MariaDB en UTC, et données cohérentes. Des lignes
+     * clôturées dont le coup d'envoi ne vaut plus celui du match signalent des heures
+     * décalées, quelle qu'en soit la cause : critique partout, même sur une copie.
+     */
+    private function timeZones(): void
+    {
+        try {
+            $tz = app(TimeZoneCheck::class)->inspect();
+        } catch (\Throwable $e) {
+            $this->add(SystemState::WARNING, 'Fuseaux', 'illisibles : ' . $e->getMessage());
+
+            return;
+        }
+
+        if ($tz['settled_mismatches'] > 0) {
+            $this->add(SystemState::CRITICAL, 'Fuseaux', "{$tz['settled_mismatches']} ligne(s) clôturée(s) dont kickoff_at ne vaut plus match_date : heures décalées (docs/deploiement.md, « Heures et fuseaux »)");
+
+            return;
+        }
+        if (!$tz['measurable']) {
+            $this->add(SystemState::NOTICE, 'Fuseaux', "journal cohérent ; session non mesurable (pilote {$tz['driver']})");
+
+            return;
+        }
+
+        $detail = "session {$tz['session']}, global {$tz['global']}, système {$tz['system']}";
+        if ($tz['offset_minutes'] === 0) {
+            $this->add(SystemState::NOTICE, 'Fuseaux', "session MariaDB en UTC ({$detail}), journal cohérent");
+
+            return;
+        }
+
+        $offset = sprintf('%+d min', $tz['offset_minutes']);
+        $this->add(
+            // DB_TIMEZONE absent : la base du portable d'avant la bascule, cohérente dans son fuseau
+            $tz['configured'] === null ? SystemState::WARNING : SystemState::CRITICAL,
+            'Fuseaux',
+            "session MariaDB décalée de {$offset} sur UTC ({$detail}) : les TIMESTAMP s'y stockent décalés ; "
+                . ($tz['configured'] === null ? 'DB_TIMEZONE absent (attendu seulement sur l\'ancienne base du portable)' : "DB_TIMEZONE={$tz['configured']} ne donne pas UTC"),
         );
     }
 
