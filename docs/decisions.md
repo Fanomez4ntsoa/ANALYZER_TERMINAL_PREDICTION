@@ -1529,3 +1529,13 @@ vérifient et s'arrêtent. Procédure : `docs/deploiement.md`.
   14/09/2026 ; absente de `.env.example` et du modèle du VPS (`deploy/env.vps.example`).
 - Le rattrapage des scores n'a pas d'entrée propre dans le planificateur : il fait
   partie de `pipeline:daily`. Trois besoins, deux entrées (plus le battement).
+- **Fuseau surveillé partout, pas seulement à l'export.** `setup.sh` mesure le décalage
+  effectif de la session (`NOW()` contre `UTC_TIMESTAMP()`, pas le nom du fuseau) avant
+  `migrate` : un serveur réglé comme le portable l'arrête base vide (vérifié).
+  `system:status`, ligne `Fuseaux`, refait cette mesure et vérifie l'invariant des
+  données (lignes clôturées : `kickoff_at` = `match_date`) : un changement de fuseau
+  ultérieur fait diverger toutes ces lignes d'un coup, critique même sur une copie
+  (vérifié : base du portable lue en UTC, 270 lignes).
+- **Quelle machine fait foi, d'un coup d'œil** : première ligne de `system:status`
+  (`Collecte`) et en-tête de `log:report`. Lu dans `PIPELINE_ENABLED` de la machine
+  qui répond.

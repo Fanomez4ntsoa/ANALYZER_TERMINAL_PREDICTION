@@ -62,9 +62,10 @@ BTTS Non.
 
 ### Exploitation (VPS)
 
-- `system:status [--offline]` : dix lignes (planificateur, passage, jours manqués,
-  journal, lignes en attente, quotas API-Football et The Odds API, sauvegarde, run de
-  référence), code de sortie non nul dès qu'un voyant n'est pas vert. Jours manqués :
+- `system:status [--offline]` : une ligne par voyant (machine qui collecte,
+  planificateur, passage, jours manqués, journal, lignes en attente, quotas API-Football
+  et The Odds API, sauvegarde, run de référence, fuseaux via
+  `DataPipeline/TimeZoneCheck`), code de sortie non nul dès qu'un voyant n'est pas vert. Jours manqués :
   `DataPipeline/PipelineGaps`, partagé avec `log:report`.
 - `backtest:reference [--force]` : backtest de référence relancé et désigné dans `.env`
   (`BACKTEST_REFERENCE_RUN`).

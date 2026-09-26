@@ -161,7 +161,10 @@ Il enchaîne :
 4. `.env` : présence, trois clés d'API, `APP_ENV`, `APP_DEBUG`, `PIPELINE_ENABLED`,
    `DB_TIMEZONE` ; retire un éventuel cache de configuration ; `key:generate` si
    `APP_KEY` est vide ;
-5. connexion à la base, session MariaDB en UTC, `migrate --force` ;
+5. connexion à la base, puis **décalage effectif de la session MariaDB sur UTC**
+   (`NOW()` contre `UTC_TIMESTAMP()`), qui doit valoir 0 : mesuré **avant toute
+   écriture en base**, `migrate --force` ne vient qu'après. Un serveur réglé comme le
+   portable (EAT) arrête le script ici, base encore vide (vérifié le 26/09/2026) ;
 6. dossiers de `storage/` et `bootstrap/cache`, propriétaire `deploy` ;
 7. compte de l'interface : e-mail, puis mot de passe saisi **sans écho**, deux fois
    (`php artisan user:create`, relançable pour changer le mot de passe) ;
@@ -191,7 +194,7 @@ après ce point. Corriger, relancer.
 | `fuseau système « … », UTC attendu` | Le serveur n'est pas en UTC. Ne pas le changer sans mesurer l'effet sur l'autre application ; le signaler avant d'aller plus loin |
 | `.env absent` ou `.env incomplet` | Étape 3 |
 | `connexion impossible à la base` | Étape 2 ; le script réaffiche le SQL de création |
-| `fuseau de session MariaDB « … »` | `DB_TIMEZONE=+00:00` manque dans `.env` |
+| `session MariaDB décalée de « … » minute(s) sur UTC` | `DB_TIMEZONE=+00:00` manque ou est erroné dans `.env`. Ne pas modifier le réglage global de MariaDB : `DB_TIMEZONE` suffit, il s'applique à chaque connexion du projet |
 | `fichier n'appartenant pas à deploy` | Un fichier a été créé par un autre utilisateur (root) : `sudo chown -R deploy: storage bootstrap/cache` dans le dossier du projet |
 | Échec de `composer install` | Réseau ou version de PHP ; le message de composer nomme le paquet |
 | Échec de `migrate` | Le message nomme la migration ; base vide à ce stade : corriger et relancer |
@@ -412,10 +415,11 @@ php artisan db:backup --verify
 ssh deploy@<VPS> 'cd football-analyzer-web && php artisan system:status'
 ```
 
-Dix lignes, une par voyant ; code de sortie 1 dès qu'un voyant n'est pas `OK`.
+Une ligne par voyant ; code de sortie 1 dès qu'un voyant n'est pas `OK`.
 
 | Ligne | Lit | Alerte quand | Que faire |
 |---|---|---|---|
+| Collecte | `PIPELINE_ENABLED` de cette machine : base de référence, ou copie de lecture et nom de la base de référence | jamais | — (`log:report` affiche la même information en tête) |
 | Planificateur | battement écrit chaque minute par la crontab | plus de 10 min | 7.6 |
 | Pipeline | dernier passage (`pipeline_runs`) | aucun passage réussi pour le jour attendu, échec, incomplet | `storage/logs/pipeline-<date>.log` : chaque étape y est journalisée avec sa sortie |
 | Jours manqués | jours sans passage depuis le début du journal | un jour manqué dans les 7 derniers | cause dans le journal du pipeline ; un jour manqué est perdu (règle 5), s'assurer qu'il ne se répète pas |
@@ -425,6 +429,7 @@ Dix lignes, une par voyant ; code de sortie 1 dès qu'un voyant n'est pas `OK`.
 | The Odds API | crédits du mois (`/sports`, gratuit) | sous 50 : la clôture s'arrête | attendre le mois suivant ; `closing_edge` manquera d'ici là |
 | Sauvegarde | dernier fichier dans `storage/app/private/backups` | plus de 26 h | étape `db:backup` du journal du pipeline ; espace disque (`df -h`) |
 | Backtest réf. | run désigné dans `.env` | absent ou non terminé | `php artisan backtest:reference` |
+| Fuseaux | décalage de la session MariaDB sur UTC ; lignes clôturées du journal dont `kickoff_at` ne vaut plus `match_date` | CRITIQUE si des lignes divergent (heures corrompues, **même sur une copie**) ou si la session n'est pas en UTC malgré `DB_TIMEZONE` ; ALERTE si `DB_TIMEZONE` est absent | « Heures et fuseaux » ci-dessous. Ne rien écrire tant que ce voyant est rouge |
 
 `--offline` saute les deux appels réseau.
 
@@ -479,6 +484,17 @@ converties.
   lit), `import-production.sh` importe en session UTC, et le manifeste compare des
   repères horaires en plus des effectifs.
 - **Portable après la bascule** : copies du VPS, lues avec `DB_TIMEZONE=+00:00`.
+
+**Surveillé en continu**, pas seulement au transfert :
+
+- `setup.sh` mesure le décalage de session avant toute écriture en base ;
+- `system:status`, ligne `Fuseaux`, mesure le même décalage à chaque appel, et vérifie
+  les données : une ligne clôturée a été contrôlée égale à son match au moment de la
+  clôture, donc `kickoff_at` (TIMESTAMP) doit valoir `match_date` (DATETIME). Si
+  quelqu'un change plus tard le fuseau (retrait de `DB_TIMEZONE`, réglage global
+  changé sans lui, import mal fait), **toutes** ces lignes divergent d'un coup et la
+  ligne passe en CRITIQUE, y compris sur une copie de lecture. Vérifié le 26/09/2026 :
+  la base du portable lue en UTC donne 270 lignes divergentes.
 
 ---
 
