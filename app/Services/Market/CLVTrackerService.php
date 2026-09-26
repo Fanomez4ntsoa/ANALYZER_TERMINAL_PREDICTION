@@ -451,8 +451,10 @@ class CLVTrackerService
     private function storeSnapshot(FootballMatch $match, array $odds): OddsMovement
     {
         // Variation calculée contre le dernier relevé fiable seulement : jamais contre
-        // un relevé recyclé depuis le cache
-        $previousSnapshot = OddsMovement::where('match_id', $match->id)
+        // un relevé recyclé depuis le cache. Premier relevé du coup d'envoi (cote de
+        // prédiction vide) : aucune variation, même si un match reprogrammé garde des
+        // relevés de son ancienne date (MatchEnricherService::resetForNewKickoff).
+        $previousSnapshot = $match->odds_at_pred_home === null ? null : OddsMovement::where('match_id', $match->id)
             ->where('bookmaker', $odds['bookmaker'])
             ->reliable()
             ->whereNotNull('odds_home')

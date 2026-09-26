@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\FootballMatch;
+use App\Models\PipelineRun;
 use App\Models\PredictionLogEntry;
 use App\Services\PredictionLog\PredictionLogReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
@@ -21,6 +23,13 @@ class PredictionLogReportTest extends TestCase
     {
         parent::setUp();
         config(['prediction-log.min_matches' => 2]);
+        Carbon::setTestNow(Carbon::parse('2026-09-22 09:00:00', 'UTC'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     private function match(string $home, int $leagueId, string $competition, bool $contaminated = false): FootballMatch
@@ -100,11 +109,55 @@ class PredictionLogReportTest extends TestCase
             'settled_lines' => 6,
             'pending_matches' => 1,
             'pending_lines' => 3,
+            'voided_matches' => 0,
+            'voided_lines' => 0,
+            'voided_by_reason' => [],
             'manual_only_matches' => 1,
             'manual_only_lines' => 3,
             'manual_only_settled_lines' => 3,
             'contaminated_matches' => 1,
         ], $report['totals']);
+    }
+
+    public function test_voided_lines_are_neither_measured_nor_pending_and_a_new_kickoff_is_measured(): void
+    {
+        $this->fixture();
+        $f = $this->match('Fulham', 39, 'Premier League');
+        $this->winner($f, 'pipeline', '2026-09-20 10:00:00', [0.6, 0.2, 0.2], [0.5, 0.25, 0.25], null);
+        PredictionLogEntry::where('match_id', $f->id)->get()->each->update(['void_reason' => 'rescheduled', 'settled_at' => '2026-09-21 10:00:00']);
+
+        // Reprogrammé : les lignes du nouveau coup d'envoi sont son premier calcul
+        $f->update(['match_date' => '2026-09-21 15:00:00']);
+        $this->winner($f->fresh(), 'pipeline', '2026-09-21 10:00:00', [0.5, 0.3, 0.2], [0.45, 0.3, 0.25], '2');
+
+        $t = app(PredictionLogReport::class)->build()['totals'];
+
+        $this->assertSame(3, $t['settled_matches']);
+        $this->assertSame(9, $t['settled_lines']);
+        $this->assertSame(1, $t['pending_matches']);
+        $this->assertSame(3, $t['pending_lines']);
+        $this->assertSame(1, $t['voided_matches']);
+        $this->assertSame(3, $t['voided_lines']);
+        $this->assertSame(['rescheduled' => 3], $t['voided_by_reason']);
+    }
+
+    public function test_days_without_pipeline_run_since_the_journal_began_are_reported(): void
+    {
+        $this->fixture(); // premier calcul le 20/09
+        PipelineRun::create(['run_date' => '2026-09-20', 'status' => PipelineRun::SUCCESS, 'started_at' => '2026-09-20 10:00:00']);
+        PipelineRun::create(['run_date' => '2026-09-21', 'status' => PipelineRun::FAILED, 'started_at' => '2026-09-21 10:00:00']);
+        // 2026-09-22 : aujourd'hui, pas encore perdu
+
+        $this->assertSame(['since' => '2026-09-20', 'missing' => [], 'failed' => ['2026-09-21']], app(PredictionLogReport::class)->build()['pipeline_gaps']);
+
+        Carbon::setTestNow(Carbon::parse('2026-09-25 09:00:00', 'UTC'));
+        PipelineRun::create(['run_date' => '2026-09-23', 'status' => PipelineRun::INCOMPLETE, 'started_at' => '2026-09-23 10:00:00']);
+
+        $this->assertSame(['2026-09-22', '2026-09-24'], app(PredictionLogReport::class)->build()['pipeline_gaps']['missing']);
+        $this->artisan('log:report')
+            ->expectsOutputToContain('Jours sans passage du pipeline depuis le 2026-09-20 : 2 (2026-09-22, 2026-09-24). Matchs jamais importés ni calculés : prédictions définitivement perdues')
+            ->expectsOutputToContain('Jours au passage échoué ou interrompu : 1 (2026-09-21).')
+            ->assertExitCode(0);
     }
 
     public function test_brier_paired_difference_and_bins_by_hand(): void
@@ -172,6 +225,7 @@ class PredictionLogReportTest extends TestCase
         $this->artisan('log:report')
             ->expectsOutputToContain('Effectif total : 2 match(s) clôturé(s), 6 ligne(s)')
             ->expectsOutputToContain('Écartés, lignes du bouton seulement : 1 match(s), 3 ligne(s) dont 3 clôturée(s)')
+            ->expectsOutputToContain('Écartés, non clôturables : 0 match(s), 0 ligne(s)')
             ->expectsOutputToContain('AUCUNE CONCLUSION POSSIBLE')
             ->expectsOutputToContain('2 < 200 : CES CHIFFRES NE PERMETTENT AUCUNE CONCLUSION')
             ->expectsOutputToContain('Progression propre : 1 / 200 match(s) où comparaison ou blessures ont servi, contre 2 pour le marché seul.')

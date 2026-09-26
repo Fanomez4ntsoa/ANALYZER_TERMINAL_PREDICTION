@@ -2,15 +2,20 @@
 
 namespace App\Jobs;
 
+use App\Models\FootballMatch;
+use App\Models\PredictionLogEntry;
 use App\Services\Api\ApiFootballException;
 use App\Services\Api\ApiFootballService;
 use App\Services\DataPipeline\MatchEnricherService;
 use App\Services\DataPipeline\PipelineLog;
+use App\Services\PredictionLog\PredictionLogSettler;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class FetchMatchDataJob implements ShouldQueue
@@ -51,6 +56,7 @@ class FetchMatchDataJob implements ShouldQueue
     /**
      * Ordre imposé par le budget de l'offre gratuite (100 requêtes/jour) : les cotes
      * d'abord et seules (1 requête par match), puis les scores de la veille, puis le
+     * rattrapage des scores plus anciens (1 requête par match, plafonné), puis le
      * facultatif (prédictions API-Football, blessures) tant que le budget le permet
      * et seulement si les cotes sont complètes. Une donnée facultative n'empêche
      * jamais une donnée indispensable.
@@ -77,6 +83,7 @@ class FetchMatchDataJob implements ShouldQueue
             'odds_failed' => [],
             'odds_not_covered' => [],
             'previous_day' => null,
+            'score_catchup' => null,
             'optional_done' => 0,
             'optional_skipped_budget' => 0,
             'optional_failures' => 0,
@@ -198,17 +205,26 @@ class FetchMatchDataJob implements ShouldQueue
 
         // 4. Scores de la veille (1 requête au plus)
         try {
-            $summary['previous_day'] = $this->updatePreviousDayResults($apiFootball, $enricher, $date, $trackedLeagues);
+            $summary['previous_day'] = $this->updatePreviousDayResults($apiFootball, $enricher, $date);
         } catch (\Exception $e) {
             $summary['previous_day'] = 'échec';
             $summary['indispensable_complete'] = false;
             PipelineLog::caught('FetchMatchDataJob scores de la veille', $e, ['date' => $date]);
         }
 
-        // 5. Facultatif : prédictions API-Football et blessures, 2 requêtes par match,
+        // 5. Rattrapage des scores plus anciens, match par match, plafonné. Un échec
+        //    ne rend pas le passage incomplet : le match est repris au passage suivant.
+        $reserve = (int) config('api-football.budget.optional_reserve', 10);
+        try {
+            $summary['score_catchup'] = $this->catchUpScores($apiFootball, $enricher, $date, $reserve, $usage['remaining']);
+        } catch (\Exception $e) {
+            $summary['score_catchup'] = 'échec';
+            PipelineLog::caught('FetchMatchDataJob rattrapage des scores', $e, ['date' => $date]);
+        }
+
+        // 6. Facultatif : prédictions API-Football et blessures, 2 requêtes par match,
         //    tant que le budget reste au-dessus de la réserve. Jamais avant les cotes,
         //    et pas du tout si elles sont incomplètes : le budget reste à une relance.
-        $reserve = (int) config('api-football.budget.optional_reserve', 10);
         $pending = $summary['indispensable_complete'] ? $upcoming : [];
         if (!$summary['indispensable_complete'] && !empty($upcoming)) {
             $summary['optional_skipped_budget'] = count($upcoming);
@@ -250,7 +266,7 @@ class FetchMatchDataJob implements ShouldQueue
             $log->info("Pipeline: FetchMatchDataJob terminé", $summary);
         }
 
-        // 6. Liaison des événements The Odds API (CLV)
+        // 7. Liaison des événements The Odds API (CLV)
         $leagues = array_values(array_unique(array_map(fn ($m) => $m->league_id, $upcoming)));
         $this->dispatchOddsJob($leagues, $date);
     }
@@ -262,45 +278,165 @@ class FetchMatchDataJob implements ShouldQueue
     }
 
     /**
-     * Récupère les fixtures de J-1 et met à jour les scores des matchs FT.
-     * Permet de rattraper automatiquement les résultats de la veille
-     * sans dépendre d'une commande manuelle.
+     * Scores de la veille : 1 requête /fixtures?date=, pour les seuls matchs de la
+     * veille déjà en base et non terminés. Tous leurs statuts sont repris (FT, mais
+     * aussi PST, CANC… et la nouvelle date d'un match reporté).
+     *
+     * Aucun match n'est créé : un match absent de la base n'a pas été calculé avant
+     * son coup d'envoi, et le créer maintenant ne produirait qu'un match contaminé
+     * (5 le 20/09/2026, hors du créneau horaire du passage de la veille).
      *
      * @return string Bilan court pour le journal
      */
     private function updatePreviousDayResults(
         ApiFootballService $apiFootball,
         MatchEnricherService $enricher,
-        string $currentDate,
-        array $trackedLeagues
+        string $currentDate
     ): string {
-        $previousDate = \Carbon\Carbon::parse($currentDate)->subDay()->format('Y-m-d');
+        $previousDate = Carbon::parse($currentDate)->subDay()->format('Y-m-d');
 
-        // Vérifier s'il y a des matchs J-1 incomplets en DB
-        $incompleteCount = \App\Models\FootballMatch::where('data_source', 'api')
+        $incomplete = FootballMatch::where('data_source', 'api')
             ->whereDate('match_date', $previousDate)
             ->where('completed', false)
-            ->count();
+            ->whereNotNull('api_football_id')
+            ->pluck('id', 'api_football_id');
 
-        if ($incompleteCount === 0) {
+        if ($incomplete->isEmpty()) {
             return 'rien à mettre à jour';
         }
 
-        $previousFixtures = $apiFootball->getFixturesByDate($previousDate) ?? [];
-
-        $updated = 0;
-        foreach ($previousFixtures as $fixture) {
-            $leagueId = $fixture['league']['id'] ?? 0;
-            if (!in_array($leagueId, $trackedLeagues)) continue;
-
-            $status = $fixture['fixture']['status']['short'] ?? '';
-            if (!in_array($status, ['FT', 'AET', 'PEN'])) continue;
+        $finished = 0;
+        $otherStatus = [];
+        foreach ($apiFootball->getFixturesByDate($previousDate) ?? [] as $fixture) {
+            if (!$incomplete->has($fixture['fixture']['id'] ?? null)) {
+                continue;
+            }
 
             $enricher->upsertFromApiFootball($fixture);
-            $updated++;
+            $status = $fixture['fixture']['status']['short'] ?? '?';
+            if (in_array($status, ['FT', 'AET', 'PEN'], true)) {
+                $finished++;
+            } else {
+                $otherStatus[$status] = ($otherStatus[$status] ?? 0) + 1;
+            }
         }
 
-        return "{$updated} score(s) FT sur {$incompleteCount} match(s) incomplet(s) du {$previousDate}";
+        return "{$finished} match(s) terminé(s) sur {$incomplete->count()} incomplet(s) du {$previousDate}"
+            . ($otherStatus ? ', autres statuts : ' . json_encode($otherStatus) : '');
+    }
+
+    /**
+     * Rattrapage des scores manqués : un match passé, plus ancien que la veille,
+     * dont des lignes du journal attendent encore leur clôture (pipeline non lancé
+     * le lendemain, appel de la veille en échec, match pas encore terminé à ce
+     * moment-là). L'offre gratuite refuse /fixtures?date= avant J-1 : 1 requête
+     * /fixtures?id= par match.
+     *
+     * Au plus pipeline.score_catchup.max_requests requêtes, jamais sous la réserve
+     * du facultatif. Les matchs les plus récents d'abord : un match que l'API ne
+     * termine jamais ne bloque pas les suivants, il n'use que le reste du plafond.
+     * Au-delà de pipeline.score_catchup.window_days, plus aucune requête : log:settle
+     * déclare les lignes non clôturables.
+     *
+     * Pas de requête pour un match déjà connu comme reporté, annulé, arrêté ou
+     * attribué sur tapis vert : log:settle le déclare non clôturable sans appel.
+     */
+    private function catchUpScores(
+        ApiFootballService $apiFootball,
+        MatchEnricherService $enricher,
+        string $currentDate,
+        int $reserve,
+        int $remainingAtStart
+    ): array {
+        $max = (int) config('pipeline.score_catchup.max_requests');
+        $candidates = self::scoreCatchupCandidates(
+            Carbon::parse($currentDate)->subDay()->startOfDay(),
+            now()->subDays((int) config('pipeline.score_catchup.window_days')),
+        );
+
+        $result = [
+            'candidates' => $candidates->count(),
+            'requests' => 0,
+            'finished' => [],
+            'other_status' => [],
+            'not_found' => [],
+            'failed' => [],
+            'deferred' => [],
+        ];
+
+        $stop = null;
+        foreach ($candidates as $match) {
+            $remaining = $apiFootball->lastKnownDailyRemaining() ?? $remainingAtStart;
+            if ($stop !== null || $result['requests'] >= $max || $remaining - 1 < $reserve) {
+                $result['deferred'][] = $match->full_name;
+                continue;
+            }
+
+            $result['requests']++;
+            try {
+                $fixture = $apiFootball->getFixtureById((int) $match->api_football_id);
+            } catch (\Exception $e) {
+                $result['failed'][] = $match->full_name;
+                PipelineLog::caught('FetchMatchDataJob rattrapage des scores', $e, ['match_id' => $match->id, 'fixture_id' => $match->api_football_id]);
+
+                if ($e instanceof ApiFootballException && in_array($e->kind, [ApiFootballException::RATE_LIMIT, ApiFootballException::DAILY_QUOTA, ApiFootballException::PLAN], true)) {
+                    $stop = $e->kind;
+                }
+                continue;
+            }
+
+            if ($fixture === null) {
+                $result['not_found'][] = $match->full_name;
+                continue;
+            }
+
+            $enricher->upsertFromApiFootball($fixture);
+            $status = $fixture['fixture']['status']['short'] ?? '?';
+            if (in_array($status, ['FT', 'AET', 'PEN'], true)) {
+                $result['finished'][] = $match->full_name;
+            } else {
+                $result['other_status'][$match->full_name] = $status;
+            }
+        }
+
+        if ($result['deferred']) {
+            Log::channel('pipeline')->warning('Pipeline: rattrapage des scores reporté au passage suivant pour ' . count($result['deferred']) . ' match(s)', [
+                'max_requests' => $max,
+                'reserve' => $reserve,
+                'stop' => $stop,
+                'matches' => $result['deferred'],
+            ]);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Matchs à rattraper, les plus récents d'abord : lignes du journal en attente
+     * dont le coup d'envoi tombe avant $before (la veille passe par l'appel par
+     * date) et après $oldest (fenêtre de rattrapage). Un match dont le coup d'envoi
+     * a changé depuis le calcul, ou au statut final sans score à attendre, est
+     * laissé à log:settle.
+     *
+     * @return Collection<int, FootballMatch>
+     */
+    public static function scoreCatchupCandidates(Carbon $before, Carbon $oldest): Collection
+    {
+        $matchIds = PredictionLogEntry::pending()
+            ->where('kickoff_at', '<', $before)
+            ->where('kickoff_at', '>=', $oldest)
+            ->distinct()
+            ->pluck('match_id');
+
+        return FootballMatch::whereIn('id', $matchIds)
+            ->where('data_source', 'api')
+            ->whereNotNull('api_football_id')
+            ->where('completed', false)
+            ->where('match_date', '<', $before)
+            ->where(fn ($query) => $query->whereNull('api_status')
+                ->orWhereNotIn('api_status', array_keys(PredictionLogSettler::VOID_BY_STATUS)))
+            ->orderByDesc('match_date')
+            ->get();
     }
 
     private function dispatchOddsJob(array $leagueIds, string $date): void

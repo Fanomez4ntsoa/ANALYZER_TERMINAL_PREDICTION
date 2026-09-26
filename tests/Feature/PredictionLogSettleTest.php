@@ -193,7 +193,7 @@ class PredictionLogSettleTest extends TestCase
         $this->assertNull($entry->fresh()->outcome_occurred);
     }
 
-    public function test_rescheduled_match_stays_pending_and_fails(): void
+    public function test_rescheduled_match_is_voided_without_failing(): void
     {
         $match = $this->match();
         $entry = $this->entry($match, 'winner', '1');
@@ -201,9 +201,95 @@ class PredictionLogSettleTest extends TestCase
 
         $report = app(PredictionLogSettler::class)->settle('2026-09-15');
 
+        $this->assertSame(['rescheduled' => 1], $report['voided']);
+        $this->assertSame([], $report['pending']);
+        $this->assertSame(0, $report['failures']);
+        $entry->refresh();
+        $this->assertSame('rescheduled', $entry->void_reason);
+        $this->assertNull($entry->outcome_occurred);
+        $this->assertNull($entry->score_home);
+        $this->assertNotNull($entry->settled_at);
+    }
+
+    public function test_different_teams_stay_pending_and_fail(): void
+    {
+        $match = $this->match();
+        $entry = $this->entry($match, 'winner', '1');
+        $match->update(['home_team' => 'Lecce']);
+
+        $report = app(PredictionLogSettler::class)->settle('2026-09-15');
+
         $this->assertSame(['match_changed' => 1], $report['pending']);
         $this->assertSame(1, $report['failures']);
+        $this->assertNull($entry->fresh()->void_reason);
+    }
+
+    public function test_final_statuses_without_score_are_voided(): void
+    {
+        foreach (['PST' => 'rescheduled', 'CANC' => 'cancelled', 'ABD' => 'abandoned', 'AWD' => 'awarded', 'WO' => 'awarded'] as $status => $reason) {
+            $match = $this->match(['completed' => false, 'score_home' => null, 'score_away' => null, 'api_status' => $status]);
+            $entry = $this->entry($match, 'winner', '1');
+
+            app(PredictionLogSettler::class)->settle('2026-09-15');
+
+            $this->assertSame($reason, $entry->fresh()->void_reason, $status);
+        }
+    }
+
+    public function test_unfinished_match_is_voided_only_beyond_the_catch_up_window(): void
+    {
+        config(['pipeline.score_catchup.window_days' => 60]);
+        $match = $this->match(['completed' => false, 'score_home' => null, 'score_away' => null, 'api_status' => 'NS']);
+        $entry = $this->entry($match, 'winner', '1');
+
+        Carbon::setTestNow(Carbon::parse('2026-11-14 10:00:00', 'UTC'));
+        $report = app(PredictionLogSettler::class)->settle('2026-09-15');
+        $this->assertSame(['not_completed' => 1], $report['pending']);
+        $this->assertNull($entry->fresh()->void_reason);
+
+        Carbon::setTestNow(Carbon::parse('2026-11-14 17:00:00', 'UTC'));
+        $report = app(PredictionLogSettler::class)->settle('2026-09-15');
+        $this->assertSame(['score_unavailable' => 1], $report['voided']);
+        $this->assertSame(0, $report['failures']);
+        $this->assertSame('score_unavailable', $entry->fresh()->void_reason);
+    }
+
+    public function test_voided_line_is_never_settled_afterwards(): void
+    {
+        $match = $this->match(['completed' => false, 'score_home' => null, 'score_away' => null, 'api_status' => 'CANC']);
+        $entry = $this->entry($match, 'winner', '1');
+        app(PredictionLogSettler::class)->settle('2026-09-15');
+
+        $match->update(['completed' => true, 'score_home' => 1, 'score_away' => 0, 'api_status' => 'FT']);
+        $report = app(PredictionLogSettler::class)->settle('2026-09-15');
+
+        $this->assertSame(0, $report['entries']);
         $this->assertNull($entry->fresh()->outcome_occurred);
+
+        $this->expectException(\LogicException::class);
+        $entry->fresh()->update(['outcome_occurred' => true, 'settled_at' => now()]);
+    }
+
+    public function test_late_score_is_settled_on_a_later_pass(): void
+    {
+        // Score du 13/09 rattrapé après coup : la clôture de la veille le reprend
+        $old = $this->match(['home_team' => 'Lecce', 'away_team' => 'Genoa', 'match_date' => '2026-09-13 18:00:00']);
+        $oldEntry = $this->entry($old, 'winner', 'X', 3.2, ['home_team' => 'Lecce', 'away_team' => 'Genoa', 'kickoff_at' => '2026-09-13 18:00:00', 'computed_at' => '2026-09-13 10:00:00']);
+        $waiting = $this->match(['home_team' => 'Roma', 'away_team' => 'Torino', 'match_date' => '2026-09-12 18:00:00', 'completed' => false, 'score_home' => null, 'score_away' => null]);
+        $this->entry($waiting, 'winner', '1', 2.0, ['home_team' => 'Roma', 'away_team' => 'Torino', 'kickoff_at' => '2026-09-12 18:00:00', 'computed_at' => '2026-09-12 10:00:00']);
+        $match = $this->match();
+        $entry = $this->entry($match, 'winner', '1');
+
+        $this->artisan('log:settle', ['--date' => '2026-09-15'])
+            ->expectsOutputToContain("Journal jusqu'au 2026-09-15 (2026-09-12, 2026-09-13, 2026-09-15) : 2 ligne(s) clôturée(s), 0 déclarée(s) non clôturable(s), sur 3 en attente")
+            ->assertExitCode(0);
+
+        $this->assertFalse($oldEntry->fresh()->outcome_occurred);
+        $this->assertTrue($entry->fresh()->outcome_occurred);
+
+        $report = app(PredictionLogSettler::class)->settleUpTo('2026-09-15');
+        $this->assertSame(['2026-09-12', '2026-09-15'], $report['dates']);
+        $this->assertSame(['2026-09-12' => 1], $report['older_pending']);
     }
 
     public function test_settled_entries_are_not_touched_again_and_older_pending_is_reported(): void

@@ -3,17 +3,26 @@
 namespace App\Services\PredictionLog;
 
 use App\Models\FootballMatch;
+use App\Models\PipelineRun;
 use App\Models\PredictionLogEntry;
+use Illuminate\Support\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Mesure du journal des sélections sur matchs réels.
  *
- * Lignes mesurées : le premier calcul du pipeline de chaque match, et lui seul,
- * clôturé, sur un match non contaminé. Le rapport ne dépend en rien de ce que
- * l'utilisateur consulte : les lignes du bouton sont clôturées mais jamais mesurées,
- * et les matchs qui n'ont que celles-là sont comptés à part.
+ * Lignes mesurées : le premier calcul du pipeline de chaque match (de chaque coup
+ * d'envoi, pour un match reprogrammé), et lui seul, clôturé, sur un match non
+ * contaminé. Le rapport ne dépend en rien de ce que l'utilisateur consulte : les
+ * lignes du bouton sont clôturées mais jamais mesurées, et les matchs qui n'ont que
+ * celles-là sont comptés à part. Les lignes non clôturables (void_reason) ne sont ni
+ * mesurées ni en attente : comptées à part, par raison.
+ *
+ * Les absences se lisent aussi : jours sans passage du pipeline depuis le début du
+ * journal. Leurs matchs n'ont jamais été importés ni calculés, aucun autre compteur
+ * ne les voit, et ils ne se rattrapent pas (règle 5).
  *
  * Métriques par marché, tous championnats puis par championnat : effectif en matchs
  * et en lignes, Brier du modèle marché seul, Brier de la probabilité équitable
@@ -47,17 +56,19 @@ class PredictionLogReport
             return $query;
         };
 
-        // Premier calcul du pipeline de chaque match : toutes ses lignes partagent
-        // le même computed_at
+        // Premier calcul du pipeline de chaque match et coup d'envoi : toutes ses
+        // lignes partagent le même computed_at. Par coup d'envoi : les lignes d'un
+        // match reprogrammé, non clôturables, ne masquent pas celles de la nouvelle date.
         $firstPipeline = DB::table('prediction_log')
-            ->select('match_id', DB::raw('MIN(computed_at) as first_computed_at'))
+            ->select('match_id', 'kickoff_at', DB::raw('MIN(computed_at) as first_computed_at'))
             ->where('trigger', PredictionLogEntry::TRIGGER_PIPELINE)
-            ->groupBy('match_id');
+            ->groupBy('match_id', 'kickoff_at');
 
         $first = $filter(PredictionLogEntry::query()
             ->select('prediction_log.*', 'matches.competition', 'matches.post_kickoff_data')
             ->joinSub($firstPipeline, 'first_pipeline', function ($join) {
                 $join->on('first_pipeline.match_id', '=', 'prediction_log.match_id')
+                    ->on('first_pipeline.kickoff_at', '=', 'prediction_log.kickoff_at')
                     ->on('first_pipeline.first_computed_at', '=', 'prediction_log.computed_at');
             })
             ->join('matches', 'matches.id', '=', 'prediction_log.match_id')
@@ -68,7 +79,8 @@ class PredictionLogReport
         $contaminated = $first->filter(fn ($e) => (bool) $e->post_kickoff_data);
         $measurable = $first->reject(fn ($e) => (bool) $e->post_kickoff_data);
         $settled = $measurable->filter(fn ($e) => $e->outcome_occurred !== null);
-        $pending = $measurable->filter(fn ($e) => $e->outcome_occurred === null);
+        $voided = $measurable->filter(fn ($e) => $e->void_reason !== null);
+        $pending = $measurable->filter(fn ($e) => $e->outcome_occurred === null && $e->void_reason === null);
 
         // Matchs sans aucune ligne du pipeline : lignes du bouton seulement, écartées
         $manualOnly = $filter(PredictionLogEntry::query()
@@ -106,13 +118,56 @@ class PredictionLogReport
                 'settled_lines' => $settled->count(),
                 'pending_matches' => $pending->pluck('match_id')->unique()->count(),
                 'pending_lines' => $pending->count(),
+                'voided_matches' => $voided->pluck('match_id')->unique()->count(),
+                'voided_lines' => $voided->count(),
+                'voided_by_reason' => $voided->countBy('void_reason')->sortKeys()->all(),
                 'manual_only_matches' => $manualOnly->pluck('match_id')->unique()->count(),
                 'manual_only_lines' => $manualOnly->count(),
                 'manual_only_settled_lines' => $manualOnly->whereNotNull('outcome_occurred')->count(),
                 'contaminated_matches' => $contaminated->pluck('match_id')->unique()->count(),
             ],
             'groups' => $groups,
+            'pipeline_gaps' => $this->pipelineGaps(),
         ];
+    }
+
+    /**
+     * Jours sans passage du pipeline, du premier calcul du journal à la veille :
+     * aucun passage enregistré (missing), ou seulement des passages échoués ou
+     * interrompus (failed). Sans filtre de marché ni de championnat : un jour perdu
+     * l'est pour tous.
+     *
+     * @return array{since: ?string, missing: list<string>, failed: list<string>}
+     */
+    private function pipelineGaps(): array
+    {
+        $firstComputed = PredictionLogEntry::min('computed_at');
+        if ($firstComputed === null) {
+            return ['since' => null, 'missing' => [], 'failed' => []];
+        }
+
+        $since = Carbon::parse($firstComputed)->startOfDay();
+        $until = now()->subDay()->startOfDay();
+
+        // Table minuscule (un passage par jour) : filtrée en PHP, run_date n'a pas le
+        // même format stocké sous MariaDB et SQLite
+        $runs = PipelineRun::get(['run_date', 'status'])
+            ->groupBy(fn (PipelineRun $run) => $run->run_date->format('Y-m-d'));
+
+        $missing = [];
+        $failed = [];
+        if ($since->lte($until)) {
+            foreach (CarbonPeriod::create($since, $until) as $day) {
+                $dayRuns = $runs->get($day->format('Y-m-d'));
+                if ($dayRuns === null) {
+                    $missing[] = $day->format('Y-m-d');
+                } elseif (!$dayRuns->contains(fn (PipelineRun $run) => in_array($run->status, [PipelineRun::SUCCESS, PipelineRun::INCOMPLETE], true))) {
+                    $failed[] = $day->format('Y-m-d');
+                }
+            }
+        }
+
+        return ['since' => $since->format('Y-m-d'), 'missing' => $missing, 'failed' => $failed];
     }
 
     /**

@@ -58,13 +58,29 @@ class ApiFootballService
         return $this->cachedRequest($cacheKey, 'fixtures', '/fixtures', $params);
     }
 
+    /**
+     * Un match par son identifiant : 1 requête, sans cache (rattrapage des scores).
+     *
+     * Seule voie pour un match plus ancien que la veille : l'offre gratuite refuse
+     * /fixtures?date= hors de J-1 à J+1 et le paramètre ids (plusieurs matchs par
+     * appel). Mesuré le 26/09/2026 : id= répond encore à 153 jours.
+     *
+     * @return array|null  Null si l'API ne connaît pas ce match. Toute erreur
+     *                     d'appel lève ApiFootballException.
+     */
+    public function getFixtureById(int $fixtureId): ?array
+    {
+        return $this->request('/fixtures', ['id' => $fixtureId])['response'][0] ?? null;
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // DONNÉES FACULTATIVES — Collectées pour un test futur
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //
     // Retirés le 14/09/2026 : headtohead (paramètre last), teams/statistics et
     // standings (saison en cours), tous refusés par l'offre gratuite ; le
-    // rechargement /fixtures?id= (déjà dans /fixtures?date=) ; les compositions
+    // rechargement /fixtures?id= avant le match (déjà dans /fixtures?date= ; il
+    // ne sert plus qu'au rattrapage des scores) ; les compositions
     // (jamais publiées à l'heure du passage quotidien).
 
     /**

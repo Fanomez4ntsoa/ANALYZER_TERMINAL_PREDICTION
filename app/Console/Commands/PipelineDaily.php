@@ -17,8 +17,9 @@ use Symfony\Component\Console\Output\BufferedOutput;
  * (storage/logs/pipeline-AAAA-MM-JJ.log) : début, durée, code de sortie, sortie.
  * La sauvegarde de la base (db:backup) vient en premier, avant l'import du jour ;
  * son échec n'arrête pas le passage mais le rend incomplet.
- * La clôture du journal des sélections (log:settle) porte sur la veille, juste
- * après l'import qui en met à jour les scores.
+ * La clôture du journal des sélections (log:settle) porte sur la veille et les
+ * dates antérieures encore en attente, juste après l'import qui met à jour les
+ * scores de la veille et rattrape les plus anciens.
  * Si l'import lève une exception (rien d'importé), les étapes suivantes ne
  * tournent pas. S'il se termine incomplet (code non nul : cotes partielles),
  * l'étape est en échec mais les suivantes tournent sur ce qui a été relevé.

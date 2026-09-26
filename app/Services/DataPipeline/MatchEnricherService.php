@@ -47,9 +47,13 @@ class MatchEnricherService
             'score_home' => $fixture['status']['short'] === 'FT' ? ($fixtureData['goals']['home'] ?? null) : null,
             'score_away' => $fixture['status']['short'] === 'FT' ? ($fixtureData['goals']['away'] ?? null) : null,
             'completed' => in_array($fixture['status']['short'], ['FT', 'AET', 'PEN']),
+            'api_status' => $fixture['status']['short'],
         ];
 
         $existing = FootballMatch::where('api_football_id', $fixtureId)->first();
+        if ($existing && self::isRescheduled($existing, $fixtureData)) {
+            $payload += $this->resetForNewKickoff($existing, $fixture['date']);
+        }
         if (!$existing) {
             // Premier import : cotes à null jusqu'au relevé API-Football
             $payload['odds_home'] = null;
@@ -73,6 +77,49 @@ class MatchEnricherService
         ]);
 
         return $match;
+    }
+
+    /**
+     * Match pas encore joué dont le coup d'envoi a changé (report : Levante-Athletic
+     * du 16/09/2026 reprogrammé au 21/10). Un match terminé dont l'heure est
+     * corrigée après coup n'est pas concerné.
+     */
+    public static function isRescheduled(FootballMatch $existing, array $fixtureData): bool
+    {
+        $status = $fixtureData['fixture']['status']['short'] ?? null;
+        $date = $fixtureData['fixture']['date'] ?? null;
+
+        return in_array($status, ['NS', 'TBD', 'PST'], true)
+            && $date !== null
+            && $existing->match_date !== null
+            && !$existing->match_date->equalTo(\Carbon\Carbon::parse($date));
+    }
+
+    /**
+     * Colonnes liées à l'ancien coup d'envoi, remises à nul : cotes Bet365, cote de
+     * prédiction et clôture du CLV, liaison The Odds API. Sinon le nouveau coup
+     * d'envoi hériterait de cotes relevées des semaines plus tôt : un marché absent
+     * du nouveau relevé garderait l'ancienne cote, et le CLV de /market comparerait
+     * la cote de prédiction de l'ancienne date à la clôture de la nouvelle.
+     * Les relevés odds_movements restent ; closingSnapshot ne retient que ceux de la
+     * fenêtre précédant le nouveau coup d'envoi. Les lignes du journal gardent leurs
+     * propres cotes et sont déclarées non clôturables par log:settle.
+     */
+    private function resetForNewKickoff(FootballMatch $existing, string $newDate): array
+    {
+        $columns = array_values(array_filter(
+            $existing->getFillable(),
+            fn (string $column) => str_starts_with($column, 'odds_') || $column === 'predicted_at',
+        ));
+
+        Log::channel('pipeline')->warning("MatchEnricher: match #{$existing->id} reprogrammé, cotes de l'ancien coup d'envoi remises à nul", [
+            'match' => $existing->full_name,
+            'from' => $existing->match_date->toIso8601String(),
+            'to' => $newDate,
+            'previous' => array_filter($existing->only($columns), fn ($value) => $value !== null),
+        ]);
+
+        return array_fill_keys($columns, null);
     }
 
     /**

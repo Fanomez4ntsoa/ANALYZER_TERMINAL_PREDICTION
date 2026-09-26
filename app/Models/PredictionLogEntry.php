@@ -32,6 +32,7 @@ class PredictionLogEntry extends Model
         'closing_quoted_at',
         'closing_odds_movement_id',
         'closing_edge',
+        'void_reason',
         'settled_at',
     ];
 
@@ -105,6 +106,13 @@ class PredictionLogEntry extends Model
         });
 
         static::updating(function (self $entry) {
+            // Non clôturable et clôturée s'excluent, dans les deux sens
+            if ($entry->getRawOriginal('void_reason') !== null) {
+                throw new \LogicException("Journal : ligne #{$entry->id} déclarée non clôturable, plus rien ne s'y écrit");
+            }
+            if ($entry->getRawOriginal('outcome_occurred') !== null && $entry->isDirty('void_reason')) {
+                throw new \LogicException("Journal : ligne #{$entry->id} déjà clôturée, elle ne devient pas non clôturable");
+            }
             foreach (array_keys($entry->getDirty()) as $column) {
                 if (!in_array($column, self::SETTLEMENT_COLUMNS, true)) {
                     throw new \LogicException("Journal : ligne #{$entry->id} figée, {$column} ne se modifie pas");
@@ -138,9 +146,16 @@ class PredictionLogEntry extends Model
         return $query->whereNotNull('outcome_occurred');
     }
 
+    /** Ni clôturée ni déclarée non clôturable. */
     public function scopePending($query)
     {
-        return $query->whereNull('outcome_occurred');
+        return $query->whereNull('outcome_occurred')->whereNull('void_reason');
+    }
+
+    /** Définitivement non clôturable : jamais mesurée, jamais en attente. */
+    public function scopeVoided($query)
+    {
+        return $query->whereNotNull('void_reason');
     }
 
     public function match(): BelongsTo
