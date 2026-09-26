@@ -18,6 +18,11 @@ class EnrichContext extends Command
 
     public function handle(ContextEnricherService $enricher): int
     {
+        // Météo : appel OpenWeatherMap écrit en base, machine de référence seulement
+        if (!$this->option('show') && \App\Support\CollectionGuard::refuses($this)) {
+            return self::FAILURE;
+        }
+
         if ($matchId = $this->option('match-id')) {
             return $this->enrichSingle($enricher, (int) $matchId);
         }

@@ -1,7 +1,13 @@
 # Architecture
 
-État au 26/09/2026, après l'étape 5 (journal des sélections), la reconstruction de la base et le
-rattrapage des scores. Décrit ce qui existe réellement, pas ce qui est prévu.
+État au 26/09/2026, après l'étape 5 (journal des sélections), la reconstruction de la base, le
+rattrapage des scores et la préparation du déploiement sur le VPS. Décrit ce qui existe réellement,
+pas ce qui est prévu.
+
+**Une seule machine collecte** : celle où `PIPELINE_ENABLED=true`, le VPS
+(`docs/deploiement.md`). Ailleurs, `pipeline:daily`, `pipeline:run(-sync)`,
+`pipeline:backfill`, `context:enrich` et `market:track snapshot|closing|close`
+refusent de tourner (`App\Support\CollectionGuard`).
 
 ---
 
@@ -13,7 +19,8 @@ Planificateur (routes/console.php, cron `schedule:run` requis)
   │    db:backup → pipeline:run-sync → log:settle (jusqu'à la veille) → context:enrich → predictions:compute → market:track snapshot
   │    chaque étape journalisée dans storage/logs/pipeline-*.log
   │    import en exception = arrêt ; import incomplet (code non nul) = étapes suivantes lancées
-  └─ toutes les 5 min : market:track closing, puis market:track close
+  ├─ toutes les 5 min : market:track closing, puis market:track close
+  └─ chaque minute : battement (pipeline.heartbeat_path), lu par system:status
 
 pipeline:run-sync {date}          code de sortie non nul si cotes ou scores incomplets
   └─ FetchMatchDataJob              ordre imposé par le budget : indispensable d'abord
@@ -52,6 +59,23 @@ de 6,5 s (10/minute), une seule nouvelle tentative après un 429.
 
 Dix lignes par match : 1, X, 2, 1X, X2, 12, Over 2.5, Under 2.5, BTTS Oui,
 BTTS Non.
+
+### Exploitation (VPS)
+
+- `system:status [--offline]` : une ligne par voyant (machine qui collecte,
+  planificateur, passage, jours manqués, journal, lignes en attente, quotas API-Football
+  et The Odds API, sauvegarde, run de référence, fuseaux via
+  `DataPipeline/TimeZoneCheck`), code de sortie non nul dès qu'un voyant n'est pas vert. Jours manqués :
+  `DataPipeline/PipelineGaps`, partagé avec `log:report`.
+- `backtest:reference [--force]` : backtest de référence relancé et désigné dans `.env`
+  (`BACKTEST_REFERENCE_RUN`).
+- `user:create` : compte de l'interface, mot de passe sans écho.
+- `data:manifest [--compare=]`, `db:client-options` : transfert portable → VPS
+  (`scripts/export-production.sh`, `scripts/import-production.sh`).
+- `setup.sh` : installation idempotente, vérifie sans rien installer.
+- `DB_TIMEZONE=+00:00` (session MariaDB) sur le VPS et sur les copies du portable : les
+  `TIMESTAMP` restent en UTC quel que soit le fuseau du serveur (docs/deploiement.md,
+  « Heures et fuseaux »).
 
 ---
 

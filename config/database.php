@@ -78,6 +78,12 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Fuseau de session. Les colonnes TIMESTAMP sont converties selon lui ;
+            // Laravel y écrit des heures UTC. '+00:00' sur le VPS et sur toute copie
+            // importée depuis lui. Absent : fuseau du serveur, celui du portable
+            // (EAT) jusqu'à la bascule, qui a stocké ses heures décalées de 3 h
+            // (docs/deploiement.md, « Heures et fuseaux »).
+            'timezone' => env('DB_TIMEZONE'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

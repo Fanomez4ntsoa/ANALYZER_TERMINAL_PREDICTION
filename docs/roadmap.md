@@ -460,6 +460,28 @@ facultatif (Levante-Athletic, 21/10/2026).
 
 ---
 
+## Déploiement sur le VPS (branche `feat/deploiement-vps`)
+
+Le VPS devient la base de référence et la seule machine qui collecte ; le portable ne
+fait plus que lire des copies. Procédure complète : `docs/deploiement.md`. Fait le
+26/09/2026 :
+
+- Garde `PIPELINE_ENABLED` (défaut `false`) sur toutes les commandes de collecte,
+  message qui dit pourquoi et quelle machine fait foi.
+- `setup.sh` idempotent, qui vérifie sans rien installer (autre application en
+  production sur le VPS) ; `deploy/env.vps.example` ; `user:create`.
+- Transfert : `scripts/export-production.sh`, `scripts/import-production.sh`,
+  `data:manifest`. Répété sur des bases temporaires : import conforme, relance refusée,
+  dump à l'ancienne rejeté.
+- **Décalage de fuseau de 3 h trouvé et corrigé** (`--skip-tz-utc`, `DB_TIMEZONE`).
+- `backtest:reference` : reproduit le run #1 à l'identique sur une base neuve, 9 min 22.
+- `system:status` et battement du planificateur.
+
+**À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
+7) se fait en une seule session ; son point de non-retour est la pose de la crontab.
+
+---
+
 ## Plus tard, si les mesures le justifient
 
 - Agents IA ou combinés : supprimés le 14/09/2026. Un retour serait une réécriture

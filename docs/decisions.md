@@ -1475,3 +1475,67 @@ L'idée initiale, balayer plusieurs jours par date, est donc impossible. **Seule
   l'ancienne date.
 - AET/PEN sans score : inchangé (problème connu, `docs/roadmap.md`).
 - Crontab toujours absente : le rattrapage répare les scores, pas les jours perdus.
+
+---
+
+## 2026-09-26 — Déploiement sur un VPS : une seule machine collecte
+
+**Contexte.** La collecte ne tournait que lorsque le portable était allumé et le pipeline
+lancé à la main : aucune crontab, trois jours perdus entre le 15 et le 26/09. Un VPS
+devient la base de référence. Il héberge déjà une autre application en production :
+rien de global n'y est modifié (paquets, configuration de MariaDB, fuseau), les scripts
+vérifient et s'arrêtent. Procédure : `docs/deploiement.md`.
+
+**Décidé :**
+
+- **Une seule machine collecte, et le code l'impose.** `PIPELINE_ENABLED` (défaut
+  `false`) : `pipeline:daily`, `pipeline:run`, `pipeline:run-sync`, `pipeline:backfill`,
+  `context:enrich`, `market:track snapshot|closing|close` refusent de tourner
+  ailleurs (`App\Support\CollectionGuard`). Le message dit pourquoi (quotas partagés,
+  bases divergentes) et quelle machine fait foi. Défaut à `false` : un clone neuf ne
+  collecte jamais par accident. Lectures et `log:settle` restent libres.
+- **VPS sans serveur web ni build front** : on n'y consulte que la ligne de commande.
+  L'interface se lit sur le portable, sur une copie importée.
+- **`setup.sh`** idempotent : vérifie (ne jamais installer), `composer install --no-dev`,
+  `.env`, `key:generate` si vide, `migrate`, dossiers, compte (`user:create`, mot de
+  passe sans écho, jamais en argument). Ni npm, ni `config:cache` (l'incident du
+  15/09), ni tests, ni crontab (posée en dernier, après l'import).
+- **Transfert** : `scripts/export-production.sh` (données des six tables, sans schéma,
+  dans l'ordre des clés étrangères, identifiants conservés) et
+  `scripts/import-production.sh` (refus sur tables non vides, comparaison au
+  manifeste). **Manifeste plutôt que chiffres fixes** (`data:manifest`) : les effectifs
+  changent à chaque passage ; la demande initiale (« 25 matchs, 90 lignes ») ne
+  correspondait déjà plus à la base (27 matchs, 270 lignes clôturées, 10 annulées).
+  `historical_matches` vient des zips du portable (`football-data:import`), pas du dump.
+- **Fuseau : un décalage de 3 h trouvé en répétition.** Le MariaDB du portable est en
+  EAT : les `TIMESTAMP` écrits par Laravel (UTC) y sont stockés comme des heures EAT. Un
+  `mysqldump` ordinaire les convertissait en UTC réel : sur le VPS, `kickoff_at` des 270
+  lignes clôturées ne valait plus `match_date` (`DATETIME`, non converti). Corrigé :
+  export `--skip-tz-utc`, import en session UTC, `DB_TIMEZONE=+00:00` sur le VPS (session
+  MariaDB fixée par Laravel, sans toucher au réglage global), repères horaires et
+  invariant `kickoff_at = match_date` dans le manifeste. Contre-essai : un dump à
+  l'ancienne est rejeté par la comparaison. Le portable lit les copies du VPS avec
+  `DB_TIMEZONE=+00:00`, son ancienne base sans.
+- **`backtest:reference`** : relance la configuration de référence et écrit
+  `BACKTEST_REFERENCE_RUN` dans `.env` (sans cache de configuration, pris en compte
+  aussitôt), puis compare le Brier 1X2 Top 5 2223-2324 au run #1 du portable (0,19173 ;
+  Pinnacle 0,19103). Durée : 8 minutes sur le portable, pas 1 h 40 (chiffre des 22
+  divisions). Répété le 26/09/2026 sur une base neuve (migrations, zips, import) :
+  mêmes Brier au cinquième chiffre, 9 min 22 s, 109 Mo de mémoire au plus.
+- **`system:status`** : dix lignes pour un contrôle par SSH, code de sortie non nul dès
+  qu'un voyant n'est pas vert. **Battement du planificateur** écrit chaque minute :
+  seul voyant qui aurait signalé l'absence de crontab du 15 au 26/09.
+- **Trois clés d'API, pas quatre** : `ANTHROPIC_API_KEY` n'est plus lue depuis le
+  14/09/2026 ; absente de `.env.example` et du modèle du VPS (`deploy/env.vps.example`).
+- Le rattrapage des scores n'a pas d'entrée propre dans le planificateur : il fait
+  partie de `pipeline:daily`. Trois besoins, deux entrées (plus le battement).
+- **Fuseau surveillé partout, pas seulement à l'export.** `setup.sh` mesure le décalage
+  effectif de la session (`NOW()` contre `UTC_TIMESTAMP()`, pas le nom du fuseau) avant
+  `migrate` : un serveur réglé comme le portable l'arrête base vide (vérifié).
+  `system:status`, ligne `Fuseaux`, refait cette mesure et vérifie l'invariant des
+  données (lignes clôturées : `kickoff_at` = `match_date`) : un changement de fuseau
+  ultérieur fait diverger toutes ces lignes d'un coup, critique même sur une copie
+  (vérifié : base du portable lue en UTC, 270 lignes).
+- **Quelle machine fait foi, d'un coup d'œil** : première ligne de `system:status`
+  (`Collecte`) et en-tête de `log:report`. Lu dans `PIPELINE_ENABLED` de la machine
+  qui répond.

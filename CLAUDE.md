@@ -57,6 +57,7 @@ qui ne veut rien dire sans la cote associée.
 | `docs/roadmap.md` | Pour savoir où on en est et ce qui vient ensuite |
 | `docs/design-system.md` | Avant de toucher à l'interface : principes, jetons, vert vif, lueur, états système |
 | `docs/git-workflow.md` | Branches, commits, fusions, tags |
+| `docs/deploiement.md` | VPS : installation, bascule, contrôle par SSH, copie vers le portable |
 | `docs/archive/roadmap-2026-04.md` | Historique. Décrit l'ancien système, supprimé en septembre 2026. Utile uniquement pour retrouver l'origine d'une constante. **Ne décrit pas le système actuel.** |
 
 ---
@@ -64,7 +65,7 @@ qui ne veut rien dire sans la cote associée.
 ## Commandes
 
 ```bash
-php artisan pipeline:daily [date]        # Passage quotidien : sauvegarde, import et rattrapage des scores, clôture du journal (jusqu'à la veille), contexte, probabilités, snapshot (planifié 10:00 UTC)
+php artisan pipeline:daily [date]        # Passage quotidien : sauvegarde, import et rattrapage des scores, clôture du journal (jusqu'à la veille), contexte, probabilités, snapshot (planifié 10:00 UTC, sur le VPS seulement : PIPELINE_ENABLED)
 php artisan db:backup [--verify]         # mysqldump compressé, sept derniers jours ; --verify restaure la dernière dans une base temporaire
 php artisan pipeline:run-sync {date}     # Import matchs (21 ligues) + cotes Bet365 (Top 5)
 php artisan predictions:compute [date]   # Probabilités des matchs à venir, non contaminés, avec cotes
@@ -74,6 +75,7 @@ php artisan market:track snapshot|closing|close|clv
 php artisan log:settle --date=           # Clôture du journal des sélections : toutes les dates en attente jusqu'à la veille (défaut)
 php artisan log:report [--market=] [--league=]  # Calibration sur matchs réels, seuil 200 matchs par marché
 php artisan app:reset [--force]
+php artisan system:status                # État en dix lignes (contrôle du VPS par SSH)
 ```
 
 Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après le coup d'envoi).

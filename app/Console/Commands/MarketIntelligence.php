@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\FootballMatch;
 use App\Models\OddsMovement;
 use App\Services\Market\CLVTrackerService;
+use App\Support\CollectionGuard;
 use Illuminate\Console\Command;
 
 class MarketIntelligence extends Command
@@ -18,6 +19,11 @@ class MarketIntelligence extends Command
 
     public function handle(CLVTrackerService $clvTracker): int
     {
+        // Relevés : appels The Odds API, machine de référence seulement. Lectures libres.
+        if (in_array($this->argument('action'), ['snapshot', 'closing', 'close'], true) && CollectionGuard::refuses($this)) {
+            return self::FAILURE;
+        }
+
         return match ($this->argument('action')) {
             'snapshot' => $this->snapshot($clvTracker),
             'closing' => $this->closing($clvTracker),
