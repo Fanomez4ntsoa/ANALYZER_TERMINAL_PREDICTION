@@ -31,5 +31,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Commandes de collecte autorisées en test (CollectionGuard), jamais d'appel réel : Http::fake ou simulations -->
+        <env name="PIPELINE_ENABLED" value="true"/>
     </php>
 </phpunit>

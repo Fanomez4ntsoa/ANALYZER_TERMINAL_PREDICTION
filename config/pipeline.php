@@ -61,6 +61,19 @@ return [
         ],
     ],
 
+    // Une seule machine collecte : la base de référence (le VPS depuis le déploiement
+    // de septembre 2026). Ailleurs, les commandes de collecte refusent de tourner
+    // (App\Support\CollectionGuard) : deux machines partageraient les quotas des API
+    // et leurs bases divergeraient. Désactivé par défaut : un clone neuf ne collecte
+    // jamais par accident, il faut l'activer explicitement sur la machine de référence.
+    'enabled' => (bool) env('PIPELINE_ENABLED', false),
+    'reference_host' => env('PIPELINE_REFERENCE_HOST', 'le VPS, deploy:/home/deploy/football-analyzer-web'),
+
+    // Battement du planificateur : horodatage écrit chaque minute par schedule:run.
+    // Lu par system:status, seul moyen de voir qu'une crontab manque (aucune n'a
+    // tourné du 15 au 26/09/2026 sans que rien ne le signale).
+    'heartbeat_path' => storage_path('app/private/scheduler-heartbeat'),
+
     // Rattrapage des scores (FetchMatchDataJob) et limite de clôture du journal.
     // L'offre gratuite n'accepte /fixtures?date= que de J-1 à J+1 : au-delà, un score
     // se récupère match par match (/fixtures?id=, 1 requête), après les cotes du jour

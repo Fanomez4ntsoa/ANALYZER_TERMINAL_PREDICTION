@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\FetchMatchDataJob;
 use App\Models\PipelineRun;
+use App\Support\CollectionGuard;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -35,6 +36,11 @@ class PipelineDaily extends Command
 
     public function handle(): int
     {
+        // Avant tout : ni sauvegarde, ni passage enregistré sur une machine qui ne collecte pas
+        if (CollectionGuard::refuses($this)) {
+            return self::FAILURE;
+        }
+
         $date = $this->argument('date') ?? now()->format('Y-m-d');
         $log = Log::channel('pipeline');
 

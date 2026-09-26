@@ -20,6 +20,10 @@ class PipelineBackfill extends Command
 
     public function handle(): int
     {
+        if (\App\Support\CollectionGuard::refuses($this)) {
+            return self::FAILURE;
+        }
+
         $from = Carbon::parse($this->option('from') ?? now()->subMonth()->format('Y-m-d'));
         $to = Carbon::parse($this->option('to') ?? now()->subDay()->format('Y-m-d'));
         $delay = (int) $this->option('delay');

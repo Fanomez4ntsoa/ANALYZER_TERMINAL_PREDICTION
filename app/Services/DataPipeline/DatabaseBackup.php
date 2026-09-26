@@ -173,6 +173,19 @@ class DatabaseBackup
         return $name;
     }
 
+    /**
+     * Dernière sauvegarde de cette base (system:status), null s'il n'y en a aucune.
+     *
+     * @return array{file: string, day: string, bytes: int, modified_at: int}|null
+     */
+    public function latest(): ?array
+    {
+        $dir = config('pipeline.backup.path');
+        $latest = $this->backups($dir, (string) $this->connection()['database'])[0] ?? null;
+
+        return $latest === null ? null : $latest + ['modified_at' => filemtime("{$dir}/{$latest['file']}")];
+    }
+
     private function connection(): array
     {
         $connectionName = config('pipeline.backup.connection');
@@ -198,9 +211,22 @@ class DatabaseBackup
         fclose($out);
     }
 
-    private function writeOptionsFile(array $connection): string
+    /**
+     * Fichier d'options client (identifiants hors de la ligne de commande) pour les
+     * scripts de transfert (db:client-options). Renvoie le nom de la base.
+     */
+    public function writeClientOptions(string $path): string
     {
-        $path = tempnam(sys_get_temp_dir(), 'dbbackup');
+        $connection = $this->connection();
+        $this->writeOptionsFile($connection, $path);
+
+        return (string) $connection['database'];
+    }
+
+    private function writeOptionsFile(array $connection, ?string $path = null): string
+    {
+        $path ??= tempnam(sys_get_temp_dir(), 'dbbackup');
+        touch($path);
         chmod($path, 0600);
 
         $quote = fn ($value) => '"' . addcslashes((string) $value, "\\\"") . '"';

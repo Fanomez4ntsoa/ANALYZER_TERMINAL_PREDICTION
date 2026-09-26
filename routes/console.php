@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\FetchMatchDataJob;
+use App\Support\CollectionGuard;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -26,11 +27,27 @@ Schedule::command('pipeline:daily')
 Schedule::command('market:track closing')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('market:track close')->everyFiveMinutes()->withoutOverlapping();
 
+// Le rattrapage des scores n'a pas d'entrée propre : il tourne dans pipeline:daily
+// (FetchMatchDataJob, après l'appel de la veille), comme la sauvegarde.
+
+// Battement : preuve que la crontab tourne, lue par system:status. Écrit même sur
+// une machine qui ne collecte pas : il ne mesure que le planificateur.
+Schedule::call(function () {
+    $path = config('pipeline.heartbeat_path');
+    if (!is_dir(dirname($path))) {
+        mkdir(dirname($path), 0775, true);
+    }
+    file_put_contents($path, now('UTC')->toIso8601String());
+})->everyMinute()->name('scheduler-heartbeat');
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // COMMANDE MANUELLE — Lancer le pipeline à la demande
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Artisan::command('pipeline:run {date?} {--all : Ignorer le filtre horaire}', function (?string $date = null) {
+    if (CollectionGuard::refuses($this)) {
+        return 1;
+    }
     $date = $date ?? now()->format('Y-m-d');
     $all = $this->option('all');
     $this->info("Lancement du pipeline pour le {$date}" . ($all ? ' (tous les matchs)' : '') . "...");
@@ -42,6 +59,9 @@ Artisan::command('pipeline:run {date?} {--all : Ignorer le filtre horaire}', fun
 })->purpose('Lancer le pipeline de recuperation de donnees manuellement');
 
 Artisan::command('pipeline:run-sync {date?} {--all : Ignorer le filtre horaire}', function (?string $date = null) {
+    if (CollectionGuard::refuses($this)) {
+        return 1;
+    }
     $date = $date ?? now()->format('Y-m-d');
     $all = $this->option('all');
     $this->info("Lancement du pipeline SYNCHRONE pour le {$date}" . ($all ? ' (tous les matchs)' : '') . "...");
