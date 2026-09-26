@@ -1390,3 +1390,88 @@ Premier passage le 15/09/2026, sur la sauvegarde de la base reconstruite : resta
 en 8 secondes, effectifs identiques à la base réelle (`historical_matches` 38 780,
 `backtest_fd_predictions` 86 434, `backtest_fd_runs` 1, `users` 1, tables du pipeline
 vides), base temporaire supprimée.
+
+---
+
+## 2026-09-26 — Scores rattrapés match par match, lignes non clôturables, jours sans passage visibles
+
+**Constat.** Trois matchs de Liga des 16 et 17/09 sans score, 30 lignes du journal en
+attente. Deux causes distinctes :
+
+- Betis-Getafe et Málaga-Villarreal (17/09) : aucun passage le 18 ni le 19. Les scores
+  n'étaient cherchés que pour la veille, puis plus jamais. Aucune crontab installée
+  (déjà signalé le 15/09) : `pipeline:daily` ne tourne que lancé à la main.
+- Levante-Athletic (16/09) : **reporté au 21/10/2026**. Le passage du 17 l'a vu (« 12
+  terminés sur 13 ») ; il n'aura jamais de score pour le 16/09.
+
+`log:settle` ne clôturait que la veille : même un score retrouvé plus tard n'aurait rien
+clôturé. L'appel de la veille créait aussi les matchs absents de la base (5 le 20/09,
+hors du créneau horaire du passage de la veille), aussitôt marqués contaminés.
+
+**Mesuré sur API-Football le 26/09/2026 (offre gratuite, 13 requêtes) :**
+
+| Appel | Résultat |
+|---|---|
+| `/fixtures?date=` plus ancien que la veille | Refusé : `Free plans do not have access to this date, try from 2026-09-25 to 2026-09-27` |
+| `/fixtures?ids=a-b-c` | Refusé : `Free plans do not have access to the Ids parameter` |
+| `/fixtures?id=` | Réponse complète à 9, 21, 34, 62, 125 et 153 jours, saison 2025 comprise |
+
+L'idée initiale, balayer plusieurs jours par date, est donc impossible. **Seule voie :
+1 requête `/fixtures?id=` par match.**
+
+**Décidé :**
+
+- **Rattrapage** (`FetchMatchDataJob`, après les cotes du jour et l'appel de la veille,
+  avant le facultatif) : matchs plus anciens que la veille dont des lignes du journal
+  attendent leur clôture, **20 requêtes au plus par passage**
+  (`pipeline.score_catchup.max_requests`), jamais sous la réserve du facultatif. Pire
+  cas chiffré : dimanche chargé, 1 + 19 cotes + 1 veille + 20 rattrapage + 38
+  facultatif = 79 requêtes. Un retard d'un jour de semaine coûte 2 à 4 requêtes, d'un
+  jour de week-end une vingtaine.
+- **Les plus récents d'abord**, contrairement au plan initial (le plus ancien d'abord) :
+  avec une fenêtre longue, vingt matchs que l'API ne termine jamais bloqueraient tout le
+  plafond pendant des semaines. Dans cet ordre, ils n'usent que le reste du plafond.
+- **Fenêtre de 60 jours** (`pipeline.score_catchup.window_days`), au lieu des 14 validés
+  d'abord : `id=` répond encore à 153 jours, et la fenêtre ne coûte rien tant qu'aucun
+  match ne reste bloqué. Le volume à rattraper dépend du nombre de jours calculés avant
+  l'absence, pas de la durée de l'absence : sans passage, aucun match n'est importé,
+  donc aucune ligne n'attend.
+- **Lignes non clôturables** (`prediction_log.void_reason`, écrite une seule fois avec
+  `settled_at`, issue nulle) : `rescheduled` (même affiche, coup d'envoi déplacé, ou
+  statut PST), `cancelled` (CANC), `abandoned` (ABD), `awarded` (AWD, WO),
+  `score_unavailable` (toujours sans score 60 jours après le coup d'envoi). Ni mesurées
+  ni en attente : `log:report` les compte à part, par raison. Une ligne non clôturable
+  ne reçoit jamais d'issue, une ligne clôturée ne devient jamais non clôturable. Des
+  équipes différentes (base remise à zéro) restent un échec, pas une annulation.
+- **`log:settle` clôture toutes les dates en attente** jusqu'à la veille, la plus
+  ancienne d'abord.
+- **Statut API-Football conservé** (`matches.api_status`) : la clôture annule sur
+  statut sans appel supplémentaire. Un match au statut final sans score n'est plus
+  demandé.
+- **L'appel de la veille ne crée plus de match** : il ne met à jour que les matchs déjà
+  en base, et prend tous leurs statuts (PST, CANC, nouvelle date), plus seulement FT.
+- **Match reprogrammé** (`MatchEnricherService::isRescheduled` : pas encore joué, coup
+  d'envoi changé) : cotes Bet365, cote de prédiction et clôture du CLV,
+  `odds_api_event_id` remis à nul, anciennes valeurs journalisées. Sans cela, un marché
+  absent du relevé d'octobre gardait la cote de septembre, et le CLV de `/market`
+  comparait la cote de prédiction du 16/09 à la clôture du 21/10. Le premier relevé du
+  nouveau coup d'envoi ne calcule aucune variation contre ceux de l'ancien.
+  **Vérifié : les relevés de septembre ne peuvent pas servir de clôture en octobre**,
+  `closingSnapshot` ne retient que les 10 minutes avant le coup d'envoi en base (test).
+- **Premier calcul mesuré par match et coup d'envoi** : les lignes de septembre de
+  Levante, non clôturables, ne masquent pas celles d'octobre.
+- **Jours sans passage dans `log:report`**, du premier calcul du journal à la veille :
+  jours sans aucun passage enregistré dans `pipeline_runs`, et jours aux seuls passages
+  échoués ou interrompus. Leurs matchs n'ont jamais été importés : aucun autre
+  compteur ne les voit, et ils ne se rattrapent pas (règle 5). Le 26/09/2026 : 18, 19 et
+  24/09.
+
+**Laissé ouvert :**
+
+- Match reprogrammé : `predictions` (affichée) et `advanced_data` (blessures,
+  comparaison API-Football) gardent les valeurs de l'ancienne date jusqu'au prochain
+  calcul et à la prochaine collecte du facultatif. Si le facultatif n'est pas collecté
+  le jour du nouveau match (budget), le modèle complet utilisera les blessures de
+  l'ancienne date.
+- AET/PEN sans score : inchangé (problème connu, `docs/roadmap.md`).
+- Crontab toujours absente : le rattrapage répare les scores, pas les jours perdus.

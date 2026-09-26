@@ -402,8 +402,9 @@ Laissé ouvert :
   marchés du journal se règlent sur 90 minutes), jamais le score après prolongation.
 - `closing_edge` : lire sa variation entre segments, jamais son signe absolu (écart de
   tarification Bet365 / Pinnacle).
-- Les lignes en attente des jours précédents sont signalées par `log:settle` mais pas
-  reprises automatiquement : relancer `log:settle --date=` sur leur date.
+- ~~Les lignes en attente des jours précédents sont signalées par `log:settle` mais pas
+  reprises automatiquement.~~ Corrigé le 26/09/2026 : `log:settle` reprend toutes les
+  dates en attente (voir plus bas).
 
 ---
 
@@ -428,6 +429,34 @@ Reste à faire par l'utilisateur : ajouter la ligne cron `schedule:run` (aucune 
 installée le 15/09/2026 : sans elle, ni `pipeline:daily`, ni la sauvegarde, ni la clôture
 ne tournent ; systemd, cron et MariaDB sont déjà activés au démarrage de WSL, mais WSL
 lui-même ne démarre pas avec Windows), changer le mot de passe du compte recréé.
+
+---
+
+## Correctif du 26/09/2026 — rattrapage des scores (branche `fix/rattrapage-scores`)
+
+Trois matchs de Liga des 16 et 17/09 sans score, 30 lignes en attente : deux manqués
+faute de passage le 18 et le 19, un reporté au 21/10 (`docs/decisions.md`). Fait :
+
+- Rattrapage match par match (`/fixtures?id=`, seule voie avec l'offre gratuite
+  au-delà de la veille), après les cotes et avant le facultatif, 20 requêtes au plus
+  par passage, les plus récents d'abord, fenêtre de 60 jours.
+- Lignes non clôturables (`prediction_log.void_reason`) : reprogrammé, annulé, arrêté,
+  tapis vert, score indisponible au-delà de 60 jours. Comptées à part par `log:report`.
+- `log:settle` clôture toutes les dates en attente jusqu'à la veille.
+- L'appel de la veille ne crée plus de match contaminé.
+- Match reprogrammé : cotes et CLV de l'ancien coup d'envoi remis à nul ; premier
+  calcul mesuré par coup d'envoi.
+- `log:report` affiche les jours sans passage du pipeline depuis le début du journal.
+
+**À faire par l'utilisateur** : lancer la migration
+`2026_09_26_000001_add_api_status_and_void_reason`, puis `pipeline:daily`. Attendu au
+premier passage : 3 requêtes de rattrapage, Betis 1-0 Getafe et Málaga 1-3 Villarreal
+clôturés (20 lignes), Levante-Athletic reprogrammé au 21/10 et ses 10 lignes déclarées
+non clôturables. Installer la crontab reste la seule protection contre les jours perdus.
+
+Laissé ouvert : `predictions` et `advanced_data` d'un match reprogrammé gardent les
+valeurs de l'ancienne date jusqu'au prochain calcul et à la prochaine collecte du
+facultatif (Levante-Athletic, 21/10/2026).
 
 ---
 

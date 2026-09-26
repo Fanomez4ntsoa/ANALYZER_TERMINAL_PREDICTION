@@ -69,6 +69,7 @@ class FootballMatch extends Model
         'score_home',
         'score_away',
         'completed',
+        'api_status',
         'post_kickoff_data',
         'global_confidence',
         'context',

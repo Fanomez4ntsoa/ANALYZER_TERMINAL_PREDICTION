@@ -45,8 +45,11 @@ class LogReport extends Command
         $this->newLine();
         $this->line("<options=bold>Effectif total : {$t['settled_matches']} match(s) clôturé(s), {$t['settled_lines']} ligne(s)</>");
         $this->line("En attente de clôture, non mesurés : {$t['pending_matches']} match(s), {$t['pending_lines']} ligne(s)");
+        $this->line("Écartés, non clôturables : {$t['voided_matches']} match(s), {$t['voided_lines']} ligne(s)"
+            . ($t['voided_by_reason'] ? ' (' . collect($t['voided_by_reason'])->map(fn ($n, $reason) => "{$reason} {$n}")->implode(', ') . ')' : ''));
         $this->line("Écartés, lignes du bouton seulement : {$t['manual_only_matches']} match(s), {$t['manual_only_lines']} ligne(s) dont {$t['manual_only_settled_lines']} clôturée(s)");
         $this->line("Écartés, matchs contaminés : {$t['contaminated_matches']}");
+        $this->renderPipelineGaps($data['pipeline_gaps']);
 
         if ($t['settled_matches'] < $threshold) {
             $this->newLine();
@@ -73,6 +76,31 @@ class LogReport extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Jours de prédictions définitivement perdus : jamais importés, donc absents de
+     * tous les autres compteurs.
+     */
+    private function renderPipelineGaps(array $gaps): void
+    {
+        if ($gaps['since'] === null) {
+            return;
+        }
+
+        if ($gaps['missing'] === [] && $gaps['failed'] === []) {
+            $this->line("Jours sans passage du pipeline depuis le {$gaps['since']} : aucun");
+
+            return;
+        }
+
+        if ($gaps['missing'] !== []) {
+            $this->warn("Jours sans passage du pipeline depuis le {$gaps['since']} : " . count($gaps['missing']) . ' ('
+                . implode(', ', $gaps['missing']) . '). Matchs jamais importés ni calculés : prédictions définitivement perdues, absentes des compteurs ci-dessus.');
+        }
+        if ($gaps['failed'] !== []) {
+            $this->warn('Jours au passage échoué ou interrompu : ' . count($gaps['failed']) . ' (' . implode(', ', $gaps['failed']) . ').');
+        }
     }
 
     private function renderSection(?string $title, array $section, int $threshold, string $name, ?string $baselineName = null): void

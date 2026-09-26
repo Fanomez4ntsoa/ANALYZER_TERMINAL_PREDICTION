@@ -61,4 +61,18 @@ return [
         ],
     ],
 
+    // Rattrapage des scores (FetchMatchDataJob) et limite de clôture du journal.
+    // L'offre gratuite n'accepte /fixtures?date= que de J-1 à J+1 : au-delà, un score
+    // se récupère match par match (/fixtures?id=, 1 requête), après les cotes du jour
+    // et avant le facultatif. Mesuré le 26/09/2026 : id= répond encore à 153 jours,
+    // saison précédente comprise.
+    'score_catchup' => [
+        // Requêtes au plus par passage
+        'max_requests' => (int) env('PIPELINE_SCORE_CATCHUP_MAX_REQUESTS', 20),
+
+        // Au-delà, plus aucune requête : les lignes encore en attente sont déclarées
+        // non clôturables (score_unavailable) par log:settle
+        'window_days' => (int) env('PIPELINE_SCORE_CATCHUP_WINDOW_DAYS', 60),
+    ],
+
 ];

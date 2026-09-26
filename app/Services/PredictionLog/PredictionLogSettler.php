@@ -19,8 +19,13 @@ use Illuminate\Support\Facades\DB;
  * - Issue : déterminée par le score final. Sans score, la ligne reste en attente,
  *   jamais résolue par défaut. Le score n'est écrit que pour un statut FT : un
  *   match AET/PEN reste en attente (problème connu, docs/roadmap.md).
- * - Le match doit être celui du calcul (équipes et coup d'envoi) : un match
- *   reprogrammé ou une base remise à zéro laisse la ligne en attente.
+ * - Le match doit être celui du calcul. Équipes différentes (base remise à zéro) :
+ *   la ligne reste en attente, en échec. Coup d'envoi déplacé, même affiche : le
+ *   match a été reprogrammé, la ligne est déclarée non clôturable.
+ * - Non clôturable (void_reason, écrit une seule fois avec settled_at, issue
+ *   nulle) : match reprogrammé, annulé, arrêté, attribué sur tapis vert (statut
+ *   API-Football), ou toujours sans score au-delà de pipeline.score_catchup.
+ *   window_days après le coup d'envoi. Ni mesurée ni en attente : comptée à part.
  * - closing_edge = cote Bet365 du calcul × probabilité équitable Pinnacle à la
  *   clôture − 1, seulement si une clôture fiable existe (CLVTrackerService::
  *   closingSnapshot) et que Pinnacle y cote le marché. Sinon il reste nul, jamais 0.
@@ -43,6 +48,22 @@ class PredictionLogSettler
         self::PENDING_EXCEPTION,
     ];
 
+    // Lignes définitivement non clôturables
+    public const VOID_RESCHEDULED = 'rescheduled';
+    public const VOID_CANCELLED = 'cancelled';
+    public const VOID_ABANDONED = 'abandoned';
+    public const VOID_AWARDED = 'awarded';
+    public const VOID_SCORE_UNAVAILABLE = 'score_unavailable';
+
+    // Statuts API-Football sans score à attendre, et leur raison
+    public const VOID_BY_STATUS = [
+        'PST' => self::VOID_RESCHEDULED,
+        'CANC' => self::VOID_CANCELLED,
+        'ABD' => self::VOID_ABANDONED,
+        'AWD' => self::VOID_AWARDED,
+        'WO' => self::VOID_AWARDED,
+    ];
+
     // closing_edge absent : jamais un échec
     public const EDGE_NO_CLOSING = 'no_closing_snapshot';
     public const EDGE_MARKET_NOT_QUOTED = 'market_not_quoted';
@@ -52,7 +73,48 @@ class PredictionLogSettler
     }
 
     /**
-     * @return array{date: string, entries: int, settled: int, pending: array<string, int>, pending_matches: list<array>, closing_edge_missing: array<string, int>, failures: int, older_pending: array<string, int>}
+     * Clôture de toutes les dates qui ont encore des lignes en attente, jusqu'à
+     * $date comprise, la plus ancienne d'abord. Sans elle, un score rattrapé après
+     * la veille ne clôturerait jamais rien.
+     *
+     * @return array{date: string, dates: list<string>, entries: int, settled: int, voided: array<string, int>, voided_matches: list<array>, pending: array<string, int>, pending_matches: list<array>, closing_edge_missing: array<string, int>, failures: int, older_pending: array<string, int>}
+     */
+    public function settleUpTo(string $date): array
+    {
+        $dates = PredictionLogEntry::pending()
+            ->where('kickoff_at', '<', Carbon::parse($date)->addDay()->startOfDay())
+            ->pluck('kickoff_at')
+            ->map(fn (Carbon $kickoff) => $kickoff->format('Y-m-d'))
+            ->push($date)
+            ->unique()
+            ->sort()
+            ->values();
+
+        $report = null;
+        foreach ($dates as $day) {
+            $dayReport = $this->settle($day);
+            if ($report === null) {
+                $report = $dayReport;
+                continue;
+            }
+            $report['entries'] += $dayReport['entries'];
+            $report['settled'] += $dayReport['settled'];
+            $report['failures'] += $dayReport['failures'];
+            array_push($report['voided_matches'], ...$dayReport['voided_matches']);
+            array_push($report['pending_matches'], ...$dayReport['pending_matches']);
+            foreach (['voided', 'pending', 'closing_edge_missing'] as $key) {
+                foreach ($dayReport[$key] as $reason => $count) {
+                    $report[$key][$reason] = ($report[$key][$reason] ?? 0) + $count;
+                }
+            }
+        }
+
+        // older_pending après la dernière date seulement : ce qui reste avant $date
+        return ['date' => $date, 'dates' => $dates->all(), 'older_pending' => $dayReport['older_pending']] + $report;
+    }
+
+    /**
+     * @return array{date: string, entries: int, settled: int, voided: array<string, int>, voided_matches: list<array>, pending: array<string, int>, pending_matches: list<array>, closing_edge_missing: array<string, int>, failures: int, older_pending: array<string, int>}
      */
     public function settle(string $date): array
     {
@@ -65,6 +127,8 @@ class PredictionLogSettler
             'date' => $date,
             'entries' => $entries->count(),
             'settled' => 0,
+            'voided' => [],
+            'voided_matches' => [],
             'pending' => [],
             'pending_matches' => [],
             'closing_edge_missing' => [],
@@ -99,11 +163,10 @@ class PredictionLogSettler
             return;
         }
 
-        // Match différent de celui du calcul : lignes laissées en attente
+        // Équipes différentes de celles du calcul (base remise à zéro) : en attente, en échec
         $changed = $entries->reject(fn (PredictionLogEntry $e) => $e->home_team === $match->home_team
             && $e->away_team === $match->away_team
-            && $match->match_date !== null
-            && $e->kickoff_at->equalTo($match->match_date));
+            && $match->match_date !== null);
         if ($changed->isNotEmpty()) {
             $this->pending($report, $changed, self::PENDING_MATCH_CHANGED, $match->id, sprintf(
                 'journal : %s vs %s au %s ; match : %s au %s',
@@ -116,7 +179,32 @@ class PredictionLogSettler
             }
         }
 
+        // Même affiche, coup d'envoi déplacé : la probabilité valait pour l'ancienne date
+        $moved = $entries->reject(fn (PredictionLogEntry $e) => $e->kickoff_at->equalTo($match->match_date));
+        if ($moved->isNotEmpty()) {
+            $this->void($report, $moved, self::VOID_RESCHEDULED, $match->id, sprintf(
+                'calcul pour le %s, match au %s', $moved->first()->kickoff_at->format('Y-m-d H:i'), $match->match_date->format('Y-m-d H:i'),
+            ));
+            $entries = $entries->diff($moved);
+            if ($entries->isEmpty()) {
+                return;
+            }
+        }
+
+        if (isset(self::VOID_BY_STATUS[$match->api_status])) {
+            $this->void($report, $entries, self::VOID_BY_STATUS[$match->api_status], $match->id, "statut API-Football {$match->api_status}");
+
+            return;
+        }
+
         if (!$match->completed) {
+            $window = (int) config('pipeline.score_catchup.window_days');
+            if ($window > 0 && $match->match_date->lt(now()->subDays($window))) {
+                $this->void($report, $entries, self::VOID_SCORE_UNAVAILABLE, $match->id, "toujours sans score {$window} jours après le coup d'envoi");
+
+                return;
+            }
+
             $this->pending($report, $entries, self::PENDING_NOT_COMPLETED, $match->id);
 
             return;
@@ -213,6 +301,28 @@ class PredictionLogSettler
             'btts|No' => $home === 0 || $away === 0,
             default => throw new \LogicException("Journal : issue inconnue {$market} {$outcome}"),
         };
+    }
+
+    /**
+     * Lignes définitivement non clôturables : void_reason et settled_at, issue nulle.
+     */
+    private function void(array &$report, Collection $entries, string $reason, int $matchId, string $detail): void
+    {
+        $settledAt = now();
+        DB::transaction(function () use ($entries, $reason, $settledAt) {
+            foreach ($entries as $entry) {
+                $entry->update(['void_reason' => $reason, 'settled_at' => $settledAt]);
+            }
+        });
+
+        $report['voided'][$reason] = ($report['voided'][$reason] ?? 0) + $entries->count();
+        $report['voided_matches'][] = [
+            'match_id' => $matchId,
+            'match' => $entries->first()->home_team . ' vs ' . $entries->first()->away_team,
+            'lines' => $entries->count(),
+            'reason' => $reason,
+            'detail' => $detail,
+        ];
     }
 
     private function pending(array &$report, Collection $entries, string $reason, int $matchId, ?string $detail = null): void

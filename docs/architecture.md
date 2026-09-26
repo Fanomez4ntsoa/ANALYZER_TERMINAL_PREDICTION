@@ -1,7 +1,7 @@
 # Architecture
 
-État au 15/09/2026, après l'étape 5 (journal des sélections) et la reconstruction de la base. Décrit ce qui existe
-réellement, pas ce qui est prévu.
+État au 26/09/2026, après l'étape 5 (journal des sélections), la reconstruction de la base et le
+rattrapage des scores. Décrit ce qui existe réellement, pas ce qui est prévu.
 
 ---
 
@@ -10,7 +10,7 @@ réellement, pas ce qui est prévu.
 ```
 Planificateur (routes/console.php, cron `schedule:run` requis)
   ├─ pipeline:daily, chaque jour à config pipeline.schedule_time (10:00 UTC)
-  │    db:backup → pipeline:run-sync → log:settle (veille) → context:enrich → predictions:compute → market:track snapshot
+  │    db:backup → pipeline:run-sync → log:settle (jusqu'à la veille) → context:enrich → predictions:compute → market:track snapshot
   │    chaque étape journalisée dans storage/logs/pipeline-*.log
   │    import en exception = arrêt ; import incomplet (code non nul) = étapes suivantes lancées
   └─ toutes les 5 min : market:track closing, puis market:track close
@@ -25,7 +25,10 @@ pipeline:run-sync {date}          code de sortie non nul si cotes ou scores inco
        │    └─ enrichWithApiFootballOdds               odds_* + odds_fetched_at + odds_bookmaker
        │       budget insuffisant : avertissement, matchs non couverts listés, passage incomplet
        │       cotes incomplètes : facultatif non collecté (budget gardé pour une relance)
-       ├─ scores de la veille                         1 requête au plus
+       ├─ scores de la veille                         1 requête au plus, matchs déjà en base seulement
+       ├─ ApiFootballService::getFixtureById          rattrapage : 1 requête par match plus ancien que la
+       │    veille, lignes du journal en attente, 20 au plus (pipeline.score_catchup), plus récents d'abord,
+       │    60 jours au plus, jamais sous la réserve du facultatif
        ├─ ApiFootballService::getOptionalMatchData    prédictions + blessures, 2 requêtes/match,
        │    └─ enrichWithAdvancedData                  abandonné sous api-football.budget.optional_reserve
        └─ FetchOddsJob                                liaison The Odds API, championnats du CLV seulement
@@ -123,17 +126,25 @@ est remplacée). N'entrent que les lignes avec cote d'un bookmaker identifié (j
 | `score_home`, `score_away`, `outcome_occurred`, `settled_at` | Clôture ; `outcome_occurred` nul = en attente |
 | `closing_bookmaker`, `closing_odds`, `closing_fair_probability`, `closing_quoted_at`, `closing_odds_movement_id` | Clôture Pinnacle (relevé fiable), nulles sans clôture ou marché non coté |
 | `closing_edge` | `odds × closing_fair_probability − 1`. **Pas le CLV de `/market`** : lire sa variation entre segments, pas son signe |
+| `void_reason` | Non clôturable, avec `settled_at` et issue nulle : `rescheduled`, `cancelled`, `abandoned`, `awarded`, `score_unavailable` |
 
 `PredictionLogEntry` refuse suppression et modification, sauf des colonnes de clôture
-encore nulles (événements Eloquent : aucune mise à jour de masse sur cette table).
-Non vidée par `app:reset`.
+encore nulles (événements Eloquent : aucune mise à jour de masse sur cette table). Une
+ligne non clôturable ne reçoit plus rien ; une ligne clôturée ne devient pas non
+clôturable. Non vidée par `app:reset`.
 
-- `log:settle --date=` (`PredictionLog/PredictionLogSettler`) : la veille par défaut,
-  étape de `pipeline:daily`. Échec si un match terminé ne peut pas être clôturé (sans
-  score, notamment AET/PEN ; changé ; absent).
+- `log:settle --date=` (`PredictionLog/PredictionLogSettler::settleUpTo`) : toutes les
+  dates en attente jusqu'à `--date` (la veille par défaut), étape de `pipeline:daily`.
+  Échec si un match terminé ne peut pas être clôturé (sans score, notamment AET/PEN ;
+  équipes changées ; absent). Non clôturable, sans échec : coup d'envoi déplacé, statut
+  API-Football PST, CANC, ABD, AWD, WO (`matches.api_status`), ou toujours sans score
+  `pipeline.score_catchup.window_days` (60) jours après le coup d'envoi.
 - `log:report [--market=] [--league=]` (`PredictionLog/PredictionLogReport`) : premier
-  calcul du pipeline de chaque match seul, matchs mesurables. Seuil et familles dans
-  `config/prediction-log.php` (200 matchs clôturés par marché).
+  calcul du pipeline de chaque match et coup d'envoi seul, matchs mesurables. Lignes non
+  clôturables comptées à part. Jours sans passage de `pipeline:daily` (ni `success` ni
+  `incomplete` dans `pipeline_runs`) depuis le premier calcul du journal : prédictions
+  perdues, invisibles ailleurs. Seuil et familles dans `config/prediction-log.php` (200
+  matchs clôturés par marché).
 
 ---
 
@@ -244,6 +255,11 @@ irremplaçables. Ne pas supprimer.
 `layer2_score`, `convergence`, `context`, `sources_data`. Sur `advanced_data` :
 `footystats_data` (plus écrite).
 
+**`matches.api_status`** : dernier statut API-Football connu (depuis le 26/09/2026, nul
+avant). Un match pas encore joué dont le coup d'envoi change est reprogrammé : ses cotes,
+sa cote de prédiction, sa clôture et sa liaison The Odds API sont remises à nul
+(`MatchEnricherService::isRescheduled`).
+
 **`matches.post_kickoff_data`** : une donnée du match a été écrite après son coup
 d'envoi. Exclu de toute mesure : toute requête de mesure sur `matches` passe par
 le scope `measurable()`. Posé à la création d'un match dont le coup d'envoi est
@@ -310,6 +326,12 @@ L'appel par date est donc inutilisable : il ne couvre que les 30 premiers matchs
 mondiaux, et aucun des 11 matchs suivis ce jour-là n'y figurait. Les cotes se
 relèvent match par match (`/odds?fixture=`, une page).
 
+**Dates et identifiants, mesurés le 26/09/2026.** `/fixtures?date=` n'accepte que la
+veille, le jour et le lendemain (`Free plans do not have access to this date, try from
+2026-09-25 to 2026-09-27`) : un jour manqué ne se rattrape pas par date. Le paramètre
+`ids` est refusé. `/fixtures?id=` répond encore à 153 jours, saison précédente
+comprise : rattrapage à 1 requête par match.
+
 **Compteurs de l'API en retard.** Juste après un passage de 34 requêtes, `/status` en
 comptait 18 et l'en-tête `x-ratelimit-requests-remaining` 25 ; `/status` n'a rattrapé
 qu'après quelques secondes. Le budget est estimé au plus pessimiste de `/status`, de
@@ -325,6 +347,7 @@ The Odds API gratuit : **500 crédits par mois**.
 | Matchs de la date | 1 | 1 |
 | Cotes, 1 par match | N | 11 |
 | Scores de la veille | 0 ou 1 | 0 |
+| Rattrapage des scores plus anciens (depuis le 26/09/2026), 1 par match | 0 à 20 | — |
 | Facultatif (prédictions + blessures), 2 par match | 2N | 22 |
 | **Total** | **≈ 3N + 2** | **34 mesurées** |
 

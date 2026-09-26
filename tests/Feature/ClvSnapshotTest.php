@@ -143,6 +143,28 @@ class ClvSnapshotTest extends TestCase
         $this->assertNull(OddsMovement::reliable()->sole()->move_home_pct);
     }
 
+    public function test_first_snapshot_of_a_new_kickoff_has_no_movement_against_the_old_date(): void
+    {
+        // Match reprogrammé : cote de prédiction remise à nul, relevé fiable de l'ancienne date conservé
+        $match = $this->match();
+        OddsMovement::create(['match_id' => $match->id, 'bookmaker' => 'pinnacle', 'odds_home' => 1.50, 'odds_draw' => 5.0, 'odds_away' => 9.0, 'snapshot_at' => '2026-08-20 16:25:00', 'reliable' => true]);
+        $this->fakeOdds([$this->event('ev-como', 'Como', 'Parma', [$this->bookmaker('pinnacle', '2026-09-14T11:59:20Z')])]);
+
+        app(CLVTrackerService::class)->snapshotOdds('2026-09-14');
+
+        $new = OddsMovement::where('snapshot_at', '>=', '2026-09-14')->sole();
+        $this->assertNull($new->move_home_pct);
+        $this->assertEqualsWithDelta(1.23, (float) $match->fresh()->odds_at_pred_home, 1e-9);
+
+        // Relevé suivant : variation contre le premier relevé du nouveau coup d'envoi
+        Carbon::setTestNow($this->now->copy()->addMinutes(30));
+        Http::swap(new \Illuminate\Http\Client\Factory());
+        $this->fakeOdds([$this->event('ev-como', 'Como', 'Parma', [$this->bookmaker('pinnacle', '2026-09-14T12:29:20Z', [1.25, 6.34, 13.61])])]);
+        app(CLVTrackerService::class)->snapshotOdds('2026-09-14');
+
+        $this->assertEqualsWithDelta(round((1.25 / 1.23 - 1) * 100, 2), (float) OddsMovement::orderByDesc('snapshot_at')->first()->move_home_pct, 0.01);
+    }
+
     public function test_command_fails_when_an_expected_match_has_no_snapshot(): void
     {
         $this->match();
