@@ -20,7 +20,8 @@ return new class extends Migration
             $table->id();
             $table->date('run_date');
             $table->enum('status', ['running', 'success', 'incomplete', 'failed'])->default('running');
-            $table->timestamp('started_at');
+            // Défaut explicite : indépendant d'explicit_defaults_for_timestamp (2026_09_27_000001)
+            $table->timestamp('started_at')->useCurrent();
             $table->timestamp('finished_at')->nullable();
             $table->json('steps')->nullable();      // commande → code de sortie, durée, exception
             $table->json('fetch_summary')->nullable(); // bilan FetchMatchDataJob (cotes, hors périmètre…)

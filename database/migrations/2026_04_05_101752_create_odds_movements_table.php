@@ -36,7 +36,8 @@ return new class extends Migration
             $table->boolean('sharp_alert')->default(false);
             $table->unsignedTinyInteger('sharp_score')->default(0); // 0-100
 
-            $table->timestamp('snapshot_at');
+            // Défaut explicite : indépendant d'explicit_defaults_for_timestamp (2026_09_27_000001)
+            $table->timestamp('snapshot_at')->useCurrent();
             $table->timestamps();
 
             $table->index(['match_id', 'snapshot_at']);

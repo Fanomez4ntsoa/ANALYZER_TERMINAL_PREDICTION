@@ -39,7 +39,8 @@ return new class extends Migration
             $table->timestamp('odds_taken_at')->nullable();
 
             // Horodatage du calcul
-            $table->timestamp('computed_at');
+            // Défaut explicite : indépendant d'explicit_defaults_for_timestamp (2026_09_27_000001)
+            $table->timestamp('computed_at')->useCurrent();
 
             $table->timestamps();
 
