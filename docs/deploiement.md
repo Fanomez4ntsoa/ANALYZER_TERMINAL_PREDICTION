@@ -165,6 +165,11 @@ Il enchaîne :
    (`NOW()` contre `UTC_TIMESTAMP()`), qui doit valoir 0 : mesuré **avant toute
    écriture en base**, `migrate --force` ne vient qu'après. Un serveur réglé comme le
    portable (EAT) arrête le script ici, base encore vide (vérifié le 26/09/2026) ;
+   puis **réglages du serveur** comparés au portable, lus sans rien modifier : version,
+   `explicit_defaults_for_timestamp` (1 sur le portable) et `sql_mode` de la session
+   Laravel. Un écart affiche `ATTENTION` et le script continue ; un mode non strict
+   l'arrête. Après `migrate`, **empreinte du schéma** comparée à celle du portable
+   (voir « Empreinte du schéma ») : au premier écart, arrêt avant tout import ;
 6. dossiers de `storage/` et `bootstrap/cache`, propriétaire `deploy` ;
 7. compte de l'interface : e-mail, puis mot de passe saisi **sans écho**, deux fois
    (`php artisan user:create`, relançable pour changer le mot de passe) ;
@@ -198,6 +203,8 @@ après ce point. Corriger, relancer.
 | `fichier n'appartenant pas à deploy` | Un fichier a été créé par un autre utilisateur (root) : `sudo chown -R deploy: storage bootstrap/cache` dans le dossier du projet |
 | Échec de `composer install` | Réseau ou version de PHP ; le message de composer nomme le paquet |
 | Échec de `migrate` | Le message nomme la migration ; base vide à ce stade : corriger et relancer |
+| `ATTENTION explicit_defaults_for_timestamp = 0` | Attendu sur ce VPS (MariaDB 10.6, réglage global, autre application) : ne pas le modifier. Les migrations en sont indépendantes ; l'empreinte du schéma le vérifie |
+| `référence de schéma absente` ou `schéma différent de celui du portable` | Voir « Empreinte du schéma » |
 
 ---
 
@@ -498,6 +505,44 @@ converties.
 
 ---
 
+## Empreinte du schéma
+
+`scripts/schema-fingerprint.sh` écrit la liste des migrations passées puis
+`SHOW CREATE TABLE` de chaque table (compteurs `AUTO_INCREMENT` retirés). Lecture
+seule. La référence, `deploy/schema-reference.txt`, est l'empreinte du portable,
+versionnée. `setup.sh` compare le VPS à elle après chaque `migrate` : **rien à lancer
+à la main**.
+
+Pourquoi : les mêmes migrations peuvent donner des structures différentes selon le
+serveur. Le 27/09/2026, avec `explicit_defaults_for_timestamp` à 0 sur le VPS, deux
+tables y avaient reçu un `ON UPDATE current_timestamp()` que le portable n'avait pas,
+sans aucune erreur (`docs/decisions.md`).
+
+**Après toute nouvelle migration** (portable, avant de pousser) :
+
+```bash
+php artisan migrate
+scripts/schema-fingerprint.sh > deploy/schema-reference.txt
+git add deploy/schema-reference.txt
+```
+
+Un test échoue tant que la référence ne couvre pas exactement les migrations du dépôt.
+
+**Si `setup.sh` s'arrête sur l'empreinte**, il affiche l'écart (`diff`) :
+
+- seules les lignes sous `# Migrations passées` diffèrent : référence périmée, la
+  régénérer sur le portable ;
+- une colonne ou une table diffère : la structure dépend du serveur. Ne rien importer,
+  corriger la migration (déclarer explicitement ce que le serveur complète de
+  lui-même), ajouter si besoin une migration d'alignement, relancer ;
+- une différence de pure forme entre MariaDB 10.6 et 10.11 serait visible de la même
+  manière : la constater, et ne la tolérer qu'après l'avoir comprise.
+
+Comparer une autre base à la main : `scripts/schema-fingerprint.sh --check
+deploy/schema-reference.txt`.
+
+---
+
 ## Mettre à jour le code (VPS)
 
 ```bash
@@ -506,7 +551,8 @@ git pull
 ./setup.sh
 ```
 
-`setup.sh` refait `composer install` et `migrate`, et vérifie le reste. Éviter la
+`setup.sh` refait `composer install` et `migrate`, compare le schéma au portable, et
+vérifie le reste. Éviter la
 fenêtre 10:00-10:30 UTC (passage quotidien). Jamais de `config:cache`, jamais de
 tests, jamais de `npm`.
 

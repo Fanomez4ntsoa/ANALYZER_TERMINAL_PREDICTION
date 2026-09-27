@@ -1539,3 +1539,48 @@ vérifient et s'arrêtent. Procédure : `docs/deploiement.md`.
 - **Quelle machine fait foi, d'un coup d'œil** : première ligne de `system:status`
   (`Collecte`) et en-tête de `log:report`. Lu dans `PIPELINE_ENABLED` de la machine
   qui répond.
+
+---
+
+## 2026-09-27 — Structure de la base indépendante du serveur MariaDB
+
+Sur le VPS, `migrate` échouait à la 27e migration (`predictions.computed_at`,
+« Invalid default value »). Cause : `explicit_defaults_for_timestamp` vaut 1 sur le
+portable (MariaDB 10.11) et 0 sur le VPS (10.6). Réglage global, non modifié : une
+autre application tourne sur ce serveur.
+
+- **L'erreur était le moindre mal.** À 0, une colonne `TIMESTAMP NOT NULL` sans défaut
+  reçoit en silence `DEFAULT current_timestamp() ON UPDATE current_timestamp()` si
+  c'est la première de sa table, un défaut `0000-00-00` refusé par le mode strict
+  sinon. Quatre colonnes passaient sans erreur avec un `ON UPDATE` :
+  `match_validations.validated_at`, `odds_movements.snapshot_at` (déjà créées sur le
+  VPS), `historical_matches.imported_at`, `pipeline_runs.started_at`. Cette dernière
+  aurait été réécrite avec l'heure de fin à chaque mise à jour du passage quotidien,
+  sans aucun message.
+- **`useCurrent()` sur les cinq colonnes** : `timestamp NOT NULL DEFAULT
+  current_timestamp()`, identique avec les deux réglages (simulé sur les deux valeurs
+  en session, tables temporaires). Écartés : nullable, qui perd la garantie `NOT NULL`
+  (choix fait pour `prediction_log`, qui reste tel quel) ; forcer le réglage en session
+  depuis Laravel, qui masque l'écart au lieu de rendre les migrations indépendantes, et
+  dont l'effet sur 10.6 n'est pas vérifiable d'ici. Aucun changement de comportement :
+  le code écrit toujours ces colonnes lui-même, le défaut ne sert jamais.
+- **Migrations de création corrigées, plus une migration d'alignement** (`change()`,
+  MariaDB seulement, `down()` vide pour ne jamais recréer l'`ON UPDATE`) : elle retire
+  l'`ON UPDATE` des deux tables déjà créées sur le VPS et ajoute le défaut sur le
+  portable. Le VPS reprend en l'état, sans vider la base : le `CREATE TABLE` échoué
+  n'a rien laissé.
+- **`sql_mode` : pas de seconde différence pour Laravel.** `NO_ZERO_IN_DATE` et
+  `NO_ZERO_DATE` absents du mode global des deux serveurs (identiques) viennent de
+  Laravel : `MariaDbConnector` impose à chaque connexion un `sql_mode` fixe dès que
+  `strict => true`. Les sessions hors Laravel (`mysql` pour l'import et la
+  restauration) reçoivent le leur de l'en-tête du dump. Reste une différence de
+  comportement liée au réglage : à 0, un `NULL` écrit dans un `TIMESTAMP NOT NULL`
+  devient l'heure courante au lieu d'une erreur. Le code n'en écrit pas.
+- **Les écarts de serveur se voient au premier contrôle.** `setup.sh` lit, avant
+  toute écriture, la version, `explicit_defaults_for_timestamp` et le `sql_mode` de
+  session, et prévient s'ils diffèrent du portable (arrêt si le mode n'est pas strict).
+  Puis, après `migrate`, il compare l'**empreinte du schéma** (`SHOW CREATE TABLE` de
+  chaque table, `scripts/schema-fingerprint.sh`) à celle du portable versionnée dans
+  `deploy/schema-reference.txt`, et s'arrête au premier écart. Une comparaison qu'il
+  faut penser à faire n'est pas faite : elle est dans le script. Un test échoue si la
+  référence ne couvre pas exactement les migrations du dépôt.

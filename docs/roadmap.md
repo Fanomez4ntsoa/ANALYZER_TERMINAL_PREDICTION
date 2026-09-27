@@ -477,6 +477,12 @@ fait plus que lire des copies. Procédure complète : `docs/deploiement.md`. Fai
 - `backtest:reference` : reproduit le run #1 à l'identique sur une base neuve, 9 min 22.
 - `system:status` et battement du planificateur.
 
+Correctif du 27/09/2026 (branche `fix/timestamps-explicit-defaults`) : `migrate`
+échouait sur le VPS (`explicit_defaults_for_timestamp` à 0, 1 sur le portable) et quatre
+colonnes y recevaient un `ON UPDATE current_timestamp()` silencieux. Défaut explicite sur
+les cinq `TIMESTAMP NOT NULL`, migration d'alignement, contrôle des réglages du serveur
+et empreinte du schéma comparée au portable dans `setup.sh` (`docs/decisions.md`).
+
 **À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
 7) se fait en une seule session ; son point de non-retour est la pose de la crontab.
 
