@@ -33,6 +33,7 @@ PROJECT_DIR="$(pwd)"
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok()   { printf '   ok  %s\n' "$*"; }
+warn() { printf '   \033[1;33mATTENTION\033[0m  %s\n' "$1"; shift; for l in "$@"; do printf '              %s\n' "$l"; done; }
 fail() { printf '\n\033[1;31mARRÊT : %s\033[0m\n' "$1" >&2; shift; for l in "$@"; do printf '       %s\n' "$l" >&2; done; exit 1; }
 
 # Valeur d'une clé de .env (dernière occurrence, guillemets retirés). Sert aux
@@ -153,6 +154,37 @@ if ! php artisan tinker --execute='DB::connection()->getPdo(); echo "connexion-o
 fi
 ok "connexion à « ${db} »"
 
+# Réglages du serveur qui changent la structure ou le comportement de la base, lus
+# (jamais modifiés) avant toute écriture, comparés au portable. Le 27/09/2026,
+# explicit_defaults_for_timestamp=0 ici contre 1 sur le portable n'a été vu qu'à la
+# 27e migration, après que deux tables eurent reçu un ON UPDATE silencieux.
+# sql_mode : celui de la SESSION de Laravel, seul à compter pour le projet ; Laravel
+# l'impose à chaque connexion (strict => true), quel que soit le réglage global.
+expected_mode="ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+srv_probe="$(php artisan tinker --execute='$r = DB::selectOne("SELECT VERSION() v, @@global.explicit_defaults_for_timestamp ge, @@session.explicit_defaults_for_timestamp se, @@session.sql_mode sm, @@global.sql_mode gm"); echo "srv=".$r->v."|".$r->ge."|".$r->se."|".$r->sm."|".$r->gm;' 2>/dev/null | grep -o 'srv=.*' | cut -d= -f2- || true)"
+IFS='|' read -r srv_version srv_edt_global srv_edt_session srv_mode_session srv_mode_global <<<"$srv_probe"
+[ -n "$srv_version" ] || fail "réglages du serveur MariaDB illisibles (version, explicit_defaults_for_timestamp, sql_mode)."
+ok "MariaDB ${srv_version}"
+if [ "$srv_edt_session" = "1" ]; then
+    ok "explicit_defaults_for_timestamp = 1, comme le portable"
+else
+    warn "explicit_defaults_for_timestamp = ${srv_edt_session} (global ${srv_edt_global}), 1 sur le portable. Réglage global non touché (autre application)." \
+        "Les migrations déclarent un défaut explicite sur chaque TIMESTAMP NOT NULL : même structure qu'avec 1." \
+        "Une future colonne TIMESTAMP NOT NULL sans défaut recevrait ici un ON UPDATE silencieux ou échouerait :" \
+        "l'empreinte de schéma, après migrate, arrête le script si la structure diffère du portable." \
+        "Écart de comportement restant : un NULL écrit dans un TIMESTAMP NOT NULL y devient l'heure courante au lieu d'une erreur."
+fi
+case ",${srv_mode_session}," in
+    *,STRICT_TRANS_TABLES,*) ;;
+    *) fail "sql_mode de session sans STRICT_TRANS_TABLES : « ${srv_mode_session} »." \
+        "Laravel l'impose normalement (strict => true, config/database.php). Vérifier DB_CONNECTION=mariadb et la configuration." ;;
+esac
+if [ "$srv_mode_session" = "$expected_mode" ]; then
+    ok "sql_mode de session identique au portable (global « ${srv_mode_global} », non touché)"
+else
+    warn "sql_mode de session « ${srv_mode_session} »," "attendu (portable) « ${expected_mode} »."
+fi
+
 # Fuseau de la session MariaDB de Laravel, mesuré AVANT toute écriture en base
 # (migrate vient après) : décalage effectif entre NOW() et UTC_TIMESTAMP(), quel
 # que soit le nom du fuseau. DB_TIMEZONE=+00:00 le fixe pour chaque connexion de
@@ -168,6 +200,19 @@ ok "session MariaDB en UTC, décalage 0 (session ${tz_session}, global ${tz_glob
 
 php artisan migrate --force
 ok "schéma à jour"
+
+# Empreinte du schéma comparée à celle du portable : une structure qui dépend du
+# serveur doit se voir ici, pas des semaines plus tard dans les données.
+[ -f deploy/schema-reference.txt ] || fail "référence de schéma absente : deploy/schema-reference.txt." \
+    "La produire sur le portable (après php artisan migrate) : scripts/schema-fingerprint.sh > deploy/schema-reference.txt, puis la versionner."
+if ! schema_diff="$(scripts/schema-fingerprint.sh --check deploy/schema-reference.txt 2>&1)"; then
+    printf '%s\n' "$schema_diff" >&2
+    fail "schéma différent de celui du portable (écart ci-dessus)." \
+        "Lignes « # Migrations » seules : référence périmée, la régénérer sur le portable." \
+        "Colonnes ou tables : structure dépendante du serveur ; ne pas importer de données avant correction." \
+        "Voir docs/deploiement.md, « Empreinte du schéma »."
+fi
+ok "schéma identique à la référence du portable (deploy/schema-reference.txt)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "6. Dossiers de stockage"

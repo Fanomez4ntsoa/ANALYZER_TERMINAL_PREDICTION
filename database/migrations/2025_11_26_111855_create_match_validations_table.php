@@ -18,7 +18,8 @@ return new class extends Migration
             $table->boolean('is_combo')->default(false);
             $table->integer('combo_index')->nullable();
             $table->boolean('validated')->default(false);
-            $table->timestamp('validated_at');
+            // Défaut explicite : indépendant d'explicit_defaults_for_timestamp (2026_09_27_000001)
+            $table->timestamp('validated_at')->useCurrent();
             $table->timestamps();
             
             // Index pour performance

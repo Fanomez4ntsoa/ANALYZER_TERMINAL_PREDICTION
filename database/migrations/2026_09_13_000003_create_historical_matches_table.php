@@ -35,7 +35,8 @@ return new class extends Migration
             }
 
             $table->string('source_file', 64);
-            $table->timestamp('imported_at');
+            // Défaut explicite : indépendant d'explicit_defaults_for_timestamp (2026_09_27_000001)
+            $table->timestamp('imported_at')->useCurrent();
             $table->timestamps();
 
             $table->unique(['season', 'div', 'match_date', 'home_team', 'away_team'], 'historical_matches_unique_fixture');

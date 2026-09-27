@@ -72,7 +72,9 @@ BTTS Non.
 - `user:create` : compte de l'interface, mot de passe sans écho.
 - `data:manifest [--compare=]`, `db:client-options` : transfert portable → VPS
   (`scripts/export-production.sh`, `scripts/import-production.sh`).
-- `setup.sh` : installation idempotente, vérifie sans rien installer.
+- `setup.sh` : installation idempotente, vérifie sans rien installer ; compare les
+  réglages du serveur et l'empreinte du schéma (`scripts/schema-fingerprint.sh`) au
+  portable (`deploy/schema-reference.txt`).
 - `DB_TIMEZONE=+00:00` (session MariaDB) sur le VPS et sur les copies du portable : les
   `TIMESTAMP` restent en UTC quel que soit le fuseau du serveur (docs/deploiement.md,
   « Heures et fuseaux »).

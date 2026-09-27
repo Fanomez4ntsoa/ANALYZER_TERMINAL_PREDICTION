@@ -1,0 +1,643 @@
+# Migrations passées
+0001_01_01_000000_create_users_table
+0001_01_01_000001_create_cache_table
+0001_01_01_000002_create_jobs_table
+2025_11_22_103443_create_matches_table
+2025_11_22_103533_create_sources_table
+2025_11_22_103710_create_recommendations_table
+2025_11_22_103737_create_combos_table
+2025_11_22_103756_create_advanced_data_table
+2025_11_26_111855_create_match_validations_table
+2025_12_06_061202_add_version_and_sources_to_matches
+2025_12_06_111821_update_combos_table_make_logic_nullable
+2025_12_10_083047_add_odds_columns_to_matches_table
+2025_12_11_040624_add_value_columns_to_recommendations_table
+2025_12_14_124954_add_enriched_recommendations_to_advanced_data_table
+2026_04_05_091742_add_api_columns_to_matches_table
+2026_04_05_101752_create_odds_movements_table
+2026_04_05_101759_add_clv_columns_to_matches_table
+2026_04_05_103051_create_referees_table
+2026_04_05_120251_fix_recommendations_nullable_columns
+2026_04_05_122613_create_backtest_tables
+2026_04_08_103033_create_ai_analysis_table
+2026_04_12_063427_create_daily_combos_table
+2026_04_20_174031_make_odds_nullable_on_matches
+2026_04_27_000001_add_alternate_totals_to_matches_table
+2026_04_27_120000_add_alt_goal_lines_to_matches_table
+2026_05_03_000001_add_match_analyst_output_to_ai_analysis
+2026_09_13_000001_create_predictions_table
+2026_09_13_000002_add_odds_fetched_at_to_matches_table
+2026_09_13_000003_create_historical_matches_table
+2026_09_13_000004_create_backtest_fd_tables
+2026_09_14_000001_add_post_kickoff_data_to_matches_table
+2026_09_14_000002_add_odds_bookmaker_to_matches_table
+2026_09_14_000003_add_bookmaker_to_odds_movements_table
+2026_09_14_000004_add_model_parameters_to_predictions_table
+2026_09_14_000005_create_pipeline_runs_table
+2026_09_14_000006_add_quote_time_and_reliability_to_odds_movements_table
+2026_09_15_000001_create_prediction_log_table
+2026_09_26_000001_add_api_status_and_void_reason
+2026_09_27_000001_align_timestamp_defaults
+
+# Table advanced_data
+CREATE TABLE `advanced_data` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `tactical_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tactical_data`)),
+  `sofascore_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`sofascore_data`)),
+  `footystats_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`footystats_data`)),
+  `fbref_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`fbref_data`)),
+  `context_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`context_data`)),
+  `dimensions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`dimensions`)),
+  `tactical_insights` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tactical_insights`)),
+  `original_recommendations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`original_recommendations`)),
+  `enriched_recommendations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`enriched_recommendations`)),
+  `detailed_explanation` text DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `advanced_data_match_id_unique` (`match_id`),
+  CONSTRAINT `advanced_data_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table ai_analysis
+CREATE TABLE `ai_analysis` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `value_output` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`value_output`)),
+  `risk_output` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`risk_output`)),
+  `market_output` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`market_output`)),
+  `narrative_output` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`narrative_output`)),
+  `match_analyst_output` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`match_analyst_output`)),
+  `final_decision` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`final_decision`)),
+  `ai_score` tinyint(3) unsigned DEFAULT NULL,
+  `ai_vs_real_result` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`ai_vs_real_result`)),
+  `total_input_tokens` int(10) unsigned NOT NULL DEFAULT 0,
+  `total_output_tokens` int(10) unsigned NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ai_analysis_match_id_unique` (`match_id`),
+  CONSTRAINT `ai_analysis_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table backtest_fd_predictions
+CREATE TABLE `backtest_fd_predictions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `run_id` bigint(20) unsigned NOT NULL,
+  `historical_match_id` bigint(20) unsigned NOT NULL,
+  `season` char(4) NOT NULL,
+  `div` varchar(4) NOT NULL,
+  `family` varchar(16) NOT NULL,
+  `market` varchar(24) NOT NULL,
+  `outcome` varchar(8) NOT NULL,
+  `model_probability` decimal(6,5) NOT NULL,
+  `input_open_fair` decimal(6,5) DEFAULT NULL,
+  `pinnacle_close_fair` decimal(6,5) DEFAULT NULL,
+  `observed` tinyint(1) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `backtest_fd_predictions_historical_match_id_foreign` (`historical_match_id`),
+  KEY `backtest_fd_predictions_run_id_family_market_index` (`run_id`,`family`,`market`),
+  KEY `backtest_fd_predictions_run_id_div_index` (`run_id`,`div`),
+  KEY `backtest_fd_predictions_run_id_season_index` (`run_id`,`season`),
+  CONSTRAINT `backtest_fd_predictions_historical_match_id_foreign` FOREIGN KEY (`historical_match_id`) REFERENCES `historical_matches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `backtest_fd_predictions_run_id_foreign` FOREIGN KEY (`run_id`) REFERENCES `backtest_fd_runs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table backtest_fd_runs
+CREATE TABLE `backtest_fd_runs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `label` varchar(60) DEFAULT NULL,
+  `sample` varchar(16) NOT NULL,
+  `input_bookmaker` varchar(8) NOT NULL,
+  `seasons` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`seasons`)),
+  `divisions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`divisions`)),
+  `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`config`)),
+  `matches_loaded` int(10) unsigned NOT NULL DEFAULT 0,
+  `matches_evaluated` int(10) unsigned NOT NULL DEFAULT 0,
+  `matches_by_season` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`matches_by_season`)),
+  `exclusions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`exclusions`)),
+  `results` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`results`)),
+  `warnings` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`warnings`)),
+  `export_path` varchar(255) DEFAULT NULL,
+  `status` enum('running','completed','failed') NOT NULL DEFAULT 'running',
+  `started_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table backtest_predictions
+CREATE TABLE `backtest_predictions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `run_id` bigint(20) unsigned NOT NULL,
+  `api_fixture_id` bigint(20) unsigned NOT NULL,
+  `home_team` varchar(255) NOT NULL,
+  `away_team` varchar(255) NOT NULL,
+  `league` varchar(255) NOT NULL,
+  `league_id` int(10) unsigned NOT NULL,
+  `match_date` datetime NOT NULL,
+  `score_home` tinyint(3) unsigned NOT NULL,
+  `score_away` tinyint(3) unsigned NOT NULL,
+  `market` varchar(255) NOT NULL,
+  `pick` varchar(255) NOT NULL,
+  `confidence` tinyint(3) unsigned NOT NULL,
+  `odds` decimal(6,3) DEFAULT NULL,
+  `probability` decimal(5,2) NOT NULL,
+  `won` tinyint(1) NOT NULL,
+  `profit` decimal(8,2) NOT NULL DEFAULT 0.00,
+  `bankroll_after` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `backtest_predictions_run_id_market_index` (`run_id`,`market`),
+  KEY `backtest_predictions_run_id_league_id_index` (`run_id`,`league_id`),
+  CONSTRAINT `backtest_predictions_run_id_foreign` FOREIGN KEY (`run_id`) REFERENCES `backtest_runs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table backtest_runs
+CREATE TABLE `backtest_runs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`config`)),
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `staking_strategy` varchar(255) NOT NULL,
+  `bankroll` decimal(10,2) NOT NULL DEFAULT 1000.00,
+  `unit_stake` decimal(8,2) NOT NULL DEFAULT 10.00,
+  `total_matches` int(10) unsigned NOT NULL DEFAULT 0,
+  `total_predictions` int(10) unsigned NOT NULL DEFAULT 0,
+  `wins` int(10) unsigned NOT NULL DEFAULT 0,
+  `losses` int(10) unsigned NOT NULL DEFAULT 0,
+  `win_rate` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `roi` decimal(8,2) NOT NULL DEFAULT 0.00,
+  `yield_pct` decimal(8,2) NOT NULL DEFAULT 0.00,
+  `max_drawdown` decimal(8,2) NOT NULL DEFAULT 0.00,
+  `brier_score` decimal(6,4) NOT NULL DEFAULT 0.0000,
+  `final_bankroll` decimal(10,2) NOT NULL DEFAULT 1000.00,
+  `by_league` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`by_league`)),
+  `by_market` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`by_market`)),
+  `by_confidence` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`by_confidence`)),
+  `by_consensus` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`by_consensus`)),
+  `by_odds_range` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`by_odds_range`)),
+  `calibration` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`calibration`)),
+  `bankroll_curve` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`bankroll_curve`)),
+  `status` enum('running','completed','failed') NOT NULL DEFAULT 'running',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table cache
+CREATE TABLE `cache` (
+  `key` varchar(255) NOT NULL,
+  `value` mediumtext NOT NULL,
+  `expiration` int(11) NOT NULL,
+  PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table cache_locks
+CREATE TABLE `cache_locks` (
+  `key` varchar(255) NOT NULL,
+  `owner` varchar(255) NOT NULL,
+  `expiration` int(11) NOT NULL,
+  PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table combos
+CREATE TABLE `combos` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `bets` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`bets`)),
+  `total_odds` decimal(8,2) NOT NULL,
+  `confidence` int(11) NOT NULL,
+  `priority` enum('MAX','HIGH','MEDIUM') NOT NULL,
+  `logic` text DEFAULT NULL,
+  `validated` tinyint(1) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `combos_match_id_foreign` (`match_id`),
+  CONSTRAINT `combos_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table daily_combos
+CREATE TABLE `daily_combos` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `date` date NOT NULL,
+  `rank` tinyint(3) unsigned NOT NULL,
+  `picks` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`picks`)),
+  `match_count` tinyint(3) unsigned NOT NULL,
+  `total_odds` decimal(6,3) NOT NULL,
+  `combo_score` decimal(5,1) NOT NULL,
+  `avg_confidence` decimal(5,1) NOT NULL,
+  `logic` text DEFAULT NULL,
+  `won` tinyint(1) DEFAULT NULL,
+  `profit` decimal(8,2) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `daily_combos_date_rank_index` (`date`,`rank`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table failed_jobs
+CREATE TABLE `failed_jobs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(255) NOT NULL,
+  `connection` text NOT NULL,
+  `queue` text NOT NULL,
+  `payload` longtext NOT NULL,
+  `exception` longtext NOT NULL,
+  `failed_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `failed_jobs_uuid_unique` (`uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table historical_matches
+CREATE TABLE `historical_matches` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `season` char(4) NOT NULL,
+  `div` varchar(4) NOT NULL,
+  `league_id` int(10) unsigned DEFAULT NULL,
+  `match_date` date NOT NULL,
+  `kickoff_time` varchar(5) DEFAULT NULL,
+  `home_team` varchar(255) NOT NULL,
+  `away_team` varchar(255) NOT NULL,
+  `fthg` tinyint(3) unsigned DEFAULT NULL,
+  `ftag` tinyint(3) unsigned DEFAULT NULL,
+  `ftr` char(1) DEFAULT NULL,
+  `b365_open_home` decimal(7,3) DEFAULT NULL,
+  `b365_open_draw` decimal(7,3) DEFAULT NULL,
+  `b365_open_away` decimal(7,3) DEFAULT NULL,
+  `b365_open_over25` decimal(7,3) DEFAULT NULL,
+  `b365_open_under25` decimal(7,3) DEFAULT NULL,
+  `b365_close_home` decimal(7,3) DEFAULT NULL,
+  `b365_close_draw` decimal(7,3) DEFAULT NULL,
+  `b365_close_away` decimal(7,3) DEFAULT NULL,
+  `b365_close_over25` decimal(7,3) DEFAULT NULL,
+  `b365_close_under25` decimal(7,3) DEFAULT NULL,
+  `ps_open_home` decimal(7,3) DEFAULT NULL,
+  `ps_open_draw` decimal(7,3) DEFAULT NULL,
+  `ps_open_away` decimal(7,3) DEFAULT NULL,
+  `ps_open_over25` decimal(7,3) DEFAULT NULL,
+  `ps_open_under25` decimal(7,3) DEFAULT NULL,
+  `ps_close_home` decimal(7,3) DEFAULT NULL,
+  `ps_close_draw` decimal(7,3) DEFAULT NULL,
+  `ps_close_away` decimal(7,3) DEFAULT NULL,
+  `ps_close_over25` decimal(7,3) DEFAULT NULL,
+  `ps_close_under25` decimal(7,3) DEFAULT NULL,
+  `source_file` varchar(64) NOT NULL,
+  `imported_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `historical_matches_unique_fixture` (`season`,`div`,`match_date`,`home_team`,`away_team`),
+  KEY `historical_matches_season_div_index` (`season`,`div`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table job_batches
+CREATE TABLE `job_batches` (
+  `id` varchar(255) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `total_jobs` int(11) NOT NULL,
+  `pending_jobs` int(11) NOT NULL,
+  `failed_jobs` int(11) NOT NULL,
+  `failed_job_ids` longtext NOT NULL,
+  `options` mediumtext DEFAULT NULL,
+  `cancelled_at` int(11) DEFAULT NULL,
+  `created_at` int(11) NOT NULL,
+  `finished_at` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table jobs
+CREATE TABLE `jobs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `queue` varchar(255) NOT NULL,
+  `payload` longtext NOT NULL,
+  `attempts` tinyint(3) unsigned NOT NULL,
+  `reserved_at` int(10) unsigned DEFAULT NULL,
+  `available_at` int(10) unsigned NOT NULL,
+  `created_at` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `jobs_queue_index` (`queue`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table match_validations
+CREATE TABLE `match_validations` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `recommendation_id` bigint(20) unsigned DEFAULT NULL,
+  `is_combo` tinyint(1) NOT NULL DEFAULT 0,
+  `combo_index` int(11) DEFAULT NULL,
+  `validated` tinyint(1) NOT NULL DEFAULT 0,
+  `validated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `match_validations_recommendation_id_foreign` (`recommendation_id`),
+  KEY `match_validations_match_id_recommendation_id_index` (`match_id`,`recommendation_id`),
+  KEY `match_validations_match_id_is_combo_combo_index_index` (`match_id`,`is_combo`,`combo_index`),
+  CONSTRAINT `match_validations_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `match_validations_recommendation_id_foreign` FOREIGN KEY (`recommendation_id`) REFERENCES `recommendations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table matches
+CREATE TABLE `matches` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `api_football_id` bigint(20) unsigned DEFAULT NULL,
+  `odds_api_event_id` varchar(255) DEFAULT NULL,
+  `odds_fetched_at` timestamp NULL DEFAULT NULL,
+  `odds_bookmaker` varchar(40) DEFAULT NULL,
+  `react_id` varchar(36) DEFAULT NULL,
+  `version` varchar(10) NOT NULL DEFAULT '2.0',
+  `home_team` varchar(255) NOT NULL,
+  `home_team_id` int(10) unsigned DEFAULT NULL,
+  `away_team` varchar(255) NOT NULL,
+  `away_team_id` int(10) unsigned DEFAULT NULL,
+  `match_date` datetime NOT NULL,
+  `competition` varchar(255) NOT NULL,
+  `league_id` int(10) unsigned DEFAULT NULL,
+  `season` smallint(5) unsigned DEFAULT NULL,
+  `data_source` enum('manual','api') NOT NULL DEFAULT 'manual',
+  `odds_home` decimal(6,3) DEFAULT NULL,
+  `odds_draw` decimal(6,3) DEFAULT NULL,
+  `odds_away` decimal(6,3) DEFAULT NULL,
+  `odds_over_2_5` decimal(6,3) DEFAULT NULL,
+  `odds_under_2_5` decimal(6,3) DEFAULT NULL,
+  `odds_over_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_under_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_over_3_5` decimal(6,3) DEFAULT NULL,
+  `odds_under_3_5` decimal(6,3) DEFAULT NULL,
+  `odds_over_4_5` decimal(6,3) DEFAULT NULL,
+  `odds_under_4_5` decimal(6,3) DEFAULT NULL,
+  `odds_over_2_0` decimal(6,3) DEFAULT NULL,
+  `odds_under_2_0` decimal(6,3) DEFAULT NULL,
+  `odds_over_2_25` decimal(6,3) DEFAULT NULL,
+  `odds_under_2_25` decimal(6,3) DEFAULT NULL,
+  `odds_btts_yes` decimal(6,3) DEFAULT NULL,
+  `odds_btts_no` decimal(6,3) DEFAULT NULL,
+  `odds_dc_1x` decimal(6,3) DEFAULT NULL,
+  `odds_dc_12` decimal(6,3) DEFAULT NULL,
+  `odds_dc_x2` decimal(6,3) DEFAULT NULL,
+  `odds_home_over_0_5` decimal(6,3) DEFAULT NULL,
+  `odds_home_under_0_5` decimal(6,3) DEFAULT NULL,
+  `odds_home_over_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_home_under_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_away_over_0_5` decimal(6,3) DEFAULT NULL,
+  `odds_away_under_0_5` decimal(6,3) DEFAULT NULL,
+  `odds_away_over_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_away_under_1_5` decimal(6,3) DEFAULT NULL,
+  `odds_at_pred_home` decimal(6,3) DEFAULT NULL,
+  `odds_at_pred_draw` decimal(6,3) DEFAULT NULL,
+  `odds_at_pred_away` decimal(6,3) DEFAULT NULL,
+  `odds_at_pred_over` decimal(6,3) DEFAULT NULL,
+  `odds_closing_home` decimal(6,3) DEFAULT NULL,
+  `odds_closing_draw` decimal(6,3) DEFAULT NULL,
+  `odds_closing_away` decimal(6,3) DEFAULT NULL,
+  `odds_closing_over` decimal(6,3) DEFAULT NULL,
+  `predicted_at` timestamp NULL DEFAULT NULL,
+  `score_home` int(11) DEFAULT NULL,
+  `score_away` int(11) DEFAULT NULL,
+  `completed` tinyint(1) NOT NULL DEFAULT 0,
+  `api_status` varchar(8) DEFAULT NULL,
+  `post_kickoff_data` tinyint(1) NOT NULL DEFAULT 0,
+  `global_confidence` int(11) DEFAULT NULL,
+  `context` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`context`)),
+  `sources_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`sources_data`)),
+  `layer1_score` int(11) DEFAULT NULL,
+  `layer2_score` int(11) DEFAULT NULL,
+  `convergence` enum('high','medium','low') DEFAULT NULL,
+  `validated` tinyint(1) NOT NULL DEFAULT 0,
+  `validated_at` timestamp NULL DEFAULT NULL,
+  `enriched_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `matches_api_football_id_unique` (`api_football_id`),
+  KEY `matches_match_date_data_source_index` (`match_date`,`data_source`),
+  KEY `matches_league_id_index` (`league_id`),
+  KEY `matches_post_kickoff_data_index` (`post_kickoff_data`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table migrations
+CREATE TABLE `migrations` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `migration` varchar(255) NOT NULL,
+  `batch` int(11) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table odds_movements
+CREATE TABLE `odds_movements` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `bookmaker` varchar(40) DEFAULT NULL,
+  `odds_home` decimal(6,3) DEFAULT NULL,
+  `odds_draw` decimal(6,3) DEFAULT NULL,
+  `odds_away` decimal(6,3) DEFAULT NULL,
+  `odds_over_2_5` decimal(6,3) DEFAULT NULL,
+  `odds_under_2_5` decimal(6,3) DEFAULT NULL,
+  `bookmaker_count` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `move_home_pct` decimal(6,2) DEFAULT NULL,
+  `move_draw_pct` decimal(6,2) DEFAULT NULL,
+  `move_away_pct` decimal(6,2) DEFAULT NULL,
+  `move_over_pct` decimal(6,2) DEFAULT NULL,
+  `sharp_alert` tinyint(1) NOT NULL DEFAULT 0,
+  `sharp_score` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `snapshot_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `quoted_at` timestamp NULL DEFAULT NULL,
+  `reliable` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `odds_movements_match_id_snapshot_at_index` (`match_id`,`snapshot_at`),
+  KEY `odds_movements_match_id_reliable_snapshot_at_index` (`match_id`,`reliable`,`snapshot_at`),
+  CONSTRAINT `odds_movements_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table password_reset_tokens
+CREATE TABLE `password_reset_tokens` (
+  `email` varchar(255) NOT NULL,
+  `token` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table pipeline_runs
+CREATE TABLE `pipeline_runs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `run_date` date NOT NULL,
+  `status` enum('running','success','incomplete','failed') NOT NULL DEFAULT 'running',
+  `started_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `steps` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`steps`)),
+  `fetch_summary` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`fetch_summary`)),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `pipeline_runs_status_finished_at_index` (`status`,`finished_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table prediction_log
+CREATE TABLE `prediction_log` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `league_id` int(10) unsigned DEFAULT NULL,
+  `home_team` varchar(255) NOT NULL,
+  `away_team` varchar(255) NOT NULL,
+  `kickoff_at` timestamp NULL DEFAULT NULL,
+  `trigger` varchar(16) NOT NULL,
+  `market` varchar(32) NOT NULL,
+  `outcome` varchar(16) NOT NULL,
+  `model_probability` decimal(6,5) NOT NULL,
+  `full_model_probability` decimal(6,5) DEFAULT NULL,
+  `full_model_signals` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`full_model_signals`)),
+  `model_mode` varchar(16) NOT NULL,
+  `lambda_home` decimal(6,3) NOT NULL,
+  `lambda_away` decimal(6,3) NOT NULL,
+  `rho` decimal(7,5) DEFAULT NULL,
+  `odds` decimal(7,3) NOT NULL,
+  `bookmaker` varchar(64) NOT NULL,
+  `fair_probability` decimal(6,5) NOT NULL,
+  `odds_taken_at` timestamp NULL DEFAULT NULL,
+  `computed_at` timestamp NULL DEFAULT NULL,
+  `score_home` tinyint(3) unsigned DEFAULT NULL,
+  `score_away` tinyint(3) unsigned DEFAULT NULL,
+  `outcome_occurred` tinyint(1) DEFAULT NULL,
+  `closing_bookmaker` varchar(40) DEFAULT NULL,
+  `closing_odds` decimal(7,3) DEFAULT NULL,
+  `closing_fair_probability` decimal(6,5) DEFAULT NULL,
+  `closing_quoted_at` timestamp NULL DEFAULT NULL,
+  `closing_odds_movement_id` bigint(20) unsigned DEFAULT NULL,
+  `closing_edge` decimal(8,5) DEFAULT NULL,
+  `void_reason` varchar(24) DEFAULT NULL,
+  `settled_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `prediction_log_closing_odds_movement_id_foreign` (`closing_odds_movement_id`),
+  KEY `prediction_log_match_id_market_outcome_id_index` (`match_id`,`market`,`outcome`,`id`),
+  KEY `prediction_log_trigger_match_id_computed_at_index` (`trigger`,`match_id`,`computed_at`),
+  KEY `prediction_log_kickoff_at_index` (`kickoff_at`),
+  KEY `prediction_log_outcome_occurred_index` (`outcome_occurred`),
+  CONSTRAINT `prediction_log_closing_odds_movement_id_foreign` FOREIGN KEY (`closing_odds_movement_id`) REFERENCES `odds_movements` (`id`),
+  CONSTRAINT `prediction_log_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table predictions
+CREATE TABLE `predictions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `market` varchar(32) NOT NULL,
+  `outcome` varchar(16) NOT NULL,
+  `model_probability` decimal(6,5) NOT NULL,
+  `model_mode` varchar(16) DEFAULT NULL,
+  `lambda_home` decimal(6,3) DEFAULT NULL,
+  `lambda_away` decimal(6,3) DEFAULT NULL,
+  `rho` decimal(7,5) DEFAULT NULL,
+  `full_model_probability` decimal(6,5) DEFAULT NULL,
+  `full_model_signals` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`full_model_signals`)),
+  `odds` decimal(7,3) DEFAULT NULL,
+  `implied_probability` decimal(6,5) DEFAULT NULL,
+  `fair_probability` decimal(6,5) DEFAULT NULL,
+  `edge` decimal(7,5) DEFAULT NULL,
+  `bookmaker` varchar(64) DEFAULT NULL,
+  `odds_taken_at` timestamp NULL DEFAULT NULL,
+  `computed_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `predictions_match_id_market_outcome_unique` (`match_id`,`market`,`outcome`),
+  KEY `predictions_market_outcome_index` (`market`,`outcome`),
+  CONSTRAINT `predictions_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table recommendations
+CREATE TABLE `recommendations` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `market` varchar(255) NOT NULL,
+  `bet` varchar(255) NOT NULL,
+  `confidence` int(11) NOT NULL,
+  `confidence_layer1` int(11) DEFAULT NULL,
+  `score` int(11) NOT NULL,
+  `level` tinyint(4) NOT NULL,
+  `odds` decimal(6,2) DEFAULT NULL,
+  `consensus_type` enum('TOTAL','MAJORITÉ','CONFLIT') NOT NULL,
+  `consensus_agreement` tinyint(4) NOT NULL,
+  `predictions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`predictions`)),
+  `special_rule` varchar(255) DEFAULT NULL,
+  `special_rule_reason` text DEFAULT NULL,
+  `logic` text DEFAULT NULL,
+  `warnings` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`warnings`)),
+  `value_analysis` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`value_analysis`)),
+  `value_verdict` varchar(20) DEFAULT NULL,
+  `value_message` text DEFAULT NULL,
+  `value_warning` text DEFAULT NULL,
+  `value_bonus` decimal(5,2) DEFAULT NULL,
+  `coherent` tinyint(1) NOT NULL DEFAULT 1,
+  `validated` tinyint(1) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `recommendations_match_id_foreign` (`match_id`),
+  CONSTRAINT `recommendations_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table referees
+CREATE TABLE `referees` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `api_football_id` bigint(20) unsigned DEFAULT NULL,
+  `name` varchar(255) NOT NULL,
+  `country` varchar(255) DEFAULT NULL,
+  `games_officiated` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `yellow_per_game` decimal(4,2) NOT NULL DEFAULT 0.00,
+  `red_per_game` decimal(4,2) NOT NULL DEFAULT 0.00,
+  `penalties_per_game` decimal(4,2) NOT NULL DEFAULT 0.00,
+  `fouls_per_game` decimal(4,2) NOT NULL DEFAULT 0.00,
+  `style` enum('strict','moderate','lenient') NOT NULL DEFAULT 'moderate',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `referees_api_football_id_unique` (`api_football_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table sessions
+CREATE TABLE `sessions` (
+  `id` varchar(255) NOT NULL,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` text DEFAULT NULL,
+  `payload` longtext NOT NULL,
+  `last_activity` int(11) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sessions_user_id_index` (`user_id`),
+  KEY `sessions_last_activity_index` (`last_activity`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table sources
+CREATE TABLE `sources` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `match_id` bigint(20) unsigned NOT NULL,
+  `source_type` enum('A','B','C') NOT NULL,
+  `predictions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`predictions`)),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `sources_match_id_source_type_unique` (`match_id`,`source_type`),
+  CONSTRAINT `sources_match_id_foreign` FOREIGN KEY (`match_id`) REFERENCES `matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
+# Table users
+CREATE TABLE `users` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `email_verified_at` timestamp NULL DEFAULT NULL,
+  `password` varchar(255) NOT NULL,
+  `remember_token` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `users_email_unique` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
