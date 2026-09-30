@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\FetchMatchDataJob;
 use App\Services\Api\ApiFootballException;
 use App\Services\Api\ApiFootballService;
 use Illuminate\Console\Command;
@@ -9,10 +10,11 @@ use Illuminate\Console\Command;
 class TestApiFootball extends Command
 {
     protected $signature = 'api-football:test
-                            {--fixtures : Tester les matchs à venir (Ligue 1)}
+                            {--fixtures : Tester les matchs à venir (Ligue 1, aujourd\'hui et demain)}
                             {--status : Vérifier le quota API}
                             {--fixture-id= : Récupérer les données facultatives d\'un match (prédictions, blessures)}
-                            {--date= : Récupérer les matchs d\'une date (YYYY-MM-DD)}
+                            {--date= : Récupérer les matchs d\'une date (YYYY-MM-DD), filtrés comme le pipeline}
+                            {--all : Avec --date, ne pas filtrer par créneau horaire (comme pipeline:run-sync --all)}
                             {--search-team= : Rechercher une équipe par nom}';
 
     protected $description = 'Tester la connexion à API-Football et vérifier les endpoints';
@@ -88,17 +90,27 @@ class TestApiFootball extends Command
             );
         }
 
+        // Le corps de /status retarde : quota retenu par le pipeline, source par source
+        $usage = $api->getDailyUsage();
+        $this->newLine();
+        $this->table(['Quota du jour', 'Requêtes consommées'], [
+            ['/status (corps)', $usage['status_current']],
+            ['En-tête x-ratelimit-requests-remaining', $usage['header_current'] ?? 'absent'],
+            ['Compteur local de ce serveur', $usage['local_current']],
+            ['Retenu (le plus pessimiste)', "{$usage['current']} / {$usage['limit']}, {$usage['remaining']} restantes"],
+        ]);
+
         return self::SUCCESS;
     }
 
     private function testFixtures(ApiFootballService $api): int
     {
-        $this->info('Récupération des 5 prochains matchs de Ligue 1 (ID: 61)...');
+        $this->info('Matchs à venir de Ligue 1 (ID: 61), aujourd\'hui et demain (2 requêtes)...');
 
-        $fixtures = $api->getUpcomingFixtures(61, next: 5);
+        $fixtures = $api->getUpcomingFixtures(61);
 
-        if (!$fixtures || empty($fixtures)) {
-            $this->warn('Aucun match trouvé. La saison est peut-être terminée.');
+        if (empty($fixtures)) {
+            $this->warn('Aucun match de Ligue 1 à venir aujourd\'hui ni demain.');
             return self::SUCCESS;
         }
 
@@ -146,22 +158,24 @@ class TestApiFootball extends Command
 
     private function testByDate(ApiFootballService $api, string $date): int
     {
-        $this->info("Matchs du {$date} (toutes ligues suivies)...");
+        $this->info("Matchs du {$date}, filtrage du pipeline" . ($this->option('all') ? ' (--all : sans créneau horaire)' : '') . '...');
 
         $fixtures = $api->getFixturesByDate($date);
 
-        if (!$fixtures || empty($fixtures)) {
+        if (empty($fixtures)) {
             $this->warn("Aucun match trouvé pour le {$date}.");
             return self::SUCCESS;
         }
 
-        $trackedLeagues = config('api-football.leagues');
-        $filtered = collect($fixtures)->filter(
-            fn($f) => in_array($f['league']['id'], $trackedLeagues)
-        );
+        $selection = FetchMatchDataJob::selectFixtures($fixtures, null, (bool) $this->option('all'));
+        $filtered = $selection['kept'];
+        $this->line(count($fixtures) . ' match(s) renvoyé(s) par l\'API, ' . count($filtered) . ' gardé(s) par le pipeline.');
+        $this->reportIgnored('Ligues suivies mais désactivées (api-football.inactive_leagues)', $selection['inactive']);
+        $this->reportIgnored('Ligues suivies, matchs hors créneau horaire (pipeline.match_start_hour/match_end_hour)', $selection['out_of_hours']);
+        $this->reportIgnored('Ligues non suivies (api-football.leagues)', $selection['untracked']);
 
-        if ($filtered->isEmpty()) {
-            $this->warn("Aucun match des ligues suivies pour le {$date}. ({$fixtures[0]['league']['name']} etc. ignorées)");
+        if (empty($filtered)) {
+            $this->warn("Aucun match gardé par le pipeline pour le {$date}.");
             return self::SUCCESS;
         }
 
@@ -177,9 +191,33 @@ class TestApiFootball extends Command
         }
 
         $this->table(['ID', 'Ligue', 'Domicile', 'Extérieur', 'Statut'], $rows);
-        $this->info(count($rows) . " match(s) trouvé(s) dans les ligues suivies.");
+        $this->info(count($rows) . " match(s) gardé(s) par le pipeline.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Toutes les ligues écartées pour un motif, avec le nombre de matchs de chacune.
+     */
+    private function reportIgnored(string $reason, array $fixtures): void
+    {
+        if (empty($fixtures)) {
+            return;
+        }
+
+        $leagues = [];
+        foreach ($fixtures as $f) {
+            $id = $f['league']['id'] ?? 0;
+            $leagues[$id] ??= ['name' => ($f['league']['name'] ?? '?') . ' (' . ($f['league']['country'] ?? '?') . ')', 'count' => 0];
+            $leagues[$id]['count']++;
+        }
+        ksort($leagues);
+
+        $this->newLine();
+        $this->line("{$reason} : " . count($leagues) . ' ligue(s), ' . count($fixtures) . ' match(s)');
+        foreach ($leagues as $id => $league) {
+            $this->line(sprintf('  %5d  %s × %d', $id, $league['name'], $league['count']));
+        }
     }
 
     private function testSearchTeam(ApiFootballService $api, string $name): int

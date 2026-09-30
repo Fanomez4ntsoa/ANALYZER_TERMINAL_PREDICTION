@@ -64,12 +64,7 @@ class FetchMatchDataJob implements ShouldQueue
     public function handle(ApiFootballService $apiFootball, MatchEnricherService $enricher): void
     {
         $date = $this->date ?? now()->format('Y-m-d');
-        $trackedLeagues = $this->leagueIds ?? config('api-football.leagues');
         $log = Log::channel('pipeline');
-
-        // Exclure les ligues temporairement desactivees (debut de saison, etc.)
-        $inactiveLeagues = config('api-football.inactive_leagues', []);
-        $trackedLeagues = array_values(array_diff($trackedLeagues, $inactiveLeagues));
 
         $summary = [
             'date' => $date,
@@ -103,22 +98,7 @@ class FetchMatchDataJob implements ShouldQueue
         // 1. Matchs de la date (1 requête, en cache 1 h). Un échec ici arrête le job.
         $fixtures = $apiFootball->getFixturesByDate($date) ?? [];
 
-        $trackedFixtures = array_filter($fixtures, fn ($fixture) => in_array($fixture['league']['id'] ?? 0, $trackedLeagues));
-
-        // Filtrer par créneau horaire (sauf si --all)
-        if (!$this->allHours) {
-            $startHour = (int) config('pipeline.match_start_hour');
-            $endHour = (int) config('pipeline.match_end_hour');
-
-            if ($startHour > 0 || $endHour < 23) {
-                $trackedFixtures = array_filter($trackedFixtures, function ($fixture) use ($startHour, $endHour) {
-                    $matchTime = $fixture['fixture']['date'] ?? '';
-                    if (empty($matchTime)) return true;
-                    $hour = (int) \Carbon\Carbon::parse($matchTime)->format('H');
-                    return $hour >= $startHour && $hour <= $endHour;
-                });
-            }
-        }
+        $trackedFixtures = self::selectFixtures($fixtures, $this->leagueIds, $this->allHours)['kept'];
 
         // 2. Créer/mettre à jour les matchs de toutes les ligues suivies (aucune requête).
         //    Cotes et facultatif : périmètre api-football.odds_leagues seulement.
@@ -406,6 +386,48 @@ class FetchMatchDataJob implements ShouldQueue
                 'stop' => $stop,
                 'matches' => $result['deferred'],
             ]);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Filtrage de la réponse /fixtures?date= : ligues suivies moins les ligues
+     * désactivées (api-football.inactive_leagues), puis créneau horaire UTC
+     * (pipeline.match_start_hour à match_end_hour, sauf $allHours). Seule
+     * définition du filtrage, partagée par le pipeline et api-football:test --date.
+     *
+     * @param array|null $leagueIds  Ligues à garder. Null = api-football.leagues.
+     * @return array{kept: array, inactive: array, untracked: array, out_of_hours: array}
+     *         Les matchs gardés, puis les matchs écartés par motif.
+     */
+    public static function selectFixtures(array $fixtures, ?array $leagueIds = null, bool $allHours = false): array
+    {
+        $trackedLeagues = $leagueIds ?? config('api-football.leagues');
+        $inactiveLeagues = config('api-football.inactive_leagues', []);
+        $startHour = (int) config('pipeline.match_start_hour');
+        $endHour = (int) config('pipeline.match_end_hour');
+        $filterHours = !$allHours && ($startHour > 0 || $endHour < 23);
+
+        $result = ['kept' => [], 'inactive' => [], 'untracked' => [], 'out_of_hours' => []];
+        foreach ($fixtures as $fixture) {
+            $leagueId = $fixture['league']['id'] ?? 0;
+            if (!in_array($leagueId, $trackedLeagues)) {
+                $result['untracked'][] = $fixture;
+                continue;
+            }
+            if (in_array($leagueId, $inactiveLeagues)) {
+                $result['inactive'][] = $fixture;
+                continue;
+            }
+            if ($filterHours && !empty($fixture['fixture']['date'])) {
+                $hour = (int) Carbon::parse($fixture['fixture']['date'])->format('H');
+                if ($hour < $startHour || $hour > $endHour) {
+                    $result['out_of_hours'][] = $fixture;
+                    continue;
+                }
+            }
+            $result['kept'][] = $fixture;
         }
 
         return $result;
