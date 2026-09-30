@@ -5,9 +5,6 @@ return [
     'key' => env('API_FOOTBALL_KEY'),
     'base_url' => env('API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io'),
 
-    // Saison par défaut (auto-détectée si non définie)
-    'default_season' => env('API_FOOTBALL_SEASON', (int) date('Y')),
-
     // Ligues suivies — IDs API-Football
     'leagues' => [
         // Top 5 européens
@@ -37,14 +34,11 @@ return [
         271,  // Super Liga (Serbie) — pas de cotes auto via Odds API
         106,  // Ekstraklasa (Pologne)
         197,  // Super League (Grèce)
-        113,  // Allsvenskan (Suède) — INACTIVE jusqu'en aout 2026 (debut saison)
-        119,  // Superligaen (Danemark) — INACTIVE jusqu'en aout 2026 (debut saison)
-        103,  // Eliteserien (Norvège) — INACTIVE jusqu'en aout 2026 (debut saison)
+        113,  // Allsvenskan (Suède)
+        119,  // Superligaen (Danemark)
+        103,  // Eliteserien (Norvège)
     ],
 
-    // Ligues temporairement desactivees (pas assez de journees jouees < 10)
-    // Filtrees du pipeline mais gardees en config pour reactivation simple.
-    // A reactiver en aout 2026 quand la saison sera bien lancee.
     // Périmètre du relevé des cotes (id API-Football), sous-ensemble de `leagues`.
     // Top 5 par défaut : Premier League 39 (E0), Bundesliga 78 (D1), Serie A 135 (I1),
     // La Liga 140 (SP1), Ligue 1 61 (F1). Les autres ligues suivies gardent l'import
@@ -53,11 +47,11 @@ return [
     // docs/decisions.md, 14/09/2026).
     'odds_leagues' => array_map('intval', explode(',', env('API_FOOTBALL_ODDS_LEAGUES', '39,78,135,140,61'))),
 
-    'inactive_leagues' => [
-        113, // Allsvenskan
-        119, // Superligaen
-        103, // Eliteserien
-    ],
+    // Ligues suivies mais exclues de l'import (début de saison, trop peu de
+    // journées jouées). Le pipeline et api-football:test --date les ignorent.
+    // Vide depuis le 30/09/2026 : 113, 119 et 103, exclues depuis le printemps,
+    // réactivées.
+    'inactive_leagues' => [],
 
     // Cache TTL en minutes par type de donnée
     'cache_ttl' => [
