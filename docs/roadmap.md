@@ -489,6 +489,10 @@ pessimiste du corps et de l'en-tête de `/status` et du compteur local ; ligues 
 et 103 réactivées (zéro requête de plus, hors périmètre des cotes) ;
 `api-football:test --date` filtre exactement comme le pipeline (`docs/decisions.md`).
 
+Ajout du 30/09/2026 (branche `feat/export-matches-for-grok`, en attente de validation) :
+`matches:export-today`, export Markdown des matchs du jour pour une analyse externe,
+lecture seule (`docs/decisions.md`).
+
 **À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
 7) se fait en une seule session ; son point de non-retour est la pose de la crontab.
 
