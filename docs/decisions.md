@@ -1584,3 +1584,43 @@ autre application tourne sur ce serveur.
   `deploy/schema-reference.txt`, et s'arrête au premier écart. Une comparaison qu'il
   faut penser à faire n'est pas faite : elle est dans le script. Un test échoue si la
   référence ne couvre pas exactement les migrations du dépôt.
+
+## 2026-09-30 — Trêve internationale, budget API-Football lu dans l'en-tête, ligues nordiques réactivées
+
+Sur le VPS, zéro match importé les 27, 28 et 29/09. Diagnostic avant correction : la
+réponse brute de `/fixtures?date=2026-09-30` compte 202 matchs dans 64 ligues, aucune
+des 21 suivies ; celles du 29/09 et du 01/10 contiennent la UEFA Nations League, des
+amicaux et les qualifications U21 et CAN. **Trêve internationale, pas un défaut** : les
+ligues suivies sont absentes de la réponse, aucun filtre ne les rejette. La saison
+n'était pas en cause : la requête par date n'envoie pas de paramètre `season`.
+
+Le diagnostic a montré trois défauts annexes, corrigés :
+
+- **Budget lu dans `/status`, qui retarde.** `getDailyUsage()` retenait le plus
+  pessimiste du corps de `/status` et du compteur local ; le 30/09, le corps comptait 1
+  requête quand l'en-tête `x-ratelimit-requests-remaining` de la même réponse en
+  décomptait 3. Le compteur local ne voit pas les appels faits depuis une autre
+  machine. L'en-tête de la réponse `/status` entre maintenant dans le maximum (il était
+  déjà lu pendant le passage par `lastKnownDailyRemaining()`, pas au départ ni dans
+  `system:status` ni sur la page Réglages). Celui d'un appel antérieur n'est jamais
+  réutilisé.
+- **`inactive_leagues` jamais vidé.** Allsvenskan (113), Superligaen (119) et
+  Eliteserien (103), exclues au printemps, devaient revenir en août. Liste vidée, le
+  mécanisme reste. **Coût : zéro requête par match**, ces ligues sont hors du
+  périmètre des cotes (`odds_leagues`, Top 5) : ni cotes, ni facultatif, pas de ligne
+  au journal donc pas de rattrapage, et hors du CLV (`closing.leagues`). Elles
+  arrivent dans la requête par date déjà payée. Au plus une requête « scores de la
+  veille » un jour où aucune autre ligue n'aurait de match incomplet. Jour le plus
+  chargé inchangé : 23 requêtes indispensables, 65 avec le facultatif, 85 avec les 20
+  rattrapages au plus. Le quota tient.
+- **Outil de diagnostic divergent.** `api-football:test --date` filtrait sur
+  `leagues` sans `inactive_leagues` ni créneau horaire, et ne nommait que la première
+  ligue ignorée. Le filtrage est maintenant une seule méthode,
+  `FetchMatchDataJob::selectFixtures`, appelée par le job et la commande ; celle-ci liste
+  toutes les ligues écartées par motif (désactivée, hors créneau, non suivie) et accepte
+  `--all` comme `pipeline:run-sync`.
+
+`getUpcomingFixtures` envoyait `season` et `next`, tous deux refusés par l'offre
+gratuite : elle lit désormais la fenêtre du jour et du lendemain par date.
+`getFixturesByDate` ne prend plus de ligue ni de saison (aucun appelant, et la saison
+en cours serait refusée) ; `api-football.default_season` est supprimé.

@@ -24,38 +24,37 @@ class ApiFootballService
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Récupérer les matchs à venir pour une ligue
+     * Matchs à venir d'une ligue, dans la fenêtre de l'offre gratuite : aujourd'hui
+     * et demain (UTC), 2 requêtes en cache 1 h, partagées avec le pipeline.
+     *
+     * L'offre gratuite refuse /fixtures?league=&next= (« Free plans do not have
+     * access to the Next parameter ») et /fixtures?league=&season= pour la saison
+     * en cours (« try from 2022 to 2024 »), constaté le 30/09/2026 : seule la
+     * requête par date, sans ligue ni saison, couvre les matchs à venir.
      */
-    public function getUpcomingFixtures(int $leagueId, ?int $season = null, int $next = 10): ?array
+    public function getUpcomingFixtures(int $leagueId): array
     {
-        $season = $season ?? config('api-football.default_season');
+        $upcoming = [];
+        foreach ([now('UTC'), now('UTC')->addDay()] as $day) {
+            foreach ($this->getFixturesByDate($day->format('Y-m-d')) as $fixture) {
+                if ((int) ($fixture['league']['id'] ?? 0) === $leagueId
+                    && ($fixture['fixture']['status']['short'] ?? null) === 'NS') {
+                    $upcoming[] = $fixture;
+                }
+            }
+        }
 
-        return $this->cachedRequest(
-            "fixtures_upcoming_{$leagueId}_{$season}_{$next}",
-            'fixtures',
-            '/fixtures',
-            [
-                'league' => $leagueId,
-                'season' => $season,
-                'next' => $next,
-            ]
-        );
+        return $upcoming;
     }
 
     /**
-     * Récupérer les matchs d'une date précise
+     * Matchs d'une date, toutes ligues (1 requête, en cache 1 h). Sans paramètre
+     * league ni season : l'offre gratuite refuse la saison en cours dès qu'on la
+     * précise, alors que la requête par date la renvoie. Fenêtre J-1 à J+1.
      */
-    public function getFixturesByDate(string $date, ?int $leagueId = null, ?int $season = null): ?array
+    public function getFixturesByDate(string $date): array
     {
-        $params = ['date' => $date];
-        if ($leagueId) {
-            $params['league'] = $leagueId;
-            $params['season'] = $season ?? config('api-football.default_season');
-        }
-
-        $cacheKey = "fixtures_date_{$date}" . ($leagueId ? "_{$leagueId}" : '') . ($season ? "_{$season}" : '');
-
-        return $this->cachedRequest($cacheKey, 'fixtures', '/fixtures', $params);
+        return $this->cachedRequest("fixtures_date_{$date}", 'fixtures', '/fixtures', ['date' => $date]);
     }
 
     /**
@@ -300,14 +299,19 @@ class ApiFootballService
      * Requêtes du jour : consommées, limite, restantes.
      *
      * Les compteurs de l'API sont en retard : le 14/09/2026, juste après un passage
-     * de 34 requêtes, /status en comptait 18 et l'en-tête de réponse 25. On retient
-     * donc le plus pessimiste de /status et du compteur local de ce serveur (jour
-     * UTC, remis à zéro à minuit UTC comme le quota).
+     * de 34 requêtes, /status en comptait 18 et l'en-tête de réponse 25 ; le
+     * 30/09/2026, /status comptait 1 requête quand l'en-tête en décomptait 3. On
+     * retient donc le plus pessimiste de trois sources : le corps de /status,
+     * l'en-tête x-ratelimit-requests-remaining de cette même réponse (compteur du
+     * compte, qui voit aussi les appels faits depuis une autre machine) et le
+     * compteur local de ce serveur (jour UTC, remis à zéro à minuit UTC comme le
+     * quota).
      *
-     * @return array{current: int, limit: int, remaining: int, status_current: int, local_current: int}
+     * @return array{current: int, limit: int, remaining: int, status_current: int, header_current: ?int, local_current: int}
      */
     public function getDailyUsage(): array
     {
+        self::$dailyRemaining = null;
         $requests = $this->getAccountStatus()['requests'] ?? null;
 
         if (!isset($requests['current'], $requests['limit_day'])) {
@@ -315,14 +319,17 @@ class ApiFootballService
         }
 
         self::$dailyLimit = (int) $requests['limit_day'];
-        $current = max((int) $requests['current'], $this->localDailyCount());
+        $headerCurrent = self::$dailyRemaining !== null ? max(0, self::$dailyLimit - self::$dailyRemaining) : null;
+        $localCurrent = $this->localDailyCount();
+        $current = max((int) $requests['current'], $headerCurrent ?? 0, $localCurrent);
 
         return [
             'current' => $current,
             'limit' => self::$dailyLimit,
             'remaining' => max(0, self::$dailyLimit - $current),
             'status_current' => (int) $requests['current'],
-            'local_current' => $this->localDailyCount(),
+            'header_current' => $headerCurrent,
+            'local_current' => $localCurrent,
         ];
     }
 

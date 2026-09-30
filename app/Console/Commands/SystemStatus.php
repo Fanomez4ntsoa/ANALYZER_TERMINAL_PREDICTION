@@ -211,7 +211,7 @@ class SystemStatus extends Command
         $this->add(
             $usage['remaining'] <= $reserve ? SystemState::WARNING : SystemState::NOTICE,
             'API-Football',
-            "{$usage['remaining']} requête(s) restante(s) sur {$usage['limit']} aujourd'hui (remise à zéro à minuit UTC)",
+            "{$usage['remaining']} requête(s) restante(s) sur {$usage['limit']} aujourd'hui (plus pessimiste de /status, en-tête et compteur local ; remise à zéro à minuit UTC)",
         );
     }
 

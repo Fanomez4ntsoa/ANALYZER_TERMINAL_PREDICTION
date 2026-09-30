@@ -483,6 +483,12 @@ colonnes y recevaient un `ON UPDATE current_timestamp()` silencieux. Défaut exp
 les cinq `TIMESTAMP NOT NULL`, migration d'alignement, contrôle des réglages du serveur
 et empreinte du schéma comparée au portable dans `setup.sh` (`docs/decisions.md`).
 
+Correctif du 30/09/2026 (branche `fix/budget-api-football`) : zéro match du 27 au 29/09
+expliqué par la trêve internationale, pas par un défaut. Budget API-Football au plus
+pessimiste du corps et de l'en-tête de `/status` et du compteur local ; ligues 113, 119
+et 103 réactivées (zéro requête de plus, hors périmètre des cotes) ;
+`api-football:test --date` filtre exactement comme le pipeline (`docs/decisions.md`).
+
 **À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
 7) se fait en une seule session ; son point de non-retour est la pose de la crontab.
 
