@@ -1650,3 +1650,10 @@ dans un outil externe. Choix :
   à la minute EAT. Un jour sans match écrit quand même un fichier qui le dit.
 - Pied de page : modèle calibré sur les cotes, qui ne bat pas la clôture Pinnacle ;
   aucune recommandation.
+- **Tiret ASCII pour le signe moins**, à la place du U+2212 de l'interface : certains
+  outils le lisent mal, et un écart négatif lu comme positif inverserait le sens. Dans
+  un fichier fait pour être copié ailleurs, la robustesse prime ; l'interface garde le
+  vrai signe moins.
+- Validé par l'utilisateur : bookmaker et heure du relevé des cotes par match (sans
+  eux, un lecteur externe ne sait pas si la cote a bougé depuis), heure du calcul,
+  fichier écrit même un jour sans match, « non calculé » dans une ligne absente.

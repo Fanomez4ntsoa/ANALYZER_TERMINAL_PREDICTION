@@ -76,6 +76,7 @@ php artisan log:settle --date=           # Clôture du journal des sélections :
 php artisan log:report [--market=] [--league=]  # Calibration sur matchs réels, seuil 200 matchs par marché
 php artisan app:reset [--force]
 php artisan system:status                # État en dix lignes (contrôle du VPS par SSH)
+php artisan matches:export-today         # Markdown des matchs du jour (EAT) avec probabilités, pour analyse externe (storage/app/private/exports/)
 ```
 
 Calcul d'un match à venir : depuis `/analysis`, bouton Calculer (refusé après le coup d'envoi).
