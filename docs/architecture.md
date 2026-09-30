@@ -25,8 +25,10 @@ Planificateur (routes/console.php, cron `schedule:run` requis)
 pipeline:run-sync {date}          code de sortie non nul si cotes ou scores incomplets
   └─ FetchMatchDataJob              ordre imposé par le budget : indispensable d'abord
        │  match commencé, reporté ou terminé : score seul, rien d'autre n'est écrit
-       ├─ ApiFootballService::getDailyUsage           /status, budget du jour (non décompté)
+       ├─ ApiFootballService::getDailyUsage           /status (non décompté) : plus pessimiste du corps, de l'en-tête et du compteur local
        ├─ ApiFootballService::getFixturesByDate       1 requête → upsert dans matches, 21 ligues
+       │    FetchMatchDataJob::selectFixtures : ligues suivies moins inactive_leagues, puis créneau horaire
+       │    (même filtre dans api-football:test --date, qui liste toutes les ligues écartées)
        │    matchs hors api-football.odds_leagues (Top 5) : comptés dans le journal, ni cotes ni facultatif
        ├─ ApiFootballService::getFixtureOdds          /odds?fixture=&bookmaker=8, 1 requête par match
        │    └─ enrichWithApiFootballOdds               odds_* + odds_fetched_at + odds_bookmaker
@@ -360,8 +362,17 @@ comprise : rattrapage à 1 requête par match.
 
 **Compteurs de l'API en retard.** Juste après un passage de 34 requêtes, `/status` en
 comptait 18 et l'en-tête `x-ratelimit-requests-remaining` 25 ; `/status` n'a rattrapé
-qu'après quelques secondes. Le budget est estimé au plus pessimiste de `/status`, de
-l'en-tête et d'un compteur local par jour UTC.
+qu'après quelques secondes. Le 30/09/2026, `/status` comptait 1 requête quand l'en-tête
+de sa propre réponse en décomptait 3. Le budget est estimé au plus pessimiste du corps
+de `/status`, de l'en-tête de cette même réponse (compteur du compte, qui voit aussi les
+appels faits depuis une autre machine) et d'un compteur local par jour UTC ; puis, en
+cours de passage, de l'en-tête du dernier appel et du compteur local.
+
+**Saison en cours et paramètre `next` refusés.** `/fixtures?league=&season=2026` :
+`Free plans do not have access to this season, try from 2022 to 2024` ;
+`/fixtures?league=&next=` : `Free plans do not have access to the Next parameter`
+(30/09/2026). `/fixtures?date=` sans ligue ni saison renvoie bien la saison en cours :
+c'est la seule voie, `getFixturesByDate` n'accepte plus d'autre paramètre.
 
 The Odds API gratuit : **500 crédits par mois**.
 

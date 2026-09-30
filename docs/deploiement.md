@@ -432,7 +432,7 @@ Une ligne par voyant ; code de sortie 1 dès qu'un voyant n'est pas `OK`.
 | Jours manqués | jours sans passage depuis le début du journal | un jour manqué dans les 7 derniers | cause dans le journal du pipeline ; un jour manqué est perdu (règle 5), s'assurer qu'il ne se répète pas |
 | Journal | effectif clôturé, lignes non clôturables | jamais | — |
 | En attente | lignes passées pas encore clôturées | la plus ancienne a plus de 2 jours | le rattrapage la reprend au passage suivant ; si elle persiste : `php artisan log:settle` et son tableau des raisons |
-| API-Football | requêtes restantes aujourd'hui (`/status`, gratuit) | sous la réserve (10) | normal juste après un samedi chargé ; remise à zéro à minuit UTC |
+| API-Football | requêtes restantes aujourd'hui (`/status`, gratuit ; plus pessimiste du corps, de l'en-tête et du compteur local) | sous la réserve (10) | normal juste après un samedi chargé ; remise à zéro à minuit UTC |
 | The Odds API | crédits du mois (`/sports`, gratuit) | sous 50 : la clôture s'arrête | attendre le mois suivant ; `closing_edge` manquera d'ici là |
 | Sauvegarde | dernier fichier dans `storage/app/private/backups` | plus de 26 h | étape `db:backup` du journal du pipeline ; espace disque (`df -h`) |
 | Backtest réf. | run désigné dans `.env` | absent ou non terminé | `php artisan backtest:reference` |
