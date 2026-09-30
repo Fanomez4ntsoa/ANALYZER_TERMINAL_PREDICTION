@@ -77,6 +77,11 @@ BTTS Non.
 - `setup.sh` : installation idempotente, vérifie sans rien installer ; compare les
   réglages du serveur et l'empreinte du schéma (`scripts/schema-fingerprint.sh`) au
   portable (`deploy/schema-reference.txt`).
+- `matches:export-today` : Markdown des matchs du jour (EAT, `app.display_timezone`)
+  ayant des probabilités, coup d'envoi croissant, pour une analyse externe. Lecture
+  seule : probabilité équitable et écart repris de `predictions`, marchés séparés par
+  `MarketNature`, absence de contexte expliquée. Fichier horodaté dans
+  `storage/app/private/exports/` (distinct de `export/`, réservé aux bascules).
 - `DB_TIMEZONE=+00:00` (session MariaDB) sur le VPS et sur les copies du portable : les
   `TIMESTAMP` restent en UTC quel que soit le fuseau du serveur (docs/deploiement.md,
   « Heures et fuseaux »).

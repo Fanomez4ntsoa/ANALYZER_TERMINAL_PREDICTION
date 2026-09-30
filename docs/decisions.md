@@ -1624,3 +1624,36 @@ Le diagnostic a montré trois défauts annexes, corrigés :
 gratuite : elle lit désormais la fenêtre du jour et du lendemain par date.
 `getFixturesByDate` ne prend plus de ligue ni de saison (aucun appelant, et la saison
 en cours serait refusée) ; `api-football.default_season` est supprimé.
+
+## 2026-09-30 — Export Markdown des matchs du jour pour une analyse externe
+
+`matches:export-today` écrit un fichier Markdown des matchs du jour, prêt à copier
+dans un outil externe. Choix :
+
+- **Lecture seule, après `pipeline:daily`.** Aucune ligne de calcul, de cotes ou de
+  pipeline touchée. La probabilité équitable et l'écart sont repris tels que stockés
+  dans `predictions` : le lecteur ne refait jamais la démarginalisation, source
+  d'erreur classique (probabilité implicite brute prise pour la probabilité équitable).
+- **Journée en EAT** (`app.display_timezone`), bornes converties en UTC : un match à
+  00h30 EAT appartient au jour EAT, pas à la veille UTC. Matchs `post_kickoff_data`
+  exclus (scope `measurable`), comme de toute mesure.
+- **Ordre : coup d'envoi croissant**, jamais l'écart (décision du 14/09/2026).
+- **Ajustement et dérivés séparés** par `MarketNature`, la classification déjà
+  testée de l'interface, avec la mention qui dit pourquoi l'écart des marchés
+  d'ajustement est mécanique. Pas de seconde liste à tenir à jour.
+- **Une absence dit sa raison.** « non collecté » (contexte ou données facultatives
+  jamais relevés), « non disponible (offre gratuite) » quand la raison stockée cite
+  l'offre, « non disponible » avec la raison stockée sinon ; une liste de blessés
+  vide issue d'un appel réussi s'écrit « aucun absent signalé ». Les absents que l'API
+  renvoie en double sont dédoublonnés à l'affichage.
+- **Dossier `exports/`**, distinct de `export/` qui sert aux bascules ; nom horodaté
+  à la minute EAT. Un jour sans match écrit quand même un fichier qui le dit.
+- Pied de page : modèle calibré sur les cotes, qui ne bat pas la clôture Pinnacle ;
+  aucune recommandation.
+- **Tiret ASCII pour le signe moins**, à la place du U+2212 de l'interface : certains
+  outils le lisent mal, et un écart négatif lu comme positif inverserait le sens. Dans
+  un fichier fait pour être copié ailleurs, la robustesse prime ; l'interface garde le
+  vrai signe moins.
+- Validé par l'utilisateur : bookmaker et heure du relevé des cotes par match (sans
+  eux, un lecteur externe ne sait pas si la cote a bougé depuis), heure du calcul,
+  fichier écrit même un jour sans match, « non calculé » dans une ligne absente.
