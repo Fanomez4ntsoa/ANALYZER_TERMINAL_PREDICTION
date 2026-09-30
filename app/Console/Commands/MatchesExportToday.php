@@ -95,7 +95,10 @@ class MatchesExportToday extends Command
 
         array_push($lines, '---', '', ...$this->footer());
 
-        return implode("\n", $lines) . "\n";
+        // Tiret ASCII à la place du signe moins U+2212 de Fmt : certains outils le lisent
+        // mal, et un écart négatif lu comme positif inverserait le sens. L'interface
+        // garde le vrai signe moins.
+        return str_replace(Fmt::MINUS, '-', implode("\n", $lines)) . "\n";
     }
 
     private function matchBlock(FootballMatch $match): array

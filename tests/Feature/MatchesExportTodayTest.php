@@ -121,7 +121,8 @@ class MatchesExportTodayTest extends TestCase
         $this->assertNotFalse($derived);
         $this->assertLessThan($derived, strpos($md, '| Under 2.5 | 65,6 % | 1,44 | 65,6 % | 0,0 |'));
         $this->assertGreaterThan($adjustment, strpos($md, '| X | 30,3 % | 3,20 | 29,6 % | +0,7 |'));
-        $this->assertGreaterThan($derived, strpos($md, '| BTTS Oui | 40,2 % | 2,25 | 41,1 % | ' . "\u{2212}" . '0,9 |'));
+        $this->assertGreaterThan($derived, strpos($md, '| BTTS Oui | 40,2 % | 2,25 | 41,1 % | -0,9 |'));
+        $this->assertStringNotContainsString("\u{2212}", $md);
         $this->assertStringContainsString('| BTTS Non | 59,8 % | cote absente | non calculable (cote absente) | non calculable |', $md);
     }
 
