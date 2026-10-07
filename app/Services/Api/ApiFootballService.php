@@ -51,10 +51,24 @@ class ApiFootballService
      * Matchs d'une date, toutes ligues (1 requête, en cache 1 h). Sans paramètre
      * league ni season : l'offre gratuite refuse la saison en cours dès qu'on la
      * précise, alors que la requête par date la renvoie. Fenêtre J-1 à J+1.
+     *
+     * Une seule page est lue (235 matchs tenaient sur une page le 07/10/2026) :
+     * une réponse paginée lève une exception plutôt que de perdre des matchs
+     * sans bruit. Elle n'est pas mise en cache.
      */
     public function getFixturesByDate(string $date): array
     {
-        return $this->cachedRequest("fixtures_date_{$date}", 'fixtures', '/fixtures', ['date' => $date]);
+        $ttlMinutes = $this->cacheTtl['fixtures'] ?? 60;
+
+        return Cache::remember("api_football_fixtures_date_{$date}", now()->addMinutes($ttlMinutes), function () use ($date) {
+            $payload = $this->request('/fixtures', ['date' => $date]);
+
+            if ((int) ($payload['paging']['total'] ?? 1) > 1) {
+                throw new ApiFootballException(ApiFootballException::API, "réponse paginée inattendue pour la date {$date} ({$payload['paging']['total']} pages)", '/fixtures');
+            }
+
+            return $payload['response'] ?? [];
+        });
     }
 
     /**
