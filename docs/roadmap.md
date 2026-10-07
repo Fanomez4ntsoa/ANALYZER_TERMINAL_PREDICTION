@@ -493,6 +493,11 @@ Ajout du 30/09/2026 (branche `feat/export-matches-for-grok`) :
 `matches:export-today`, export Markdown des matchs du jour pour une analyse externe,
 lecture seule (`docs/decisions.md`).
 
+Correctif du 07/10/2026 (branche `fix/fixtures-date-pagination`) : zéro match du 27/09 au
+07/10 expliqué par la fenêtre internationale (vérifié par `/fixtures?id=`). `/fixtures?date=`
+tient sur une page, mais une réponse paginée lève désormais une erreur au lieu de perdre des
+matchs sans bruit (`docs/decisions.md`).
+
 **À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
 7) se fait en une seule session ; son point de non-retour est la pose de la crontab.
 

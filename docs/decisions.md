@@ -1657,3 +1657,25 @@ dans un outil externe. Choix :
 - Validé par l'utilisateur : bookmaker et heure du relevé des cotes par match (sans
   eux, un lecteur externe ne sait pas si la cote a bougé depuis), heure du calcul,
   fichier écrit même un jour sans match, « non calculé » dans une ligne absente.
+
+---
+
+## 2026-10-07 — Zéro match du 27/09 au 07/10 : fenêtre internationale ; garde sur la pagination de /fixtures?date=
+
+Le pipeline n'a gardé aucun match depuis le 27/09. Ce n'est pas un défaut :
+`/fixtures?id=` montre que la Premier League passe de la journée 5 (20/09) à la journée 6
+(10/10), et que la Liga reprend le 09/10 (journée 8). Il n'y a eu aucun match des
+grandes ligues le 3 ou le 4/10 : septembre et octobre forment une seule fenêtre
+internationale. `/fixtures?date=` refuse ces dates sur l'offre gratuite (fenêtre J-1 à J+1),
+d'où le recours aux identifiants.
+
+La pagination a été vérifiée : 235 matchs le 07/10, `paging.total` = 1. Mais
+`getFixturesByDate` ne lisait que `response`. Une réponse paginée aurait donc perdu des
+matchs sans aucun message, comme le piège de `/odds?date=`. Choix :
+
+- **Garde plutôt que lecture de toutes les pages.** `paging.total` > 1 lève une
+  `ApiFootballException` (API), comme dans `getFixtureOdds`. La boucle sur les pages
+  coûterait des requêtes, pour un cas jamais observé, et l'offre gratuite plafonne peut-être
+  `page` comme sur `/odds`. Si la garde se déclenche, on mesure d'abord.
+- La réponse refusée n'est pas mise en cache. À l'étape 1, l'erreur arrête le job ; pour les
+  scores de la veille, elle passe le passage en incomplet, avec un log.
