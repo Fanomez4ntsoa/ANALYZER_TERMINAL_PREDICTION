@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\FetchMatchDataJob;
+use App\Services\Api\ApiFootballException;
 use App\Services\Api\ApiFootballService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -155,6 +156,33 @@ class ApiFootballBudgetTest extends TestCase
             ->expectsOutputToContain('Ligue 10 (Pays) × 2')
             ->expectsOutputToContain('Ligue 964 (Pays) × 1')
             ->assertSuccessful();
+    }
+
+    public function test_paginated_fixtures_by_date_fail_instead_of_losing_matches(): void
+    {
+        Http::fake([
+            '*/fixtures*' => Http::response(['errors' => [], 'paging' => ['current' => 1, 'total' => 2], 'response' => [$this->fixture(1, 39)]]),
+        ]);
+
+        try {
+            app(ApiFootballService::class)->getFixturesByDate('2026-09-30');
+            $this->fail('Une réponse paginée doit lever une exception.');
+        } catch (ApiFootballException $e) {
+            $this->assertSame(ApiFootballException::API, $e->kind);
+        }
+
+        $this->assertFalse(Cache::has('api_football_fixtures_date_2026-09-30'));
+    }
+
+    public function test_single_page_fixtures_by_date_are_returned_and_cached(): void
+    {
+        Http::fake([
+            '*/fixtures*' => Http::response(['errors' => [], 'paging' => ['current' => 1, 'total' => 1], 'response' => [$this->fixture(1, 39), $this->fixture(2, 61)]]),
+        ]);
+
+        $this->assertCount(2, app(ApiFootballService::class)->getFixturesByDate('2026-09-30'));
+        $this->assertCount(2, app(ApiFootballService::class)->getFixturesByDate('2026-09-30'));
+        Http::assertSentCount(1);
     }
 
     public function test_upcoming_fixtures_use_the_date_window_without_season(): void
