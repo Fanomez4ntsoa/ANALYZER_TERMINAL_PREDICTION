@@ -34,8 +34,4 @@ return [
         ],
     ],
 
-    // Signaux hors marché du modèle complet. Sans aucun d'eux, le modèle complet
-    // donne exactement le marché seul : ces lignes sont exclues de sa comparaison.
-    'full_model_extra_signals' => ['comparison', 'injuries'],
-
 ];

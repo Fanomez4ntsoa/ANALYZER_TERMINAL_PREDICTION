@@ -26,9 +26,10 @@ use Illuminate\Support\Facades\DB;
  * et en lignes, Brier du modèle marché seul, Brier de la probabilité équitable
  * Bet365 sur les mêmes lignes, différence appariée avec erreur type groupée par
  * match (les issues d'un match ne sont pas indépendantes), fréquence observée par
- * tranche de probabilité annoncée. Mêmes métriques pour le modèle complet, sur les
- * seules lignes où un signal hors marché a servi, avec sa propre progression vers
- * le seuil.
+ * tranche de probabilité annoncée.
+ *
+ * Le modèle complet (marché + comparaison + blessures) n'est plus mesuré : abandonné
+ * le 03/11/2026, ses chiffres sont dans docs/decisions.md.
  *
  * Aucune métrique financière, aucun verdict, aucun tri autre que marché et
  * championnat. closing_edge n'est pas agrégé.
@@ -100,7 +101,6 @@ class PredictionLogReport
                 $rows = $settled->where('market', $groupMarket)->values();
                 $markets[$groupMarket] = [
                     'model' => $this->section($rows, 'model_probability', $threshold, $leagues),
-                    'full' => $this->fullModelSection($rows, $threshold, $leagues),
                 ];
             }
             if ($markets) {
@@ -132,50 +132,27 @@ class PredictionLogReport
     /**
      * Métriques d'une probabilité, tous championnats puis par championnat.
      */
-    private function section(Collection $rows, string $field, int $threshold, array $leagues, ?string $baseline = null): array
+    private function section(Collection $rows, string $field, int $threshold, array $leagues): array
     {
         $byLeague = [];
         foreach ($rows->groupBy(fn ($e) => (int) $e->league_id) as $leagueId => $leagueRows) {
             $byLeague[$leagueId] = ['league' => $leagues[$leagueId] ?? "ligue {$leagueId}"]
-                + $this->metrics($leagueRows, $field, $threshold, $baseline);
+                + $this->metrics($leagueRows, $field, $threshold);
         }
         uasort($byLeague, fn ($a, $b) => strcmp($a['league'], $b['league']));
 
         return [
-            'overall' => $this->metrics($rows, $field, $threshold, $baseline),
+            'overall' => $this->metrics($rows, $field, $threshold),
             'by_league' => $byLeague,
         ];
     }
 
-    /**
-     * Modèle complet : seules les lignes où comparaison ou blessures ont servi.
-     * Ailleurs il reproduit exactement le marché seul, et le comparer diluerait
-     * l'écart. Comparé au marché seul sur les mêmes lignes.
-     */
-    private function fullModelSection(Collection $rows, int $threshold, array $leagues): array
-    {
-        $extra = config('prediction-log.full_model_extra_signals');
-        $withFull = $rows->filter(fn ($e) => $e->full_model_probability !== null);
-        $used = $withFull->filter(fn ($e) => array_intersect($extra, $e->full_model_signals['used'] ?? []) !== []);
-        $withoutExtra = $withFull->diffKeys($used);
-
-        return $this->section($used->values(), 'full_model_probability', $threshold, $leagues, 'model_probability') + [
-            'market_only_matches' => $rows->pluck('match_id')->unique()->count(),
-            'without_extra_signal_matches' => $withoutExtra->pluck('match_id')->unique()->count(),
-            'not_computed_matches' => $rows->diffKeys($withFull)->pluck('match_id')->unique()->count(),
-        ];
-    }
-
-    /**
-     * @param string|null $baseline second modèle comparé sur les mêmes lignes
-     *                              (marché seul, pour le modèle complet)
-     */
-    private function metrics(Collection $rows, string $field, int $threshold, ?string $baseline = null): array
+    private function metrics(Collection $rows, string $field, int $threshold): array
     {
         $matches = $rows->pluck('match_id')->unique()->count();
         $n = $rows->count();
 
-        $metrics = [
+        return [
             'matches' => $matches,
             'lines' => $n,
             'threshold_reached' => $matches >= $threshold,
@@ -184,13 +161,6 @@ class PredictionLogReport
             'diff_vs_fair' => $this->pairedDifference($rows, $field, 'fair_probability'),
             'bins' => $this->bins($rows, $field),
         ];
-
-        if ($baseline !== null) {
-            $metrics['brier_baseline'] = $this->brier($rows, $baseline);
-            $metrics['diff_vs_baseline'] = $this->pairedDifference($rows, $field, $baseline);
-        }
-
-        return $metrics;
     }
 
     private function brier(Collection $rows, string $field): ?float

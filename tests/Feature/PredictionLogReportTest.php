@@ -201,20 +201,17 @@ class PredictionLogReportTest extends TestCase
         $this->assertFalse($m['threshold_reached']);
     }
 
-    public function test_full_model_is_measured_only_where_an_extra_signal_was_used(): void
+    /**
+     * Modèle complet abandonné le 03/11/2026 : les lignes antérieures du journal
+     * gardent full_model_probability, mais le rapport ne le mesure plus.
+     */
+    public function test_historical_full_model_values_are_no_longer_measured(): void
     {
         $this->fixture();
-        $full = app(PredictionLogReport::class)->build()['groups']['adjustment']['results']['winner']['full'];
+        $winner = app(PredictionLogReport::class)->build()['groups']['adjustment']['results']['winner'];
 
-        $this->assertSame(1, $full['overall']['matches']);
-        $this->assertFalse($full['overall']['threshold_reached']);
-        $this->assertSame(2, $full['market_only_matches']);
-        $this->assertSame(1, $full['without_extra_signal_matches']);
-        $this->assertSame(0, $full['not_computed_matches']);
-        // Arsenal : complet 0,2025 + 0,0625 + 0,04 ; marché seul 0,38 sur les mêmes lignes
-        $this->assertEqualsWithDelta(0.305 / 3, $full['overall']['brier'], 1e-9);
-        $this->assertEqualsWithDelta(0.38 / 3, $full['overall']['brier_baseline'], 1e-9);
-        $this->assertEqualsWithDelta((0.305 - 0.38) / 3, $full['overall']['diff_vs_baseline']['mean'], 1e-9);
+        $this->assertSame(['model'], array_keys($winner));
+        $this->assertArrayNotHasKey('brier_baseline', $winner['model']['overall']);
     }
 
     public function test_command_always_shows_total_and_refuses_conclusions_below_threshold(): void
@@ -228,7 +225,8 @@ class PredictionLogReportTest extends TestCase
             ->expectsOutputToContain('Écartés, non clôturables : 0 match(s), 0 ligne(s)')
             ->expectsOutputToContain('AUCUNE CONCLUSION POSSIBLE')
             ->expectsOutputToContain('2 < 200 : CES CHIFFRES NE PERMETTENT AUCUNE CONCLUSION')
-            ->expectsOutputToContain('Progression propre : 1 / 200 match(s) où comparaison ou blessures ont servi, contre 2 pour le marché seul.')
+            ->expectsOutputToContain('Modèle complet (comparaison + blessures) abandonné le 03/11/2026, voir docs/decisions.md.')
+            ->doesntExpectOutputToContain('modèle complet (marché')
             ->assertExitCode(0);
     }
 

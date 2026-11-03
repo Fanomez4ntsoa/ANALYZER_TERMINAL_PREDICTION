@@ -19,7 +19,7 @@ class LogReport extends Command
                             {--market= : Un marché (winner, doubleChance, overUnder25, btts)}
                             {--league= : Un championnat (league_id API-Football)}';
 
-    protected $description = 'Calibration du journal des sélections : Brier et fréquence observée par tranche, modèle marché seul et modèle complet';
+    protected $description = 'Calibration du journal des sélections : Brier et fréquence observée par tranche, modèle marché seul';
 
     public function handle(PredictionLogReport $report): int
     {
@@ -42,6 +42,7 @@ class LogReport extends Command
             ? "Base : celle de {$host}, qui collecte : base de référence."
             : "Base : copie de lecture sur {$host} (collecte désactivée) ; la base de référence est " . config('pipeline.reference_host') . '.');
         $this->line('Lignes mesurées : premier calcul du pipeline de chaque match, clôturé, match non contaminé.');
+        $this->line('Modèle complet (comparaison + blessures) abandonné le 03/11/2026, voir docs/decisions.md.');
         $this->line("Seuil : {$threshold} matchs clôturés par marché. En dessous, les chiffres ne permettent aucune conclusion.");
         if ($market !== null || $league !== null) {
             $this->line('Filtre : ' . implode(', ', array_filter([$market ? "marché {$market}" : null, $league ? "championnat {$league}" : null])));
@@ -67,15 +68,6 @@ class LogReport extends Command
             foreach ($group['results'] as $groupMarket => $result) {
                 $label = MarketLabel::market($groupMarket);
                 $this->renderSection("{$label} · modèle marché seul", $result['model'], $threshold, 'marché seul');
-
-                $full = $result['full'];
-                $this->newLine();
-                $this->line("<options=bold>── {$label} · modèle complet (marché + comparaison + blessures) ──</>");
-                $this->line("Progression propre : {$full['overall']['matches']} / {$threshold} match(s) où comparaison ou blessures ont servi,"
-                    . " contre {$full['market_only_matches']} pour le marché seul.");
-                $this->line("Exclus : {$full['without_extra_signal_matches']} match(s) sans signal hors marché (identique au marché seul),"
-                    . " {$full['not_computed_matches']} sans modèle complet calculé.");
-                $this->renderSection(null, $full, $threshold, 'complet', 'marché seul');
             }
         }
 
@@ -107,31 +99,20 @@ class LogReport extends Command
         }
     }
 
-    private function renderSection(?string $title, array $section, int $threshold, string $name, ?string $baselineName = null): void
+    private function renderSection(string $title, array $section, int $threshold, string $name): void
     {
-        if ($title !== null) {
-            $this->newLine();
-            $this->line("<options=bold>── {$title} ──</>");
-        }
+        $this->newLine();
+        $this->line("<options=bold>── {$title} ──</>");
 
-        $this->renderMetrics('Tous championnats', $section['overall'], $threshold, $name, $baselineName);
+        $this->renderMetrics('Tous championnats', $section['overall'], $threshold, $name);
 
         if (count($section['by_league']) > 0) {
             $this->line('Par championnat :');
-            $headers = ['Championnat', 'Matchs', 'Lignes', "Brier {$name}"];
-            if ($baselineName !== null) {
-                $headers[] = "Brier {$baselineName}";
-            }
-            array_push($headers, 'Brier Bet365', 'Statut');
+            $headers = ['Championnat', 'Matchs', 'Lignes', "Brier {$name}", 'Brier Bet365', 'Statut'];
 
             $rows = [];
             foreach ($section['by_league'] as $m) {
-                $row = [$m['league'], $m['matches'], $m['lines'], $this->num($m['brier'])];
-                if ($baselineName !== null) {
-                    $row[] = $this->num($m['brier_baseline']);
-                }
-                array_push($row, $this->num($m['brier_fair']), $this->status($m, $threshold, short: true));
-                $rows[] = $row;
+                $rows[] = [$m['league'], $m['matches'], $m['lines'], $this->num($m['brier']), $this->num($m['brier_fair']), $this->status($m, $threshold, short: true)];
             }
             $this->table($headers, $rows);
 
@@ -141,7 +122,7 @@ class LogReport extends Command
         }
     }
 
-    private function renderMetrics(string $scope, array $m, int $threshold, string $name, ?string $baselineName): void
+    private function renderMetrics(string $scope, array $m, int $threshold, string $name): void
     {
         $this->line("{$scope} : {$m['matches']} / {$threshold} match(s), {$m['lines']} ligne(s) · " . $this->status($m, $threshold));
 
@@ -149,16 +130,7 @@ class LogReport extends Command
             return;
         }
 
-        $line = "Brier {$name} " . $this->num($m['brier']);
-        if ($baselineName !== null) {
-            $line .= " · Brier {$baselineName} " . $this->num($m['brier_baseline']);
-        }
-        $line .= ' · Brier Bet365 équitable ' . $this->num($m['brier_fair']);
-        $this->line($line);
-
-        if ($baselineName !== null) {
-            $this->line("Différence {$name} − {$baselineName} : " . $this->diff($m['diff_vs_baseline']));
-        }
+        $this->line("Brier {$name} " . $this->num($m['brier']) . ' · Brier Bet365 équitable ' . $this->num($m['brier_fair']));
         $this->line("Différence {$name} − Bet365 équitable : " . $this->diff($m['diff_vs_fair']));
 
         $this->renderBins(null, $m['bins'], $name);

@@ -70,7 +70,7 @@ class XGModelServiceTest extends TestCase
 
     public function test_market_only_applies_no_home_advantage(): void
     {
-        $r = $this->model()->predict($this->match(2.70, 3.30, 2.70, 1.85, 1.95), true);
+        $r = $this->model()->predict($this->match(2.70, 3.30, 2.70, 1.85, 1.95));
 
         $this->assertEqualsWithDelta($r['lambdas']['home'], $r['lambdas']['away'], 0.01);
         $this->assertEqualsWithDelta($r['analysis']['1x2']['home'], $r['analysis']['1x2']['away'], 0.3);
@@ -79,7 +79,7 @@ class XGModelServiceTest extends TestCase
     public function test_legacy_flag_restores_post_fusion_home_advantage(): void
     {
         config(['xg-model.legacy_home_advantage_after_fusion' => true]);
-        $r = $this->model()->predict($this->match(2.70, 3.30, 2.70, 1.85, 1.95), true);
+        $r = $this->model()->predict($this->match(2.70, 3.30, 2.70, 1.85, 1.95));
 
         $this->assertGreaterThan($r['lambdas']['away'] * 1.10, $r['lambdas']['home']);
         $this->assertGreaterThan($r['analysis']['1x2']['away'] + 3, $r['analysis']['1x2']['home']);
@@ -89,7 +89,7 @@ class XGModelServiceTest extends TestCase
 
     public function test_joint_fit_reproduces_ou_exactly(): void
     {
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, 1.80, 2.00), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, 1.80, 2.00));
 
         $this->assertSame('over_under', $r['signals']['market']['total_source']);
         $this->assertEqualsWithDelta($r['signals']['market']['implied']['under_2_5'], $r['analysis']['overUnder25']['under'], 0.15);
@@ -98,9 +98,9 @@ class XGModelServiceTest extends TestCase
     public function test_joint_fit_is_closer_to_input_1x2_than_constant_share(): void
     {
         $match = $this->match(1.80, 3.60, 4.50, 1.80, 2.00);
-        $joint = $this->model()->predict($match, true);
+        $joint = $this->model()->predict($match);
         config(['xg-model.legacy_constant_share_rescaling' => true]);
-        $legacy = $this->model()->predict($match, true);
+        $legacy = $this->model()->predict($match);
         $implied = $joint['signals']['market']['implied'];
 
         $this->assertSame('over_under_constant_share', $legacy['signals']['market']['total_source']);
@@ -112,13 +112,13 @@ class XGModelServiceTest extends TestCase
     public function test_joint_fit_cannot_restore_market_draw_under_independent_poisson(): void
     {
         // Limite connue : à total fixé, deux Poisson indépendantes sous-estiment le nul.
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, 1.80, 2.00), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, 1.80, 2.00));
         $this->assertLessThan($r['signals']['market']['implied']['draw'] - 1.5, $r['analysis']['1x2']['draw']);
     }
 
     public function test_grid_reproduces_input_1x2_without_ou_odds(): void
     {
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50));
         $implied = $r['signals']['market']['implied'];
 
         $this->assertSame('grid', $r['signals']['market']['total_source']);
@@ -134,14 +134,14 @@ class XGModelServiceTest extends TestCase
         $this->assertFalse($defaults['legacy_constant_share_rescaling']);
         $this->assertFalse($defaults['legacy_home_advantage_after_fusion']);
         $this->assertTrue($defaults['dixon_coles_low_score_correction']);
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50));
         $this->assertNull($r['signals']['market']['total_anchor']);
     }
 
     public function test_anchor_unscoped_uses_all_work_seasons(): void
     {
         config(['xg-model.anchor_total_on_league_average' => true]);
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50));
 
         $this->assertSame(3.1, $r['signals']['market']['total_anchor']);
         $this->assertSame('league_anchor', $r['signals']['market']['total_source']);
@@ -155,10 +155,10 @@ class XGModelServiceTest extends TestCase
         $model = $this->model($goals);
 
         $goals->scopeToSeasonsBefore('2223');
-        $this->assertSame(3.0, $model->predict($this->match(1.80, 3.60, 4.50), true)['signals']['market']['total_anchor']);
+        $this->assertSame(3.0, $model->predict($this->match(1.80, 3.60, 4.50))['signals']['market']['total_anchor']);
 
         $goals->scopeToSeasonsBefore('2324');
-        $this->assertSame(3.1, $model->predict($this->match(1.80, 3.60, 4.50), true)['signals']['market']['total_anchor']);
+        $this->assertSame(3.1, $model->predict($this->match(1.80, 3.60, 4.50))['signals']['market']['total_anchor']);
     }
 
     public function test_anchor_scoped_without_prior_season_leaves_total_free(): void
@@ -166,7 +166,7 @@ class XGModelServiceTest extends TestCase
         config(['xg-model.anchor_total_on_league_average' => true]);
         $goals = $this->goals();
         $goals->scopeToSeasonsBefore('2122');
-        $r = $this->model($goals)->predict($this->match(1.80, 3.60, 4.50), true);
+        $r = $this->model($goals)->predict($this->match(1.80, 3.60, 4.50));
 
         $this->assertNull($r['signals']['market']['total_anchor']);
         $this->assertSame('grid', $r['signals']['market']['total_source']);
@@ -175,12 +175,12 @@ class XGModelServiceTest extends TestCase
     public function test_anchor_falls_back_to_constant_only_in_production(): void
     {
         config(['xg-model.anchor_total_on_league_average' => true]);
-        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, null, null, 999), true);
+        $r = $this->model()->predict($this->match(1.80, 3.60, 4.50, null, null, 999));
         $this->assertSame(2 * 1.40, $r['signals']['market']['total_anchor']);
 
         $goals = $this->goals();
         $goals->scopeToSeasonsBefore('2324');
-        $r = $this->model($goals)->predict($this->match(1.80, 3.60, 4.50, null, null, 999), true);
+        $r = $this->model($goals)->predict($this->match(1.80, 3.60, 4.50, null, null, 999));
         $this->assertNull($r['signals']['market']['total_anchor']);
     }
 
@@ -189,9 +189,9 @@ class XGModelServiceTest extends TestCase
     public function test_without_rho_estimate_model_is_identical_to_independent_poisson(): void
     {
         $match = $this->match(1.80, 3.60, 4.50, 1.80, 2.00);
-        $independent = $this->model()->predict($match, true);
+        $independent = $this->model()->predict($match);
         config(['xg-model.dixon_coles_low_score_correction' => true]);
-        $noEstimate = $this->model(null, $this->fixedRho(null))->predict($match, true);
+        $noEstimate = $this->model(null, $this->fixedRho(null))->predict($match);
 
         $this->assertNull($noEstimate['rho']);
         $this->assertSame($independent['analysis'], $noEstimate['analysis']);
@@ -201,8 +201,8 @@ class XGModelServiceTest extends TestCase
     {
         config(['xg-model.dixon_coles_low_score_correction' => true]);
         $match = $this->match(1.80, 3.60, 4.50, 1.80, 2.00);
-        $independent = $this->model(null, $this->fixedRho(null))->predict($match, true);
-        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match, true);
+        $independent = $this->model(null, $this->fixedRho(null))->predict($match);
+        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match);
         $implied = $dc['signals']['market']['implied'];
 
         $this->assertSame(-0.10, $dc['rho']);
@@ -215,8 +215,8 @@ class XGModelServiceTest extends TestCase
     {
         config(['xg-model.dixon_coles_low_score_correction' => true]);
         $match = $this->match(1.80, 3.60, 4.50);
-        $independent = $this->model(null, $this->fixedRho(null))->predict($match, true);
-        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match, true);
+        $independent = $this->model(null, $this->fixedRho(null))->predict($match);
+        $dc = $this->model(null, $this->fixedRho(-0.10))->predict($match);
 
         $this->assertGreaterThan(
             $independent['lambdas']['home'] + $independent['lambdas']['away'] + 0.2,

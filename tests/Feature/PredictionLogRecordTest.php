@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AdvancedData;
 use App\Models\FootballMatch;
 use App\Models\PredictionLogEntry;
 use App\Services\Probability\DixonColesRho;
@@ -89,6 +90,38 @@ class PredictionLogRecordTest extends TestCase
         $this->assertSame('2026-09-15 10:00:00', $home->computed_at->format('Y-m-d H:i:s'));
         $this->assertSame(39, $home->league_id);
         $this->assertNull($home->outcome_occurred);
+    }
+
+    /**
+     * Modèle complet abandonné le 03/11/2026 : comparaison et blessures sont encore
+     * collectées mais n'entrent dans aucune probabilité, et full_model_* reste vide.
+     */
+    public function test_comparison_and_injuries_never_enter_a_probability(): void
+    {
+        $plain = $this->match();
+        $this->service()->computeAndStore($plain, PredictionLogEntry::TRIGGER_PIPELINE);
+
+        $enriched = $this->match(['home_team' => 'Fulham']);
+        AdvancedData::create([
+            'match_id' => $enriched->id,
+            'context_data' => ['comparison' => [
+                'att' => ['home' => '80%'], 'def' => ['home' => '75%'], 'poisson_distribution' => ['home' => '80%'],
+                'form' => ['home' => '90%'], 'goals' => ['home' => '85%'],
+            ]],
+            'sofascore_data' => ['injuries' => [
+                'home' => [['player' => 'A'], ['player' => 'B'], ['player' => 'C']],
+                'away' => [],
+            ]],
+        ]);
+        $this->service()->computeAndStore($enriched->fresh(), PredictionLogEntry::TRIGGER_PIPELINE);
+
+        $probabilities = fn (FootballMatch $m) => $m->predictions()->orderBy('id')->pluck('model_probability')->all();
+        $this->assertSame($probabilities($plain), $probabilities($enriched));
+
+        $this->assertSame(0, $enriched->predictions()->whereNotNull('full_model_probability')->count());
+        $this->assertSame(0, $enriched->predictions()->whereNotNull('full_model_signals')->count());
+        $this->assertSame(0, PredictionLogEntry::whereNotNull('full_model_probability')->count());
+        $this->assertSame(0, PredictionLogEntry::whereNotNull('full_model_signals')->count());
     }
 
     public function test_recalculation_appends_and_never_replaces(): void
