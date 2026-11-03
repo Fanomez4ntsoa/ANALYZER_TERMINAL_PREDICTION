@@ -7,7 +7,6 @@ use App\Models\Prediction;
 use App\Models\PredictionLogEntry;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Transforme la sortie de XGModelService en lignes `predictions` :
@@ -65,8 +64,6 @@ class PredictionService
                     'market' => $row['market'],
                     'outcome' => $row['outcome'],
                     'model_probability' => $row['model_probability'],
-                    'full_model_probability' => $row['full_model_probability'],
-                    'full_model_signals' => $row['full_model_signals'],
                     'model_mode' => $row['model_mode'],
                     'lambda_home' => $row['lambda_home'],
                     'lambda_away' => $row['lambda_away'],
@@ -88,32 +85,13 @@ class PredictionService
      */
     public function compute(FootballMatch $match): array
     {
-        // Mode marché seul : la seule configuration mesurée par le backtest. Une
-        // probabilité issue d'autres signaux, affichée à côté d'une calibration
-        // mesurée sur ce seul signal, serait trompeuse. Lève une exception si les
-        // cotes 1X2 manquent.
-        $result = $this->xgModel->predict($match, marketOnly: true);
+        // Marché seul, la seule configuration du modèle. Lève une exception si les
+        // cotes 1X2 manquent. Le modèle complet (comparaison + blessures) a été
+        // abandonné le 03/11/2026 (docs/decisions.md) : full_model_probability et
+        // full_model_signals restent à null, les lignes antérieures du journal
+        // gardent leurs valeurs.
+        $result = $this->xgModel->predict($match);
         $model = $this->probabilities($result['analysis']);
-
-        // Configuration complète (marché + comparaison + blessures), stockée à part
-        // pour une comparaison future sur matchs réels. N'entre jamais dans
-        // model_probability ; son échec n'empêche pas le calcul affiché.
-        $full = null;
-        $fullSignals = null;
-        try {
-            $fullResult = $this->xgModel->predict($match);
-            $full = $this->probabilities($fullResult['analysis']);
-            $fullSignals = [
-                'used' => array_values(array_filter(
-                    ['market', 'comparison', 'injuries'],
-                    fn (string $signal) => !empty($fullResult['signals'][$signal])
-                )),
-                'lambda_home' => $fullResult['lambdas']['home'],
-                'lambda_away' => $fullResult['lambdas']['away'],
-            ];
-        } catch (\Exception $e) {
-            Log::warning("Prédiction #{$match->id} : configuration complète non calculée", ['error' => $e->getMessage()]);
-        }
 
         $computedAt = now();
 
@@ -174,8 +152,6 @@ class PredictionService
                     'lambda_home' => $result['lambdas']['home'],
                     'lambda_away' => $result['lambdas']['away'],
                     'rho' => $result['rho'],
-                    'full_model_probability' => isset($full[$market][$outcome]) ? round($full[$market][$outcome], 5) : null,
-                    'full_model_signals' => $fullSignals,
                     'odds' => $odd,
                     'implied_probability' => $odd !== null ? round(1 / $odd, 5) : null,
                     'fair_probability' => $fairProb !== null ? round($fairProb, 5) : null,

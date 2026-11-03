@@ -5,32 +5,19 @@ namespace App\Services\Probability;
 use App\Models\FootballMatch;
 
 /**
- * Modèle probabiliste maison basé sur les xG et données API-Football.
+ * Modèle « marché seul » : les λ (buts attendus) de chaque équipe sont estimés
+ * sur les cotes du bookmaker, puis injectés dans PoissonModelService pour
+ * dériver les probabilités par marché.
  *
- * Combine 3 signaux pour estimer les λ (expected goals) de chaque équipe :
- *   1. Comparaison API-Football (context_data.comparison) — 7 dimensions
- *   2. Probabilités implicites des cotes — reverse-engineering du marché
- *   3. Blessures — modificateur multiplicatif
- * Le facteur domicile/extérieur ne s'applique qu'au signal comparaison, le
- * signal marché contenant déjà l'avantage du terrain.
- *
- * Les λ sont ensuite injectés dans PoissonModelService pour dériver
- * toutes les probabilités par marché.
+ * L'ancienne fusion avec la comparaison API-Football et les blessures a été
+ * supprimée le 03/11/2026 : sur 202 matchs du journal, elle dégradait les trois
+ * marchés mesurés (docs/decisions.md). Ces données sont encore collectées, mais
+ * n'entrent dans aucun calcul de probabilité.
  */
 class XGModelService
 {
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PONDÉRATIONS DES SIGNAUX
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    // Poids de chaque signal dans le calcul final des λ
-    private const SIGNAL_WEIGHTS = [
-        'comparison'  => 0.30,  // Comparaison API-Football 7D (riche)
-        'market'      => 0.40,  // Probabilités implicites des cotes (le plus fiable)
-        'injuries'    => 0.10,  // Ajustement blessures
-    ];
-
-    // Avantage domicile moyen en football européen (études Dixon-Coles)
+    // Avantage domicile, utilisé uniquement par l'ancien comportement mesuré
+    // (config xg-model.legacy_home_advantage_after_fusion)
     private const HOME_ADVANTAGE = 1.20; // +20% d'xG pour le domicile
     private const AWAY_FACTOR = 0.88;    // -12% d'xG pour l'extérieur
 
@@ -76,50 +63,43 @@ class XGModelService
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MÉTHODE PRINCIPALE — Prédiction complète
+    // MÉTHODE PRINCIPALE — Prédiction
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     /**
-     * Générer les prédictions complètes pour un match.
+     * Générer les prédictions d'un match à partir de ses seules cotes.
      *
-     * @param bool $marketOnly  Mode "marché seul" (backtest football-data) : seul le
-     *                          signal cotes est collecté, la fusion se renormalise sur
-     *                          ce seul poids, le reste du pipeline est inchangé. Lève
-     *                          une exception si les cotes 1X2 manquent, pour que le
-     *                          repli sur la moyenne de ligue ne soit jamais atteint.
+     * Lève une exception si les cotes 1X2 manquent : aucun repli sur la moyenne
+     * de ligue.
      */
-    public function predict(FootballMatch $match, bool $marketOnly = false): array
+    public function predict(FootballMatch $match): array
     {
-        $advancedData = $marketOnly ? null : $match->advancedData;
-
         // ρ de Dixon-Coles de la population du match ; null = Poisson indépendantes
         $rho = config('xg-model.dixon_coles_low_score_correction')
             ? $this->dixonColes->rhoFor($match->league_id)
             : null;
 
-        // 1. Estimer les λ depuis chaque signal
-        $signals = $marketOnly
-            ? $this->collectMarketSignalOnly($match, $rho)
-            : $this->collectSignals($match, $advancedData, $rho);
+        // 1. Estimer les λ depuis les cotes
+        $signals = $this->collectMarketSignal($match, $rho);
+        $lambdas = [
+            'home' => round($signals['market']['home'], 3),
+            'away' => round($signals['market']['away'], 3),
+        ];
 
-        // 2. Fusionner les λ avec pondération. L'avantage domicile est appliqué
-        //    dans la fusion, aux seuls signaux qui ne le contiennent pas.
-        $lambdas = $this->fuseLambdas($signals);
-
-        // 3. Ancien comportement (mesure seulement) : facteur domicile après fusion,
-        //    donc aussi sur le signal marché qui contient déjà l'avantage du terrain.
+        // 2. Ancien comportement (mesure seulement) : facteur domicile appliqué au
+        //    signal marché, qui contient déjà l'avantage du terrain.
         if (config('xg-model.legacy_home_advantage_after_fusion')) {
             $lambdas = $this->applyLegacyHomeAdvantage($lambdas);
         }
 
-        // 4. Clamp les λ dans des bornes raisonnables
+        // 3. Clamp les λ dans des bornes raisonnables
         $lambdas['home'] = max(0.3, min(3.5, $lambdas['home']));
         $lambdas['away'] = max(0.2, min(3.0, $lambdas['away']));
 
-        // 5. Poisson → probabilités par marché
+        // 4. Poisson → probabilités par marché
         $analysis = $this->poisson->fullAnalysis($lambdas['home'], $lambdas['away'], $rho);
 
-        // 6. Construire les prédictions au format Source (pick + confidence)
+        // 5. Construire les prédictions au format Source (pick + confidence)
         $predictions = $this->buildPredictions($analysis);
 
         return [
@@ -148,38 +128,15 @@ class XGModelService
     }
 
     /**
-     * Collecter les λ estimés depuis chaque source de données.
+     * Signal cotes, sans moyenne de ligue.
      */
-    private function collectSignals(FootballMatch $match, $advancedData, ?float $rho = null): array
-    {
-        $leagueAvg = $this->getLeagueAvgXg($match->league_id);
-
-        $signals = [];
-
-        // Signal 1 : Comparaison API-Football 7D
-        $signals['comparison'] = $this->lambdasFromComparison($advancedData, $leagueAvg);
-
-        // Signal 2 : Probabilités implicites des cotes bookmakers
-        $signals['market'] = $this->lambdasFromOdds($match, $rho);
-
-        // Signal 3 : Ajustement blessures
-        $signals['injuries'] = $this->injuryModifier($advancedData);
-
-        $signals['_league_avg'] = $leagueAvg;
-
-        return $signals;
-    }
-
-    /**
-     * Mode marché seul : uniquement le signal cotes, sans moyenne de ligue.
-     */
-    private function collectMarketSignalOnly(FootballMatch $match, ?float $rho = null): array
+    private function collectMarketSignal(FootballMatch $match, ?float $rho = null): array
     {
         $market = $this->lambdasFromOdds($match, $rho);
 
         if ($market === null) {
             throw new \InvalidArgumentException(
-                "Mode marché seul : cotes 1X2 incomplètes pour {$match->home_team} vs {$match->away_team}"
+                "Cotes 1X2 incomplètes pour {$match->home_team} vs {$match->away_team}"
             );
         }
 
@@ -187,48 +144,7 @@ class XGModelService
     }
 
     /**
-     * Signal 1 : λ depuis les comparaisons API-Football.
-     *
-     * Utilise les dimensions 'att', 'def', 'poisson_distribution', 'form'
-     * pour estimer un xG pondéré.
-     */
-    private function lambdasFromComparison($advancedData, float $leagueAvg): ?array
-    {
-        $comparison = $advancedData?->context_data['comparison'] ?? null;
-
-        if (!$comparison) {
-            return null;
-        }
-
-        // Extraire les pourcentages
-        $att = $this->parsePercent($comparison['att']['home'] ?? '50%');
-        $def = $this->parsePercent($comparison['def']['home'] ?? '50%');
-        $poisson = $this->parsePercent($comparison['poisson_distribution']['home'] ?? '50%');
-        $form = $this->parsePercent($comparison['form']['home'] ?? '50%');
-        $goals = $this->parsePercent($comparison['goals']['home'] ?? '50%');
-
-        // Score composite domicile (0-100)
-        // Attaque + Poisson pèsent plus que forme et défense
-        $homeStrength = ($att * 0.30) + ($poisson * 0.30) + ($form * 0.20) + ($goals * 0.20);
-
-        // Convertir en λ autour de la moyenne de ligue
-        // 50% → leagueAvg, 70% → ~1.4 × leagueAvg, 30% → ~0.6 × leagueAvg
-        $homeLambda = $leagueAvg * ($homeStrength / 50);
-        $awayLambda = $leagueAvg * ((100 - $homeStrength) / 50);
-
-        // Ajuster avec la dimension défensive (def forte = λ adverse réduit)
-        $defModifier = (100 - $def) / 100; // def% du domicile → inverse pour l'adversaire
-        $awayLambda *= (0.7 + $defModifier * 0.6);
-        $homeLambda *= (0.7 + (1 - $defModifier) * 0.6);
-
-        return [
-            'home' => round($homeLambda, 3),
-            'away' => round($awayLambda, 3),
-        ];
-    }
-
-    /**
-     * Signal 2 : λ estimés depuis les cotes bookmakers.
+     * λ estimés depuis les cotes bookmakers.
      *
      * Avec cotes Over/Under 2.5 (recalage conjoint) :
      *   1. le total λh + λa est fixé par P(Under 2.5) démarginalisée. Sous deux
@@ -491,100 +407,6 @@ class XGModelService
     }
 
     /**
-     * Signal 3 : Modificateur basé sur les blessures.
-     *
-     * Retourne un facteur multiplicatif pour chaque équipe.
-     * Plus il y a de blessés, plus le λ est réduit.
-     */
-    private function injuryModifier($advancedData): ?array
-    {
-        $injuries = $advancedData?->sofascore_data['injuries'] ?? null;
-
-        if (!$injuries) {
-            return null;
-        }
-
-        // Dédupliquer (bug connu : chaque joueur apparaît 2 fois)
-        $homeCount = count(array_unique(
-            array_column($injuries['home'] ?? [], 'player')
-        ));
-        $awayCount = count(array_unique(
-            array_column($injuries['away'] ?? [], 'player')
-        ));
-
-        // Chaque blessé réduit le λ de ~3%
-        $homePenalty = 1 - ($homeCount * 0.03);
-        $awayPenalty = 1 - ($awayCount * 0.03);
-
-        return [
-            'home' => round(max(0.7, $homePenalty), 3),
-            'away' => round(max(0.7, $awayPenalty), 3),
-            'home_injuries' => $homeCount,
-            'away_injuries' => $awayCount,
-        ];
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FUSION DES SIGNAUX
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Fusionner les λ de chaque signal en un λ final pondéré.
-     */
-    private function fuseLambdas(array $signals): array
-    {
-        $homeSum = 0;
-        $awaySum = 0;
-        $totalWeight = 0;
-
-        $legacy = (bool) config('xg-model.legacy_home_advantage_after_fusion');
-
-        foreach (['comparison', 'market'] as $key) {
-            $signal = $signals[$key] ?? null;
-
-            if (!$signal || !isset($signal['home'], $signal['away'])) {
-                continue;
-            }
-
-            // Le signal marché contient déjà l'avantage du terrain (les cotes le
-            // pricent). comparison est une force neutre : c'est à lui seul que
-            // s'applique le facteur domicile, à pleine valeur.
-            $home = $signal['home'];
-            $away = $signal['away'];
-            if ($key !== 'market' && !$legacy) {
-                $home *= self::HOME_ADVANTAGE;
-                $away *= self::AWAY_FACTOR;
-            }
-
-            $weight = self::SIGNAL_WEIGHTS[$key];
-            $homeSum += $home * $weight;
-            $awaySum += $away * $weight;
-            $totalWeight += $weight;
-        }
-
-        // Fallback si aucun signal
-        if ($totalWeight <= 0) {
-            $fallback = $signals['_league_avg'] ?? self::LEAGUE_AVG_XG;
-            return ['home' => $fallback, 'away' => $fallback];
-        }
-
-        $homeLambda = $homeSum / $totalWeight;
-        $awayLambda = $awaySum / $totalWeight;
-
-        // Appliquer le modificateur de blessures
-        $injuryMod = $signals['injuries'] ?? null;
-        if ($injuryMod) {
-            $homeLambda *= $injuryMod['home'];
-            $awayLambda *= $injuryMod['away'];
-        }
-
-        return [
-            'home' => round($homeLambda, 3),
-            'away' => round($awayLambda, 3),
-        ];
-    }
-
-    /**
      * ANCIEN comportement, conservé pour la mesure (config xg-model.legacy_home_advantage_after_fusion).
      * Facteur partiel appliqué après fusion, donc aussi au signal marché qui contient
      * déjà l'avantage du terrain : +4,6 à +5,6 points sur la victoire à domicile
@@ -592,7 +414,7 @@ class XGModelService
      */
     private function applyLegacyHomeAdvantage(array $lambdas): array
     {
-        // Facteur réduit car le signal 'market' (35% du poids) l'intègre déjà
+        // Facteur réduit de l'ancien réglage, le signal marché intégrant déjà l'avantage
         $adjustedFactor = 1 + (self::HOME_ADVANTAGE - 1) * 0.4; // +10% au lieu de +25%
         $adjustedAway = 1 - (1 - self::AWAY_FACTOR) * 0.4;       // -6% au lieu de -15%
 
@@ -664,17 +486,5 @@ class XGModelService
         }
 
         return $predictions;
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // UTILITAIRES
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Parser un pourcentage string ("56%") en float (56.0).
-     */
-    private function parsePercent(string $value): float
-    {
-        return (float) str_replace('%', '', $value);
     }
 }

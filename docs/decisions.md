@@ -1679,3 +1679,60 @@ matchs sans aucun message, comme le piège de `/odds?date=`. Choix :
   `page` comme sur `/odds`. Si la garde se déclenche, on mesure d'abord.
 - La réponse refusée n'est pas mise en cache. À l'étape 1, l'erreur arrête le job ; pour les
   scores de la veille, elle passe le passage en incomplet, avec un log.
+
+## 2026-11-03 — Modèle complet abandonné : comparaison et blessures dégradent la prédiction
+
+**Premier résultat que seul le journal pouvait produire.** football-data ne contient
+ni la comparaison API-Football ni les blessures : le backtest de l'étape 2 ne pouvait
+pas mesurer ces signaux. Le journal des sélections les a mesurés sur des matchs réels,
+comme prévu le 14/09/2026 (« La production calcule en mode marché seul »).
+
+**Mesure** : 202 matchs clôturés, lignes où comparaison ou blessures ont servi
+(section « modèle complet » de `log:report`, décrite le 15/09/2026). Différence de
+Brier appariée modèle complet − marché seul, erreur type groupée par match :
+
+| Marché | Différence | Erreur type | Rapport |
+|---|---|---|---|
+| 1X2 | +0,00447 | 0,00307 | 1,5 |
+| Over/Under 2.5 | +0,00831 | 0,00607 | 1,4 |
+| BTTS | +0,00625 | 0,00564 | 1,1 |
+
+Différence positive : le modèle complet a un Brier plus élevé, donc prédit moins bien.
+Aucun écart pris seul ne dépasse deux erreurs types. La décision repose sur la
+concordance des trois marchés, tous dégradés, et sur l'absence de tout gain : rien ne
+justifie de garder un calcul qui, au mieux, ne fait pas mieux que le marché seul.
+
+**Décision de l'utilisateur :**
+
+- **Plus aucun calcul.** `PredictionService` n'appelle plus qu'une fois le modèle.
+  `XGModelService` ne connaît plus que le marché : la collecte des signaux
+  comparaison et blessures, leur fusion pondérée (`SIGNAL_WEIGHTS`, `fuseLambdas`) et
+  le paramètre `marketOnly` sont supprimés, pas seulement débranchés. Du code mort finit
+  par être rebranché ; l'historique git suffit. Commande `source-d:test`, qui
+  n'exerçait que cette fusion, supprimée.
+- **Collecte conservée.** `context:enrich` relève toujours comparaison et blessures,
+  la page d'analyse indique leur disponibilité, l'export Markdown liste les absents.
+  Elles ne coûtent rien et pourraient servir autrement un jour, mais n'entrent dans
+  aucun calcul de probabilité. Un test le vérifie : deux matchs aux cotes identiques,
+  l'un avec comparaison et blessures, donnent les mêmes probabilités.
+- **Colonnes et lignes conservées.** `full_model_probability` et `full_model_signals`
+  restent dans `predictions` et `prediction_log`, à null pour tout nouveau calcul. Les
+  lignes des 202 matchs ne sont pas migrées : elles sont la preuve chiffrée de cette
+  décision.
+- **Section retirée du rapport.** Elle porterait sur un échantillon figé qui ne
+  grandira plus ; dans six mois, un rapport courant comparant deux configurations dont
+  l'une n'existe plus induirait en erreur. `log:report` affiche seulement, dans son
+  en-tête : « Modèle complet (comparaison + blessures) abandonné le 03/11/2026, voir
+  docs/decisions.md. » Les chiffres sont ici. Clé `prediction-log.full_model_extra_signals`
+  supprimée.
+
+## 2026-11-03 — The Odds API : deux comptes en alternance
+
+L'utilisateur alterne entre deux comptes The Odds API quand le quota mensuel de l'un
+est épuisé (changement de `ODDS_API_KEY`).
+
+**Conséquence à retenir** : le voyant « The Odds API » de `system:status` (et la page
+Réglages) lit le quota du seul compte actif, via l'en-tête de la réponse. Il ne mesure
+pas la consommation réelle du mois, qui est la somme des deux comptes. Un voyant OK
+ne dit pas que le mois a été économe, et le seuil `pipeline.closing.quota_reserve`
+ne s'applique qu'au compte en cours.

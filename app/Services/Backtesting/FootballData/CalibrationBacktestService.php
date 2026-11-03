@@ -190,7 +190,7 @@ class CalibrationBacktestService
 
                 // ── Passe complète : 1X2 + O/U 2.5 en entrée → ajustement + dérivés ──
                 if ($inOu !== null) {
-                    $full = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, $inOu), true);
+                    $full = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, $inOu));
                     $rows = array_merge(
                         $rows,
                         $this->adjustmentRows($match, $full, $inFair1x2, $inFairOu, $refClose1x2, $refCloseOu),
@@ -199,7 +199,7 @@ class CalibrationBacktestService
                 }
 
                 // ── Passe de transfert : 1X2 seul en entrée → O/U 2.5 comparé au marché réel ──
-                $transfer = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, null), true);
+                $transfer = $this->xgModel->predict($this->toFootballMatch($match, $in1x2, null));
                 $rows = array_merge($rows, $this->transferRows($match, $transfer, $inFairOu, $refCloseOu));
 
                 foreach ($rows as $row) {
