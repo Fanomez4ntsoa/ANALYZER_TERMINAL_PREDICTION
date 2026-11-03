@@ -40,7 +40,8 @@ Fait le 13/09/2026 :
   d'équipe en double. `2122/EC.csv` ne contient que 506 matchs sur 552 à la
   source.
 - `XGModelService::predict(marketOnly: true)` : le modèle de production, signal
-  marché seul, sans version simplifiée.
+  marché seul, sans version simplifiée. (Le paramètre a disparu le 03/11/2026 avec le
+  modèle complet : `predict()` ne fait plus que le marché seul.)
 - `CalibrationBacktestService` + `backtest:run` : trois familles (ajustement,
   dérivés, transfert), cotes d'ouverture en entrée, clôture Pinnacle
   démarginalisée en référence, Brier et calibration par tranche de 5 points,
@@ -492,6 +493,15 @@ et 103 réactivées (zéro requête de plus, hors périmètre des cotes) ;
 Ajout du 30/09/2026 (branche `feat/export-matches-for-grok`) :
 `matches:export-today`, export Markdown des matchs du jour pour une analyse externe,
 lecture seule (`docs/decisions.md`).
+
+Décision du 03/11/2026 (branche `fix/stop-full-model`) : **modèle complet abandonné**.
+Sur 202 matchs du journal, comparaison et blessures dégradent le Brier des trois
+marchés mesurés (1X2, O/U 2.5, BTTS). `full_model_probability` n'est plus calculé, la
+fusion est supprimée du code, la section quitte `log:report` (une ligne d'en-tête
+renvoie à `docs/decisions.md`). Collecte conservée, colonnes et lignes antérieures
+conservées comme preuve. Premier résultat que seul le journal pouvait produire.
+Noté le même jour : deux comptes The Odds API en alternance, le voyant de
+`system:status` ne voit que le compte actif.
 
 **À faire par l'utilisateur** : `docs/deploiement.md`, étapes 1 à 8. La bascule (étape
 7) se fait en une seule session ; son point de non-retour est la pose de la crontab.

@@ -90,18 +90,17 @@ BTTS Non.
 
 ## Le modèle
 
-`XGModelService` estime deux paramètres, λ domicile et λ extérieur, en fusionnant
-trois signaux :
+`XGModelService` estime deux paramètres, λ domicile et λ extérieur, sur les seules
+cotes du bookmaker (« marché seul ») : recherche sur grille inversant les cotes 1X2,
+puis calage sur Over/Under 2.5. Les cotes contiennent déjà l'avantage du terrain :
+aucun facteur domicile n'est appliqué (×1.20 / ×0.88 seulement avec l'ancien
+comportement `legacy_home_advantage_after_fusion`, pour la mesure). Puis bornage des λ.
 
-| Signal | Poids | Source |
-|---|---|---|
-| Marché | 0.40 | Recherche sur grille inversant les cotes 1X2, puis calage sur Over/Under 2.5 |
-| Comparaison | 0.30 | Bloc `comparison` des prédictions API-Football |
-| Blessures | multiplicatif | Nombre de joueurs absents, plancher 0.7 |
-
-L'avantage domicile (×1.20 / ×0.88) s'applique au seul signal comparaison, avant
-la fusion : les cotes le contiennent déjà. En mode marché seul il
-ne s'applique pas. Puis bornage des λ.
+**Comparaison API-Football et blessures : collectées, jamais calculées.** La fusion
+avec ces deux signaux (« modèle complet ») est supprimée depuis le 03/11/2026 : sur
+202 matchs du journal, elle dégradait le Brier des trois marchés mesurés
+(`docs/decisions.md`). `context:enrich` les relève toujours, l'interface et l'export
+les affichent, aucune probabilité ne les utilise.
 
 `PoissonModelService` construit une matrice 7×7 de scores en supposant les deux
 lois indépendantes, et en dérive les probabilités de chaque marché.
@@ -111,8 +110,9 @@ défaut : ρ unique sur toutes les divisions, estimé par `DixonColesRho` sur le
 scores observés des saisons de travail (strictement antérieures au match en
 backtest). Un ρ par population reste disponible (`dixon_coles_rho_scope`). Sans estimation,
 deux lois indépendantes. Jusqu'au 13/09/2026, le code citait Dixon-Coles sans
-l'implémenter ; `XGModelService` attribue toujours à des « études Dixon-Coles » les
-constantes d'avantage domicile ×1.20 / ×0.88, sans source vérifiable.
+l'implémenter ; il attribuait aussi à des « études Dixon-Coles » les constantes
+d'avantage domicile ×1.20 / ×0.88, sans source vérifiable (mention retirée le
+03/11/2026, les constantes ne servent plus qu'à l'ancien comportement mesuré).
 
 Signal marché, avec cotes Over/Under : total fixé par l'O/U, puis partage
 domicile-extérieur recherché sur le 1X2 à ce total (recalage conjoint). Sans O/U :
@@ -120,10 +120,6 @@ grille sur (λh, λa), total libre.
 
 Tout paramètre estimé sur `historical_matches` implémente `SeasonScopedEstimator` :
 en backtest, il n'est estimé que sur les saisons strictement antérieures au match.
-
-**Limite connue** : le signal comparaison est lui-même dérivé d'un Poisson sur
-cotes. Il est donc largement redondant avec le signal marché. Le poids réel du
-marché dépasse les 40 % affichés.
 
 ---
 
@@ -153,7 +149,7 @@ est remplacée). N'entrent que les lignes avec cote d'un bookmaker identifié (j
 | `match_id` | Suppression du match refusée |
 | `league_id`, `home_team`, `away_team`, `kickoff_at` | Copies au calcul ; la clôture refuse un match changé |
 | `trigger` | `pipeline` (`predictions:compute`) ou `manual` (bouton) |
-| `market`, `outcome`, `model_probability`, `full_model_probability`, `full_model_signals` | Marché seul et modèle complet, signaux réellement utilisés |
+| `market`, `outcome`, `model_probability`, `full_model_probability`, `full_model_signals` | Marché seul ; modèle complet et ses signaux jusqu'au 03/11/2026, null ensuite (abandonné, lignes antérieures conservées comme preuve) |
 | `model_mode`, `lambda_home`, `lambda_away`, `rho` | Paramètres du calcul |
 | `odds`, `bookmaker`, `fair_probability`, `odds_taken_at`, `computed_at` | Cote Bet365 et horodatages |
 | `score_home`, `score_away`, `outcome_occurred`, `settled_at` | Clôture ; `outcome_occurred` nul = en attente |
@@ -219,6 +215,11 @@ clôturable. Non vidée par `app:reset`.
 `BacktestController`, page `/backtest`, signal `xg_proxy`, dimension arbitre du
 contexte, modèles `AIAnalysis`, `DailyCombo`, `BacktestRun`, `BacktestPrediction`,
 `Referee`.
+
+03/11/2026 : modèle complet (fusion marché + comparaison + blessures, `SIGNAL_WEIGHTS`,
+`fuseLambdas`, paramètre `marketOnly`), sa section dans `log:report`, la clé
+`prediction-log.full_model_extra_signals` et la commande `source-d:test`. Collecte
+conservée.
 
 ## Planificateur et clôture
 
@@ -319,9 +320,9 @@ backtest:run --sample=work|holdout --seasons= --divisions= --input=b365|ps [--le
   │    estimateurs tagués SeasonScopedEstimator bornés à chaque match aux saisons antérieures
   └─ CalibrationBacktestService::run
        ├─ pour chaque match : FootballMatch non persisté, cotes d'OUVERTURE seulement
-       ├─ XGModelService::predict($match, marketOnly: true)      passe complète (1X2 + O/U 2.5)
+       ├─ XGModelService::predict($match)                        passe complète (1X2 + O/U 2.5)
        │    → famille adjustment (1X2, O/U 2.5) + famille derived (DC, BTTS, O/U 1.5, O/U 3.5)
-       ├─ XGModelService::predict($match, marketOnly: true)      passe transfert (1X2 seul)
+       ├─ XGModelService::predict($match)                        passe transfert (1X2 seul)
        │    → famille transfer (O/U 2.5 comparé au marché réel)
        ├─ CalibrationAggregator                                   Brier, MSE vs Pinnacle clôture,
        │                                                          tranches de 5 pts (n, moyenne, observé)
